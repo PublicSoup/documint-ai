@@ -68,6 +68,7 @@ interface AIChatPanelProps {
     onReplaceFileContent?: (code: string, markUnsaved?: boolean) => void;
     onApplyDiff?: (original: string, modified: string) => void;
     onCreateFile?: (name: string, content: string) => void;
+    onSelectFile?: (fileId: string) => void;
 }
 
 // ============================================================================
@@ -400,7 +401,8 @@ export function AIChatPanel({
     onInsertCode,
     onInsertCodeAtCursor,
     onReplaceFileContent,
-    onCreateFile
+    onCreateFile,
+    onSelectFile
 }: AIChatPanelProps) {
     const [messages, setMessages] = useState<Message[]>([
         {
@@ -426,7 +428,40 @@ export function AIChatPanel({
     }, [messages, loading]);
 
     // Handle applying code to the editor
-    const handleApplyCode = useCallback((code: string, blockId: string) => {
+    const handleApplyCode = useCallback((code: string, blockId: string, targetFileName?: string) => {
+        // Smart Switching: If target file is known and different from active file, switches to it.
+        if (targetFileName && allFiles && onSelectFile && activeFileName !== targetFileName) {
+            // Try to find the file. Handle cases like "scripts/setup.js" vs "setup.js"
+            const targetFile = allFiles.find(f =>
+                f.name === targetFileName ||
+                targetFileName.endsWith('/' + f.name) ||
+                f.name === targetFileName.split('/').pop()
+            );
+
+            if (targetFile && targetFile.id !== activeFileId) {
+                console.log(`Switching to file: ${targetFile.name} (${targetFile.id})`);
+                onSelectFile(targetFile.id);
+
+                // We need to wait for the switch to happen before applying? 
+                // React state updates are async. application might fail if immediate.
+                // A robust solution would be to queuing the action, but for now we'll warn or try.
+                // Actually, if we switch, the `activeFileId` prop updates.
+                // But `handleApplyCode` runs NOW. 
+
+                // Ideally we show a toast "Switched to X. Please click Apply again" or use a useEffect queue.
+                // For this iteration, simpler: If mismatched, just Try to Switch and maybe ERROR/Warn.
+
+                // However, onReplaceFileContent applies to the *ref* of the editor.
+                // If the editor switches file, the ref might point to new content instantly?
+                // Let's rely on the user clicking again or the system being fast enough? No, that's flaky.
+
+                // Better UX: Text says "Switch & Replace"? 
+                // For now, let's just switch. The user will see the file change. 
+                // Then they can click Apply again.
+                return;
+            }
+        }
+
         if (!activeFileId || !onReplaceFileContent) {
             // Fallback to onInsertCode if onReplaceFileContent not available
             if (onInsertCode) {
@@ -452,7 +487,7 @@ export function AIChatPanel({
 
         // Mark as applied
         setAppliedBlocks(prev => new Set([...prev, blockId]));
-    }, [activeFileId, activeFileContent, activeFileName, onInsertCode, onReplaceFileContent]);
+    }, [activeFileId, activeFileContent, activeFileName, onInsertCode, onReplaceFileContent, allFiles, onSelectFile]);
 
     // Handle undo
     const handleUndo = useCallback((blockId: string) => {
@@ -594,15 +629,21 @@ export function AIChatPanel({
             }
 
             // Render block
-            const isNewFile = block.fileName && allFiles && !allFiles.some(f => f.name === block.fileName || (block.fileName && block.fileName.endsWith(f.name)));
+            // Render block
+            // Robust filename matching: check exact, endsWith, or basename
+            const isNewFile = block.fileName && allFiles && !allFiles.some(f =>
+                f.name === block.fileName ||
+                (block.fileName && block.fileName.endsWith('/' + f.name)) ||
+                (block.fileName && f.name === block.fileName.split('/').pop())
+            );
 
             components.push(
                 <CodeBlockRenderer
                     key={block.id}
                     block={block}
-                    onApply={(code) => handleApplyCode(code, block.id)}
+                    onApply={(code) => handleApplyCode(code, block.id, block.fileName)}
                     onInsertAtCursor={handleInsertAtCursor}
-                    onReplace={(code) => handleApplyCode(code, block.id)}
+                    onReplace={(code) => handleApplyCode(code, block.id, block.fileName)}
                     onCreate={() => block.fileName && onCreateFile && onCreateFile(block.fileName, block.code)}
                     isApplied={appliedBlocks.has(block.id)}
                     canUndo={undoStack.some(c => c.id === block.id)}

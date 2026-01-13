@@ -422,6 +422,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user }: Enhance
                                 toast("Error creating file", "error");
                             }
                         }}
+                        onSelectFile={setActiveFileId}
                     />
                 </div>
             )}
