@@ -399,6 +399,29 @@ export default function EnhancedIDELayout({ files: initialFiles, user }: Enhance
                                 toast("Code applied (undo stack reset)");
                             }
                         }}
+                        onCreateFile={async (name, content) => {
+                            try {
+                                const res = await fetch("/api/files/create", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ name, content }) // content optional in API but useful if supported
+                                });
+
+                                if (res.ok) {
+                                    const newFile = await res.json();
+                                    toast(`File ${name} created`, "success");
+
+                                    // Refresh logic or update state (mock update for now)
+                                    // In real app, we might need to reload or update ‘initialFiles’ if not managed by global state
+                                    // For now, let's just trigger a reload to see the new file
+                                    setTimeout(() => window.location.reload(), 500);
+                                } else {
+                                    toast("Failed to create file", "error");
+                                }
+                            } catch (e) {
+                                toast("Error creating file", "error");
+                            }
+                        }}
                     />
                 </div>
             )}

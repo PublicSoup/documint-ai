@@ -65,6 +65,7 @@ interface AIChatPanelProps {
     onInsertCodeAtCursor?: (code: string) => void;
     onReplaceFileContent?: (code: string, markUnsaved?: boolean) => void;
     onApplyDiff?: (original: string, modified: string) => void;
+    onCreateFile?: (name: string, content: string) => void;
 }
 
 // ============================================================================
@@ -122,11 +123,13 @@ interface CodeBlockRendererProps {
     onApply: (code: string) => void;
     onInsertAtCursor: (code: string) => void;
     onReplace: (code: string) => void;
+    onCreate?: () => void;
     isApplied: boolean;
     canUndo: boolean;
     onUndo?: () => void;
     activeFileName?: string;
     currentFileSize?: number;
+    isNewFile?: boolean;
 }
 
 function CodeBlockRenderer({
@@ -134,11 +137,13 @@ function CodeBlockRenderer({
     onApply,
     onInsertAtCursor,
     onReplace,
+    onCreate,
     isApplied,
     canUndo,
     onUndo,
     activeFileName,
-    currentFileSize = 0
+    currentFileSize = 0,
+    isNewFile = false
 }: CodeBlockRendererProps) {
     const [isExpanded, setIsExpanded] = useState(true);
     const [isCopied, setIsCopied] = useState(false);
@@ -155,6 +160,11 @@ function CodeBlockRenderer({
     };
 
     const handleApplyClick = () => {
+        if (isNewFile && onCreate) {
+            onCreate();
+            return;
+        }
+
         // Safety check: if code is significantly shorter than file, warn user
         // logical heuristics: < 80% size and > 100 chars difference
         const codeSize = block.code.length;
@@ -268,14 +278,25 @@ function CodeBlockRenderer({
                 ) : (
                     <>
                         {/* Primary Action: Apply/Replace */}
-                        <Button
-                            size="sm"
-                            className="h-7 px-3 text-xs bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white border-0 shadow-lg shadow-green-500/20"
-                            onClick={handleApplyClick}
-                        >
-                            <Replace className="w-3.5 h-3.5 mr-1.5" />
-                            Replace File
-                        </Button>
+                        {isNewFile ? (
+                            <Button
+                                size="sm"
+                                className="h-7 px-3 text-xs bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-0 shadow-lg shadow-blue-500/20"
+                                onClick={handleApplyClick}
+                            >
+                                <Plus className="w-3.5 h-3.5 mr-1.5" />
+                                Create File
+                            </Button>
+                        ) : (
+                            <Button
+                                size="sm"
+                                className="h-7 px-3 text-xs bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white border-0 shadow-lg shadow-green-500/20"
+                                onClick={handleApplyClick}
+                            >
+                                <Replace className="w-3.5 h-3.5 mr-1.5" />
+                                Replace File
+                            </Button>
+                        )}
 
                         {/* Secondary: Insert at Cursor */}
                         <Button
@@ -306,7 +327,8 @@ export function AIChatPanel({
     allFileContents,
     onInsertCode,
     onInsertCodeAtCursor,
-    onReplaceFileContent
+    onReplaceFileContent,
+    onCreateFile
 }: AIChatPanelProps) {
     const [messages, setMessages] = useState<Message[]>([
         {
@@ -472,6 +494,8 @@ export function AIChatPanel({
 
                 if (!block) return null;
 
+                const isNewFile = block.fileName && allFiles && !allFiles.some(f => f.name === block.fileName || (block.fileName && block.fileName.endsWith(f.name)));
+
                 return (
                     <CodeBlockRenderer
                         key={block.id}
@@ -479,11 +503,13 @@ export function AIChatPanel({
                         onApply={(code) => handleApplyCode(code, block.id)}
                         onInsertAtCursor={handleInsertAtCursor}
                         onReplace={(code) => handleApplyCode(code, block.id)}
+                        onCreate={() => block.fileName && onCreateFile && onCreateFile(block.fileName, block.code)}
                         isApplied={appliedBlocks.has(block.id)}
                         canUndo={undoStack.some(c => c.id === block.id)}
                         onUndo={() => handleUndo(block.id)}
                         activeFileName={activeFileName}
                         currentFileSize={activeFileContent?.length}
+                        isNewFile={!!isNewFile}
                     />
                 );
             }
