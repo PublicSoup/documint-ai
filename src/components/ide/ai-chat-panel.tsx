@@ -75,12 +75,13 @@ interface AIChatPanelProps {
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
 const extractCodeBlocks = (content: string): CodeBlock[] => {
-    const codeBlockRegex = /```(\w*)\n([\s\S]*?)```/g;
+    // Regex matches ```language (optional) followed by code and ending with ```
+    const codeBlockRegex = /```([^\n]*)\n([\s\S]*?)```/g;
     const blocks: CodeBlock[] = [];
     let match;
 
     while ((match = codeBlockRegex.exec(content)) !== null) {
-        const language = match[1] || "text";
+        const language = match[1]?.trim() || "text";
         let code = match[2].trim();
         let fileName: string | undefined;
 
@@ -486,10 +487,11 @@ export function AIChatPanel({
         const parts = message.content.split(/(```[\s\S]*?```)/g);
 
         return parts.map((part, index) => {
+            const trimmed = part.trim();
             // Check if this part is a code block
-            if (part.startsWith("```") && part.endsWith("```")) {
+            if (trimmed.startsWith("```") && trimmed.endsWith("```")) {
                 // Find corresponding extracted code block
-                const blockIndex = parts.slice(0, index).filter(p => p.startsWith("```") && p.endsWith("```")).length;
+                const blockIndex = parts.slice(0, index).filter(p => p.trim().startsWith("```") && p.trim().endsWith("```")).length;
                 const block = message.codeBlocks[blockIndex];
 
                 if (!block) return null;
