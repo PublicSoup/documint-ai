@@ -36,6 +36,8 @@ interface CodeBlock {
     fileName?: string; // Extracted from "// FILE: path/to/file.ts"
     applied: boolean;
     timestamp: number;
+    startIndex?: number;
+    endIndex?: number;
 }
 
 interface Message {
@@ -76,13 +78,20 @@ const generateId = () => Math.random().toString(36).substring(2, 9);
 
 const extractCodeBlocks = (content: string): CodeBlock[] => {
     // Regex matches ```language (optional) followed by code and ending with ```
-    const codeBlockRegex = /```([^\n]*)\n([\s\S]*?)```/g;
+    const codeBlockRegex = /```([^\n]*)([\s\S]*?)```/g;
     const blocks: CodeBlock[] = [];
     let match;
 
     while ((match = codeBlockRegex.exec(content)) !== null) {
         const language = match[1]?.trim() || "text";
-        let code = match[2].trim();
+        let code = match[2];
+
+        // Remove leading newline if present (common when matching [\s\S]*?)
+        if (code.startsWith("\n")) {
+            code = code.substring(1);
+        }
+        code = code.trim();
+
         let fileName: string | undefined;
 
         // Extract file path from comment at top of code block
@@ -99,7 +108,9 @@ const extractCodeBlocks = (content: string): CodeBlock[] => {
             code,
             fileName,
             applied: false,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            startIndex: match.index,
+            endIndex: match.index + match[0].length
         });
     }
 
@@ -482,58 +493,78 @@ export function AIChatPanel({
         }
     };
 
-    // Render message content with code blocks
+    // Helper to render text with markdown
+    const renderText = (text: string, keyPrefix: number | string) => {
+        // Simple markdown: **bold** and `code`
+        const formattedText = text
+            .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-white">$1</strong>')
+            .replace(/`([^`]+)`/g, '<code class="bg-white/10 px-1 py-0.5 rounded text-xs font-mono text-amber-300">$1</code>');
+
+        return (
+            <p
+                key={`text-${keyPrefix}`}
+                className="whitespace-pre-wrap leading-relaxed mb-2 text-gray-300"
+                dangerouslySetInnerHTML={{ __html: formattedText }}
+            />
+        );
+    };
+
+    // Render message content with code blocks using stored indices
     const renderMessageContent = (message: Message) => {
-        const parts = message.content.split(/(```[\s\S]*?```)/g);
+        if (!message.codeBlocks || message.codeBlocks.length === 0) {
+            return renderText(message.content, "full");
+        }
 
-        return parts.map((part, index) => {
-            const trimmed = part.trim();
-            // Check if this part is a code block
-            if (trimmed.startsWith("```") && trimmed.endsWith("```")) {
-                // Find corresponding extracted code block
-                const blockIndex = parts.slice(0, index).filter(p => p.trim().startsWith("```") && p.trim().endsWith("```")).length;
-                const block = message.codeBlocks[blockIndex];
+        const components: React.ReactNode[] = [];
+        let lastIndex = 0;
 
-                if (!block) return null;
+        // Sort blocks by position just in case
+        const blocks = [...message.codeBlocks].sort((a, b) => (a.startIndex || 0) - (b.startIndex || 0));
 
-                const isNewFile = block.fileName && allFiles && !allFiles.some(f => f.name === block.fileName || (block.fileName && block.fileName.endsWith(f.name)));
+        blocks.forEach((block, i) => {
+            const start = block.startIndex ?? 0;
+            const end = block.endIndex ?? 0;
 
-                return (
-                    <CodeBlockRenderer
-                        key={block.id}
-                        block={block}
-                        onApply={(code) => handleApplyCode(code, block.id)}
-                        onInsertAtCursor={handleInsertAtCursor}
-                        onReplace={(code) => handleApplyCode(code, block.id)}
-                        onCreate={() => block.fileName && onCreateFile && onCreateFile(block.fileName, block.code)}
-                        isApplied={appliedBlocks.has(block.id)}
-                        canUndo={undoStack.some(c => c.id === block.id)}
-                        onUndo={() => handleUndo(block.id)}
-                        activeFileName={activeFileName}
-                        currentFileSize={activeFileContent?.length}
-                        isNewFile={!!isNewFile}
-                    />
-                );
+            // Render text before block
+            if (start > lastIndex) {
+                const text = message.content.substring(lastIndex, start);
+                if (text.trim()) {
+                    components.push(renderText(text, `pre-${block.id}`));
+                }
             }
 
-            // Regular text - render with basic markdown support
-            if (part.trim()) {
-                // Simple markdown: **bold** and `code`
-                const formattedText = part
-                    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-white">$1</strong>')
-                    .replace(/`([^`]+)`/g, '<code class="bg-white/10 px-1 py-0.5 rounded text-xs font-mono text-amber-300">$1</code>');
+            // Render block
+            const isNewFile = block.fileName && allFiles && !allFiles.some(f => f.name === block.fileName || (block.fileName && block.fileName.endsWith(f.name)));
 
-                return (
-                    <p
-                        key={`text-${index}`}
-                        className="whitespace-pre-wrap leading-relaxed mb-2 text-gray-300"
-                        dangerouslySetInnerHTML={{ __html: formattedText }}
-                    />
-                );
-            }
+            components.push(
+                <CodeBlockRenderer
+                    key={block.id}
+                    block={block}
+                    onApply={(code) => handleApplyCode(code, block.id)}
+                    onInsertAtCursor={handleInsertAtCursor}
+                    onReplace={(code) => handleApplyCode(code, block.id)}
+                    onCreate={() => block.fileName && onCreateFile && onCreateFile(block.fileName, block.code)}
+                    isApplied={appliedBlocks.has(block.id)}
+                    canUndo={undoStack.some(c => c.id === block.id)}
+                    onUndo={() => handleUndo(block.id)}
+                    activeFileName={activeFileName}
+                    currentFileSize={activeFileContent?.length}
+                    isNewFile={!!isNewFile}
+                />
+            );
 
-            return null;
+            lastIndex = end;
         });
+
+        // Render remaining text
+        if (lastIndex < message.content.length) {
+            const text = message.content.substring(lastIndex);
+            if (text.trim()) {
+                components.push(renderText(text, "post-last"));
+            }
+        }
+
+        return components;
     };
 
     return (
