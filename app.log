@@ -1,0 +1,101 @@
+nohup: ignoring input
+
+> documint@0.1.0 build
+> next build
+
+▲ Next.js 16.1.1 (Turbopack)
+- Environments: .env
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 15.6s
+  Running TypeScript ...
+  Collecting page data using 11 workers ...
+  Generating static pages using 11 workers (0/58) ...
+  Generating static pages using 11 workers (14/58) 
+  Generating static pages using 11 workers (28/58) 
+  Generating static pages using 11 workers (43/58) 
+✓ Generating static pages using 11 workers (58/58) in 893.7ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /api/analytics/docs
+├ ƒ /api/analytics/export
+├ ƒ /api/analytics/usage
+├ ƒ /api/analyze
+├ ƒ /api/analyze/full
+├ ƒ /api/archaeology
+├ ƒ /api/audit
+├ ƒ /api/audit/export
+├ ƒ /api/auth/[...nextauth]
+├ ƒ /api/changelog/generate
+├ ƒ /api/chat
+├ ƒ /api/checkout
+├ ƒ /api/comments
+├ ƒ /api/comments/inline
+├ ƒ /api/customer-portal
+├ ƒ /api/diagram/generate
+├ ƒ /api/docs/[id]
+├ ƒ /api/docs/suggest
+├ ƒ /api/explain
+├ ƒ /api/files/[id]
+├ ƒ /api/generate-docs
+├ ƒ /api/generate-readme
+├ ƒ /api/github/callback
+├ ƒ /api/github/connect
+├ ƒ /api/github/import
+├ ƒ /api/github/pr
+├ ƒ /api/github/repos
+├ ƒ /api/invites/[token]
+├ ƒ /api/keys
+├ ƒ /api/mentions
+├ ƒ /api/notifications
+├ ƒ /api/regenerate-entity
+├ ƒ /api/regenerate/[id]
+├ ƒ /api/regenerate/bulk
+├ ƒ /api/register
+├ ƒ /api/reviews
+├ ƒ /api/reviews/[id]
+├ ƒ /api/schedule
+├ ƒ /api/search
+├ ƒ /api/teams
+├ ƒ /api/teams/[teamId]/members
+├ ƒ /api/teams/create
+├ ƒ /api/teams/invite
+├ ƒ /api/templates
+├ ƒ /api/templates/[id]
+├ ƒ /api/translate
+├ ƒ /api/usage
+├ ƒ /api/v1/analyze
+├ ƒ /api/versions
+├ ƒ /api/versions/[id]
+├ ƒ /api/versions/diff
+├ ƒ /api/webhooks/github
+├ ƒ /api/webhooks/notify
+├ ƒ /api/webhooks/stripe
+├ ○ /auth/login
+├ ○ /auth/register
+├ ○ /auth/signin
+├ ○ /checkout/success
+├ ƒ /dashboard
+├ ƒ /dashboard/analytics
+├ ○ /dashboard/billing
+├ ○ /dashboard/reviews
+├ ○ /dashboard/settings
+└ ƒ /invite/[token]
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+
+> documint@0.1.0 start
+> next start
+
+▲ Next.js 16.1.1
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.133:3000
+
+✓ Starting...
+✓ Ready in 767ms

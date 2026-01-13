@@ -1,0 +1,41 @@
+import { z } from 'zod';
+
+const envSchema = z.object({
+    DATABASE_URL: z.string().url(),
+    UPSTASH_REDIS_REST_URL: z.string().url(),
+    UPSTASH_REDIS_REST_TOKEN: z.string(),
+    OPENAI_API_KEY: z.string().min(1),
+    STRIPE_SECRET_KEY: z.string().min(1),
+    STRIPE_WEBHOOK_SECRET: z.string().min(1),
+    NEXTAUTH_SECRET: z.string().min(1),
+    NEXTAUTH_URL: z.string().url(),
+    GOOGLE_CLIENT_ID: z.string().min(1),
+    GOOGLE_CLIENT_SECRET: z.string().min(1),
+    GITHUB_ID: z.string().min(1),
+    GITHUB_SECRET: z.string().min(1),
+    NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3000"),
+    AI_PROVIDER: z.enum(['openai', 'ollama']).default('openai'),
+    LOCAL_AI_URL: z.string().url().default("http://localhost:11434/v1"),
+    LOCAL_AI_MODEL: z.string().default("qwen2.5-coder:7b"),
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+});
+
+export const env = envSchema.parse({
+    DATABASE_URL: process.env.DATABASE_URL,
+    UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
+    UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+    STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
+    NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET,
+    NEXTAUTH_URL: process.env.NEXTAUTH_URL,
+    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+    GITHUB_ID: process.env.GITHUB_ID,
+    GITHUB_SECRET: process.env.GITHUB_SECRET,
+    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+    AI_PROVIDER: process.env.AI_PROVIDER as any,
+    LOCAL_AI_URL: process.env.LOCAL_AI_URL,
+    LOCAL_AI_MODEL: process.env.LOCAL_AI_MODEL,
+    NODE_ENV: process.env.NODE_ENV,
+});
