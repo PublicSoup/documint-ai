@@ -98,15 +98,14 @@ const extractCodeBlocks = (content: string): CodeBlock[] => {
             }
         } else {
             // No newline, maybe just "```python code```"?
-            // We'll just assume text or try to split by space?
             // For now, take it all as code.
         }
 
         code = code.trim();
 
         let fileName: string | undefined;
-        // Extract file path from comment
-        const fileMatch = code.match(/^(?:\/\/|#)\s*FILE:\s*(.+?)[\r\n]/i);
+        // Extract file path from comment - updated to allow End of Input
+        const fileMatch = code.match(/^(?:\/\/|#)\s*FILE:\s*(.+?)(?:[\r\n]|$)/i);
         if (fileMatch) {
             fileName = fileMatch[1].trim();
             code = code.replace(fileMatch[0], "").trim();
