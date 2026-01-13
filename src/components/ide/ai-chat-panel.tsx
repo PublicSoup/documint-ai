@@ -77,25 +77,35 @@ interface AIChatPanelProps {
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
 const extractCodeBlocks = (content: string): CodeBlock[] => {
-    // Regex matches ```language (optional) followed by code and ending with ```
-    const codeBlockRegex = /```([^\n]*)([\s\S]*?)```/g;
+    // Simplest regex: match start ``` and end ``` and capture everything in between
+    const codeBlockRegex = /```([\s\S]*?)```/g;
     const blocks: CodeBlock[] = [];
     let match;
 
     while ((match = codeBlockRegex.exec(content)) !== null) {
-        const language = match[1]?.trim() || "text";
-        let code = match[2];
+        const fullBlock = match[1];
+        let language = "text";
+        let code = fullBlock;
 
-        // Remove leading newline if present (common when matching [\s\S]*?)
-        if (code.startsWith("\n")) {
-            code = code.substring(1);
+        // Try to parse language from first line
+        const firstNewLine = fullBlock.indexOf('\n');
+        if (firstNewLine !== -1) {
+            const firstLine = fullBlock.substring(0, firstNewLine).trim();
+            // If first line is short and looks like a language or is empty
+            if (firstLine.length < 20) {
+                if (firstLine.length > 0) language = firstLine;
+                code = fullBlock.substring(firstNewLine + 1);
+            }
+        } else {
+            // No newline, maybe just "```python code```"?
+            // We'll just assume text or try to split by space?
+            // For now, take it all as code.
         }
+
         code = code.trim();
 
         let fileName: string | undefined;
-
-        // Extract file path from comment at top of code block
-        // Supports: // FILE: path/to/file.ts or # FILE: path/to/file.py
+        // Extract file path from comment
         const fileMatch = code.match(/^(?:\/\/|#)\s*FILE:\s*(.+?)[\r\n]/i);
         if (fileMatch) {
             fileName = fileMatch[1].trim();
@@ -570,19 +580,14 @@ export function AIChatPanel({
     return (
         <div className="flex flex-col h-full bg-[#1a1a1a]">
             {/* Header */}
-            <div className="h-12 border-b border-white/5 flex items-center px-4 bg-gradient-to-r from-purple-900/20 to-indigo-900/20 shrink-0">
+            <div className="p-4 border-b border-white/5 flex items-center justify-between bg-black/20 backdrop-blur-xl">
                 <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-purple-500/20">
-                        <Bot className="w-4 h-4 text-white" />
-                    </div>
-                    <div>
-                        <span className="text-sm font-semibold text-white">AI Architect</span>
-                        <span className="text-[10px] text-green-400 ml-2">● Online</span>
-                    </div>
+                    <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="font-semibold text-white/90">AI Chat</span>
                 </div>
 
                 {activeFileId && (
-                    <div className="ml-auto flex items-center gap-1.5 text-[10px] text-emerald-400 bg-emerald-400/10 px-2.5 py-1 rounded-full border border-emerald-400/20">
+                    <div className="flex items-center gap-1.5 text-[10px] text-emerald-400 bg-emerald-400/10 px-2.5 py-1 rounded-full border border-emerald-400/20">
                         <FileText className="w-3 h-3" />
                         <span className="truncate max-w-[100px] font-medium">{activeFileName || "Active File"}</span>
                     </div>
@@ -634,21 +639,23 @@ export function AIChatPanel({
             </div>
 
             {/* Quick Actions */}
-            {!loading && messages.length === 1 && (
-                <div className="px-4 pb-2">
-                    <div className="flex flex-wrap gap-2">
-                        {["Explain this code", "Find bugs", "Optimize performance", "Add comments"].map(action => (
-                            <button
-                                key={action}
-                                onClick={() => setInput(action)}
-                                className="text-xs px-3 py-1.5 rounded-full bg-white/5 text-white/60 hover:bg-white/10 hover:text-white/80 transition-colors border border-white/5"
-                            >
-                                {action}
-                            </button>
-                        ))}
+            {
+                !loading && messages.length === 1 && (
+                    <div className="px-4 pb-2">
+                        <div className="flex flex-wrap gap-2">
+                            {["Explain this code", "Find bugs", "Optimize performance", "Add comments"].map(action => (
+                                <button
+                                    key={action}
+                                    onClick={() => setInput(action)}
+                                    className="text-xs px-3 py-1.5 rounded-full bg-white/5 text-white/60 hover:bg-white/10 hover:text-white/80 transition-colors border border-white/5"
+                                >
+                                    {action}
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Input Area */}
             <div className="p-4 border-t border-white/5 bg-gradient-to-r from-slate-900/50 to-slate-800/50 shrink-0">
@@ -688,6 +695,6 @@ export function AIChatPanel({
                     </div>
                 </div>
             </div>
-        </div>
+        </div >
     );
 }
