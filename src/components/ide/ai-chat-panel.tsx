@@ -123,6 +123,57 @@ const extractCodeBlocks = (content: string): CodeBlock[] => {
         });
     }
 
+    // Fallback: If no blocks found but backticks exist, try manual split
+    // This handles cases where regex might fail due to odd formatting or environment issues
+    if (blocks.length === 0 && content.includes("```")) {
+        const parts = content.split("```");
+        // expect text, code, text, code, text...
+        if (parts.length >= 3) {
+            let currentIndex = parts[0].length;
+            for (let i = 1; i < parts.length; i += 2) {
+                if (i + 1 >= parts.length) break; // unmatched last backticks
+
+                const fullBlock = parts[i];
+                const start = currentIndex + 3; // +3 for opening ```
+
+                // Reuse parsing logic (simplified)
+                let language = "text";
+                let code = fullBlock;
+
+                const firstNewLine = fullBlock.indexOf('\n');
+                if (firstNewLine !== -1) {
+                    const firstLine = fullBlock.substring(0, firstNewLine).trim();
+                    if (firstLine.length < 20 && firstLine.length > 0) {
+                        language = firstLine;
+                        code = fullBlock.substring(firstNewLine + 1);
+                    }
+                }
+                code = code.trim();
+
+                let fileName: string | undefined;
+                const fileMatch = code.match(/^(?:\/\/|#)\s*FILE:\s*(.+?)(?:[\r\n]|$)/i);
+                if (fileMatch) {
+                    fileName = fileMatch[1].trim();
+                    code = code.replace(fileMatch[0], "").trim();
+                }
+
+                blocks.push({
+                    id: generateId(),
+                    language,
+                    code,
+                    fileName,
+                    applied: false,
+                    timestamp: Date.now(),
+                    startIndex: start,
+                    endIndex: start + fullBlock.length
+                });
+
+                // Advance index: +3 (open) + length + 3 (close) + next text length
+                currentIndex += 3 + fullBlock.length + 3 + parts[i + 1].length;
+            }
+        }
+    }
+
     return blocks;
 };
 
