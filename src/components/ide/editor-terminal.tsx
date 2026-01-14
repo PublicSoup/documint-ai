@@ -47,8 +47,8 @@ export const EditorTerminal = forwardRef<any, EditorTerminalProps>(
             scrollBeyondLastLine: false,
             smoothScrolling: true,
             automaticLayout: true,
-            cursorBlinking: "smooth",
-            cursorSmoothCaretAnimation: "on",
+            cursorBlinking: "smooth" as "smooth",
+            cursorSmoothCaretAnimation: "on" as "on",
         };
 
         if (loading) {

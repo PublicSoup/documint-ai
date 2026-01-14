@@ -331,7 +331,6 @@ const SimpleEnhancedEditorComponent = ({
                         wrappingStrategy: "advanced",
                         renderWhitespace: "boundary",
                         renderControlCharacters: false,
-                        renderIndentGuides: true,
                         renderLineHighlight: "all",
                         folding: true,
                         foldingHighlight: true,
