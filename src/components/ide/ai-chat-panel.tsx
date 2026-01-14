@@ -629,7 +629,6 @@ export function AIChatPanel({
             }
 
             // Render block
-            // Render block
             // Robust filename matching: check exact, endsWith, or basename
             const isNewFile = block.fileName && allFiles && !allFiles.some(f =>
                 f.name === block.fileName ||
