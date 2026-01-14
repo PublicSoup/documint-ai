@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Send, User as UserIcon, Loader2, MessageSquare, Reply } from "lucide-react";
 import { useSession } from "next-auth/react";
+import Image from "next/image";
 
 interface Comment {
     id: string;
@@ -97,7 +98,7 @@ export default function CommentsSection({ fileId }: { fileId: string }) {
                             <div className="flex gap-3">
                                 <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
                                     {comment.user.image ? (
-                                        <img src={comment.user.image} alt={comment.user.name || ""} className="w-8 h-8 rounded-full" />
+                                        <Image src={comment.user.image} alt={comment.user.name || ""} width={32} height={32} className="w-8 h-8 rounded-full" />
                                     ) : (
                                         <span className="font-bold text-blue-600 text-xs">{(comment.user.name || "U")[0]}</span>
                                     )}
@@ -124,7 +125,7 @@ export default function CommentsSection({ fileId }: { fileId: string }) {
                                         <div key={reply.id} className="flex gap-3">
                                             <div className="w-6 h-6 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
                                                 {reply.user.image ? (
-                                                    <img src={reply.user.image} alt={reply.user.name || ""} className="w-6 h-6 rounded-full" />
+                                                    <Image src={reply.user.image} alt={reply.user.name || ""} width={24} height={24} className="w-6 h-6 rounded-full" />
                                                 ) : (
                                                     <span className="font-bold text-purple-600 text-[10px]">{(reply.user.name || "U")[0]}</span>
                                                 )}
@@ -172,7 +173,7 @@ export default function CommentsSection({ fileId }: { fileId: string }) {
                     <form onSubmit={handleSubmit} className="flex gap-3">
                         <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
                             {session?.user?.image ? (
-                                <img src={session.user.image} alt="" className="w-8 h-8 rounded-full" />
+                                <Image src={session.user.image} alt="" width={32} height={32} className="w-8 h-8 rounded-full" />
                             ) : (
                                 <UserIcon className="w-4 h-4 text-gray-400" />
                             )}

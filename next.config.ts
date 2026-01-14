@@ -12,6 +12,13 @@ const nextConfig: NextConfig = {
     "tree-sitter-java",
     "tree-sitter-c-sharp",
   ],
+  images: {
+    remotePatterns: [
+      { protocol: "https", hostname: "avatars.githubusercontent.com" },
+      { protocol: "https", hostname: "lh3.googleusercontent.com" },
+      { protocol: "https", hostname: "www.google.com" },
+    ],
+  },
 };
 
 export default nextConfig;

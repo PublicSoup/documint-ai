@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Image from "next/image";
 import { signIn } from "next-auth/react";
 import { FileCode2, Github, Mail } from "lucide-react";
 import { motion } from "framer-motion";
@@ -36,7 +37,7 @@ export default function SignIn() {
                         onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
                         className="w-full flex items-center justify-center gap-3 px-6 py-4 glass text-white font-bold rounded-xl hover:bg-white/5 transition-all"
                     >
-                        <img src="https://www.google.com/favicon.ico" className="w-5 h-5 grayscale invert" alt="Google" />
+                        <Image src="https://www.google.com/favicon.ico" width={20} height={20} className="grayscale invert" alt="Google" />
                         Continue with Google
                     </button>
                 </div>

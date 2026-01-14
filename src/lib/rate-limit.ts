@@ -38,11 +38,14 @@ export async function rateLimit(
     identifier: string,
     tier: "free" | "pro" | "api" = "api"
 ): Promise<{ success: boolean; remaining: number; reset: number } | null> {
-    const limiter = limiters[tier];
+    // Development mode exemption
+    if (process.env.NODE_ENV === "development" || !redis) {
+        return { success: true, remaining: 9999, reset: 0 };
+    }
 
+    const limiter = limiters[tier];
     if (!limiter) {
-        // Redis not configured, allow all (dev mode)
-        return { success: true, remaining: 999, reset: 0 };
+        return { success: true, remaining: 9999, reset: 0 };
     }
 
     const result = await limiter.limit(identifier);

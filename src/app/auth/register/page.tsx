@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { FileCode2 } from "lucide-react";
+import { FileCode2, Sparkles, Github, ArrowRight, User, Mail, Lock } from "lucide-react";
 import { signIn } from "next-auth/react";
 import { useToast } from "@/components/toast";
+import { Button } from "@/components/ui/button";
 
 export default function RegisterPage() {
     const { toast } = useToast();
@@ -27,7 +28,8 @@ export default function RegisterPage() {
             });
 
             if (res.ok) {
-                router.push("/auth/login");
+                toast("Account created! Redirecting to login...", "success");
+                setTimeout(() => router.push("/auth/login"), 1500);
             } else {
                 const data = await res.json();
                 toast(data.message || "Registration failed", "error");
@@ -40,102 +42,114 @@ export default function RegisterPage() {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-900 px-4">
-            <div className="max-w-md w-full space-y-8 bg-black/40 p-8 rounded-2xl border border-white/10 backdrop-blur-xl">
-                <div className="text-center">
-                    <div className="mx-auto w-12 h-12 rounded-lg bg-blue-600 flex items-center justify-center mb-4">
-                        <FileCode2 className="text-white w-7 h-7" />
-                    </div>
-                    <h2 className="text-3xl font-bold text-white tracking-tight">Create an account</h2>
-                    <p className="mt-2 text-sm text-gray-400">Join DocuMint AI today</p>
+        <div className="min-h-screen flex items-center justify-center bg-[#030014] px-4 selection:bg-primary/30 relative overflow-hidden">
+            {/* Animated background highlights */}
+            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 blur-[120px] rounded-full animate-pulse" />
+            <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/10 blur-[120px] rounded-full animate-float" />
+
+            <div className="max-w-md w-full relative z-10">
+                <div className="text-center mb-10">
+                    <Link href="/" className="inline-flex items-center gap-2 group transition-transform hover:scale-105">
+                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center shadow-lg shadow-primary/20">
+                            <Sparkles className="w-7 h-7 text-white" />
+                        </div>
+                        <span className="text-2xl font-black tracking-tighter text-white">
+                            DOCUMINT <span className="text-primary italic">AI</span>
+                        </span>
+                    </Link>
                 </div>
 
-                <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-                    <div className="space-y-4">
-                        <div>
-                            <label htmlFor="name" className="block text-sm font-medium text-gray-300">
-                                Full Name
-                            </label>
-                            <input
-                                id="name"
-                                name="name"
-                                type="text"
-                                required
-                                className="mt-1 block w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                                value={name}
-                                onChange={(e) => setName(e.target.value)}
-                            />
-                        </div>
-                        <div>
-                            <label htmlFor="email" className="block text-sm font-medium text-gray-300">
-                                Email address
-                            </label>
-                            <input
-                                id="email"
-                                name="email"
-                                type="email"
-                                required
-                                className="mt-1 block w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                            />
-                        </div>
-                        <div>
-                            <label htmlFor="password" className="block text-sm font-medium text-gray-300">
-                                Password
-                            </label>
-                            <input
-                                id="password"
-                                name="password"
-                                type="password"
-                                required
-                                className="mt-1 block w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                            />
-                        </div>
+                <div className="glass-card p-8 rounded-[2.5rem] border border-white/10 shadow-2xl relative overflow-hidden">
+                    <div className="absolute bottom-0 left-0 w-32 h-32 bg-purple-600/10 blur-3xl -z-10" />
+
+                    <div className="mb-8 text-center">
+                        <h2 className="text-3xl font-bold text-white tracking-tight">Create workspace</h2>
+                        <p className="mt-2 text-sm text-white/50">Join the elite circle of AI-driven developers</p>
                     </div>
 
-                    <div>
-                        <button
+                    <form className="space-y-5" onSubmit={handleSubmit}>
+                        <div className="space-y-4">
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black uppercase tracking-widest text-white/30 ml-1">Full Name</label>
+                                <div className="relative group">
+                                    <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-primary transition-colors" />
+                                    <input
+                                        type="text"
+                                        required
+                                        className="w-full pl-11 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder:text-white/10 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all"
+                                        placeholder="John Doe"
+                                        value={name}
+                                        onChange={(e) => setName(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black uppercase tracking-widest text-white/30 ml-1">Work Email</label>
+                                <div className="relative group">
+                                    <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-primary transition-colors" />
+                                    <input
+                                        type="email"
+                                        required
+                                        className="w-full pl-11 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder:text-white/10 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all"
+                                        placeholder="john@example.com"
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black uppercase tracking-widest text-white/30 ml-1">Secure Password</label>
+                                <div className="relative group">
+                                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within:text-primary transition-colors" />
+                                    <input
+                                        type="password"
+                                        required
+                                        className="w-full pl-11 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder:text-white/10 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all"
+                                        placeholder="••••••••"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <Button
                             type="submit"
                             disabled={loading}
-                            className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                            className="w-full h-12 bg-white text-black hover:bg-white/90 rounded-xl font-black uppercase tracking-widest text-xs transition-all disabled:opacity-50 mt-4"
                         >
-                            {loading ? "Creating account..." : "Sign up"}
-                        </button>
-                    </div>
-                </form>
+                            {loading ? "Creating..." : "Launch Account"}
+                            {!loading && <ArrowRight className="w-4 h-4 ml-2" />}
+                        </Button>
+                    </form>
 
-                <div className="relative">
-                    <div className="absolute inset-0 flex items-center">
-                        <div className="w-full border-t border-white/10"></div>
+                    <div className="relative my-8">
+                        <div className="absolute inset-0 flex items-center">
+                            <div className="w-full border-t border-white/5"></div>
+                        </div>
+                        <div className="relative flex justify-center text-[10px] font-black tracking-[0.2em] uppercase">
+                            <span className="px-4 bg-[#030014] text-white/20">Fast Track</span>
+                        </div>
                     </div>
-                    <div className="relative flex justify-center text-sm">
-                        <span className="px-2 bg-gray-900 text-gray-400">Or continue with</span>
-                    </div>
-                </div>
 
-                <div>
-                    <button
+                    <Button
+                        variant="outline"
                         onClick={() => signIn("github", { callbackUrl: "/dashboard" })}
-                        className="w-full flex items-center justify-center py-3 px-4 border border-white/10 rounded-lg shadow-sm text-sm font-medium text-white bg-white/5 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all"
+                        className="w-full h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
                     >
-                        <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-                            <path fillRule="evenodd" d="M10 0C4.477 0 0 4.484 0 10.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0110 4.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.203 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.942.359.31.678.921.678 1.856 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0020 10.017C20 4.484 15.522 0 10 0z" clipRule="evenodd" />
-                        </svg>
-                        GitHub
-                    </button>
+                        <Github className="w-4 h-4" />
+                        Join with GitHub
+                    </Button>
                 </div>
 
-                <div className="text-center">
-                    <p className="text-sm text-gray-400">
-                        Already have an account?{" "}
-                        <Link href="/auth/login" className="font-medium text-blue-400 hover:text-blue-300">
-                            Sign in
-                        </Link>
-                    </p>
-                </div>
+                <p className="mt-8 text-center text-sm text-white/40">
+                    Already a member?{" "}
+                    <Link href="/auth/login" className="font-bold text-primary hover:text-primary/10 transition-colors">
+                        Sign In
+                    </Link>
+                </p>
             </div>
         </div>
     );

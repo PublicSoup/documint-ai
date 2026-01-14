@@ -44,6 +44,7 @@ async function getModelName(): Promise<string> {
 /**
  * Generate documentation with FULL CODEBASE AWARENESS
  * This function fetches the entire project context and includes it in the prompt
+ * Returns concise, Cline-like explanations instead of verbose output
  */
 export async function generateDocumentationWithContext(
     code: string,

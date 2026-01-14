@@ -47,8 +47,15 @@ async function getLMStudioCompletion(
         if (modelsRes.ok) {
             const modelsData = await modelsRes.json();
             if (modelsData.data?.length > 0) {
-                modelName = modelsData.data[0].id;
+                // Prefer non-embedding models, and prefer models without version suffix if available
+                const chatModel = modelsData.data.find((m: any) => 
+                    !m.id.includes('embed') && !m.id.includes('embedding')
+                ) || modelsData.data.find((m: any) => !m.id.includes('embed')) || modelsData.data[0];
+                modelName = chatModel.id;
+                console.log(`[LM Studio] Using model: ${modelName}`);
             }
+        } else {
+            console.warn(`[LM Studio] Failed to fetch models list (${modelsRes.status}), using default: ${modelName}`);
         }
 
         const res = await fetch(`${url}/v1/chat/completions`, {
@@ -64,11 +71,18 @@ async function getLMStudioCompletion(
 
         if (res.ok) {
             const data = await res.json();
+            const content = data.choices?.[0]?.message?.content || "";
+            if (!content) {
+                console.warn("LM Studio returned empty content:", data);
+            }
             return {
-                content: data.choices?.[0]?.message?.content || "",
+                content,
                 provider: "lm-studio",
                 model: modelName,
             };
+        } else {
+            const errorText = await res.text();
+            console.error(`LM Studio API error (${res.status}):`, errorText);
         }
     } catch (e) {
         console.error("LM Studio error:", e);

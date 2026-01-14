@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { User, Key, Bell, Trash2, Loader2, Check, Copy, Blocks, Github, Users, Shield, Layout, ArrowRight } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import { useSession, signOut } from "next-auth/react";
 import AuditLogViewer from "@/components/audit-log-viewer";
 import { TemplateManager } from "@/components/template-manager";
@@ -540,7 +541,7 @@ jobs:
                                                             <div key={member.id} className="flex items-center justify-between p-2 hover:bg-white/5 rounded-lg transition-colors">
                                                                 <div className="flex items-center gap-3">
                                                                     <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold text-primary overflow-hidden">
-                                                                        {member.user.image ? <img src={member.user.image} alt="" className="w-full h-full object-cover" /> : (member.user.name?.[0] || "U")}
+                                                                        {member.user.image ? <Image src={member.user.image} alt="" width={32} height={32} className="w-full h-full object-cover" /> : (member.user.name?.[0] || "U")}
                                                                     </div>
                                                                     <div>
                                                                         <div className="text-sm font-medium text-white">{member.user.name || "Unknown User"}</div>

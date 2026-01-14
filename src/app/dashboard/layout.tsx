@@ -1,5 +1,6 @@
 import { ChatWidget } from "@/components/chat-widget";
 import { DashboardHeader } from "@/components/dashboard-header";
+import { SiteFooter } from "@/components/site-footer";
 
 export default function DashboardLayout({
     children,
@@ -16,6 +17,9 @@ export default function DashboardLayout({
             <main className="pt-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto pb-12 transition-all duration-300 ease-in-out animate-fade-in">
                 {children}
             </main>
+
+            {/* Footer */}
+            <SiteFooter />
 
             {/* Chat Widget */}
             <ChatWidget />

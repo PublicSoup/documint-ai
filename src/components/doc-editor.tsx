@@ -42,9 +42,10 @@ interface DocEditorProps {
     fileLanguage: string;
     initialContent: DocContent;
     currentUser?: { id: string; name: string };
+    isPublic: boolean;
 }
 
-export default function DocEditor({ fileId, fileName, fileLanguage, initialContent }: DocEditorProps) {
+export default function DocEditor({ fileId, fileName, fileLanguage, initialContent, isPublic: initialPublicState }: DocEditorProps) {
     const router = useRouter();
     const { toast } = useToast();
     const [isEditing, setIsEditing] = useState(false);
@@ -53,6 +54,8 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
     const [regeneratingEntity, setRegeneratingEntity] = useState<number | null>(null);
     const [content, setContent] = useState<DocContent>(initialContent);
     const [verifying, setVerifying] = useState(false);
+    const [isPublic, setIsPublic] = useState(initialPublicState);
+    const [sharing, setSharing] = useState(false);
 
     // Persona states
     const [showPersonaModal, setShowPersonaModal] = useState(false);
@@ -600,6 +603,36 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
         }
     };
 
+    const handleShareToggle = async () => {
+        setSharing(true);
+        try {
+            const newState = !isPublic;
+            const res = await fetch(`/api/docs/${fileId}/share`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ isPublic: newState }),
+            });
+            const data = await res.json();
+
+            if (res.ok) {
+                setIsPublic(data.isPublic);
+                if (data.isPublic) {
+                    navigator.clipboard.writeText(data.url);
+                    toast("Link copied to clipboard! Document is now public.", "success");
+                } else {
+                    toast("Document is now private.", "success");
+                }
+            } else {
+                toast(data.error || "Failed to update share settings", "error");
+            }
+        } catch (error) {
+            console.error(error);
+            toast("Error updating share settings", "error");
+        } finally {
+            setSharing(false);
+        }
+    };
+
     return (
         <div className="glass-card p-6 min-h-[500px]">
             {/* Header */}
@@ -728,6 +761,20 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                     ))}
                                 </div>
                             </div>
+
+                            <button
+                                onClick={handleShareToggle}
+                                disabled={sharing}
+                                className={`px-3 py-2 text-sm font-medium border rounded-lg flex items-center gap-2 disabled:opacity-50 transition-colors ${isPublic
+                                    ? "bg-blue-500/20 text-blue-300 border-blue-500/30 hover:bg-blue-500/30"
+                                    : "bg-white/5 text-white/60 border-white/10 hover:bg-white/10"
+                                    }`}
+                                title={isPublic ? "Public - Click to make private" : "Private - Click to share"}
+                            >
+                                {sharing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+                                {isPublic ? "Public" : "Share"}
+                            </button>
+
                             <div className="relative group">
                                 <button
                                     className="px-3 py-2 text-sm font-medium text-white/70 bg-white/5 border border-white/10 hover:bg-white/10 rounded-lg flex items-center gap-2"

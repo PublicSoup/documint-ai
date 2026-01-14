@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"; // Assuming authOptions is exported he
 import { db } from "@/lib/db";
 import { z } from "zod";
 import { randomBytes } from "crypto";
+import { sendEmail, emailTemplates } from "@/lib/email";
 
 const inviteSchema = z.object({
     email: z.string().email(),
@@ -94,8 +95,37 @@ export async function POST(req: Request) {
             }
         });
 
-        // TODO: Send email
-        console.log(`[INVITE] Link for ${email}: http://localhost:3000/invite/${token}`);
+        // Send invitation email
+        const acceptUrl = `http://localhost:3000/invite/${token}`;
+
+        try {
+            await sendEmail({
+                to: email,
+                subject: `You've been invited to join ${invite.team.name} on DocuMint AI`,
+                html: emailTemplates.teamInvite(
+                    currentUser.name || currentUser.email || 'Someone',
+                    invite.team.name,
+                    acceptUrl
+                ),
+            });
+            console.log(`Sent team invitation email to ${email}`);
+        } catch (emailError) {
+            console.error("Failed to send invitation email:", emailError);
+            // Continue anyway, email is non-critical
+        }
+
+        // 5. Create in-app notification if user exists
+        const invitedUser = await db.user.findUnique({ where: { email } });
+        if (invitedUser) {
+            await db.notification.create({
+                data: {
+                    userId: invitedUser.id,
+                    type: "INVITE",
+                    message: `${currentUser.name || "Someone"} invited you to join ${invite.team.name}`,
+                    link: acceptUrl, // In real app, this might be a dashboard link to invites
+                }
+            });
+        }
 
         return NextResponse.json({ success: true, invite });
 

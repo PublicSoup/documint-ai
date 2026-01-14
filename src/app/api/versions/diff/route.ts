@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import * as Diff from "diff";
+import { safeJsonParse } from "@/lib/utils";
 
 export async function GET(req: Request) {
     try {
@@ -43,8 +44,8 @@ export async function GET(req: Request) {
         // Parse content
         let content1 = "", content2 = "";
         try {
-            const parsed1 = JSON.parse(v1.content);
-            const parsed2 = JSON.parse(v2.content);
+            const parsed1 = safeJsonParse(v1.content, {} as any);
+            const parsed2 = safeJsonParse(v2.content, {} as any);
             content1 = parsed1.summary || v1.content;
             content2 = parsed2.summary || v2.content;
         } catch {

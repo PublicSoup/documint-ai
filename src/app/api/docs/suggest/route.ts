@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { requireFeature } from "@/lib/feature-gate";
 
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { safeJsonParse } from "@/lib/utils";
 
 interface Suggestion {
     type: "missing" | "improvement" | "example" | "clarity";
@@ -51,7 +52,7 @@ export async function POST(request: NextRequest) {
         // Analyze existing documentation
         if (file.documentation?.content) {
             try {
-                const doc = JSON.parse(file.documentation.content);
+                const doc = safeJsonParse(file.documentation.content, {} as any);
 
                 // Check for missing documentation
                 if (doc.entities) {
@@ -124,7 +125,7 @@ export async function POST(request: NextRequest) {
         // Use AI to suggest additional improvements
         if (file.documentation?.content && suggestions.length < 5) {
             try {
-                const doc = JSON.parse(file.documentation.content);
+                const doc = safeJsonParse(file.documentation.content, {} as any);
                 // Rule R1: Minimal prompt
                 const aiPrompt = `Analyze docs. Summary: ${doc.summary?.slice(0, 200)}. Entities: ${doc.entities?.length}. Suggest 2 improvements.`;
                 const systemPrompt = `You analyze documentation. Return ONLY a JSON array: [{"type": "improvement", "message": "...", "suggestion": "..."}]`;

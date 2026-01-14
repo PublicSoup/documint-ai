@@ -6,6 +6,7 @@ import GoogleProvider from "next-auth/providers/google";
 import GitLabProvider from "next-auth/providers/gitlab";
 import { db } from "./db";
 import { compare } from "bcryptjs";
+import { sendEmail, emailTemplates } from "./email";
 
 export const authOptions: NextAuthOptions = {
     adapter: PrismaAdapter(db) as any,
@@ -36,22 +37,38 @@ export const authOptions: NextAuthOptions = {
             },
             async authorize(credentials) {
                 if (!credentials?.email || !credentials?.password) {
+                    console.log("Auth failed: Missing credentials");
                     return null;
                 }
+
+                const email = credentials.email.trim();
 
                 const user = await db.user.findUnique({
                     where: {
-                        email: credentials.email
+                        email
                     }
                 });
 
-                if (!user || !user.password) {
+                if (!user) {
+                    console.log("Auth failed: User not found for email:", email);
                     return null;
                 }
 
-                const isPasswordValid = await compare(credentials.password, user.password);
+                if (!user.password) {
+                    console.log("Auth failed: User has no password (likely OAuth user):", email);
+                    return null;
+                }
+
+                let isPasswordValid = false;
+                try {
+                    isPasswordValid = await compare(credentials.password, user.password);
+                } catch (error) {
+                    console.error("Auth failed: Bcrypt compare error:", error);
+                    return null;
+                }
 
                 if (!isPasswordValid) {
+                    console.log("Auth failed: Invalid password for:", email);
                     return null;
                 }
 
@@ -100,6 +117,22 @@ export const authOptions: NextAuthOptions = {
                 }
             }
             return token;
+        }
+    },
+    events: {
+        async createUser({ user }) {
+            if (user.email) {
+                try {
+                    await sendEmail({
+                        to: user.email,
+                        subject: "Welcome to DocuMint AI! 🎉",
+                        html: emailTemplates.welcome(user.name || "Developer", `${process.env.NEXT_PUBLIC_APP_URL || "https://documint.ai"}/dashboard`)
+                    });
+                    console.log(`Welcome email sent to ${user.email}`);
+                } catch (error) {
+                    console.error("Failed to send welcome email:", error);
+                }
+            }
         }
     }
 };

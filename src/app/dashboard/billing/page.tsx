@@ -7,6 +7,7 @@ import { useSession } from "next-auth/react";
 import { useToast } from "@/components/toast";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import InvoiceHistory from "@/components/invoice-history";
 
 interface UsageData {
     filesProcessed: number;
@@ -94,7 +95,7 @@ export default function Billing() {
             name: "Pro",
             price: "$29",
             limit: "1,000 files/mo",
-            features: ["Enterprise Diagnostic Engine", "Security & Secret Audit", "Architecture Alerts", "Refactoring Suggestions"],
+            features: ["14-Day Free Trial", "Enterprise Diagnostic Engine", "Security & Secret Audit", "Architecture Alerts", "Refactoring Suggestions"],
             popular: true,
         },
         {
@@ -129,6 +130,11 @@ export default function Billing() {
                                 <p className="text-white/60 text-sm">
                                     {usage?.validUntil ? `Valid until ${usage.validUntil}` : "Basic feature set"}
                                 </p>
+                                {process.env.NEXT_PUBLIC_DEV_PRO === "true" && (
+                                    <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-[9px] font-black text-amber-500 uppercase tracking-widest">
+                                        Developer Pro Mode Active
+                                    </div>
+                                )}
                             </div>
                         </div>
                         {usage?.plan && usage.plan !== "Free Tier" && (
@@ -173,6 +179,9 @@ export default function Billing() {
                     </div>
                 </CardContent>
             </Card>
+
+            {/* Invoice History */}
+            <InvoiceHistory />
 
             {/* Plan Cards */}
             <div>

@@ -30,6 +30,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user }: Enhance
     const [showAIEditor, setShowAIEditor] = useState(false);
     const [showTerminal, setShowTerminal] = useState(false);
     const editorRef = useRef<SimpleEnhancedEditorRef>(null);
+    const [clickTimeout, setClickTimeout] = useState<NodeJS.Timeout | null>(null);
 
     // Initial load of content (simulation, in real app we fetch content on demand)
     useEffect(() => {
@@ -195,7 +196,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user }: Enhance
     };
 
     return (
-        <div className="flex h-[calc(100vh-4rem)] w-full overflow-hidden bg-[#1e1e1e] text-white">
+        <div className="flex h-[calc(100vh-4rem)] w-full overflow-hidden bg-[#1e1e1e] text-white max-w-full">
             {/* Left Sidebar */}
             {showSidebar && (
                 <div className="w-64 shrink-0 flex flex-col border-r border-white/5 bg-[#1e1e1e]">
@@ -243,17 +244,41 @@ export default function EnhancedIDELayout({ files: initialFiles, user }: Enhance
                     </div>
 
                     <div className="flex items-center gap-1 px-2 h-full bg-[#1e1e1e]">
-                        <button onClick={() => setShowSidebar(!showSidebar)} className="p-1.5 rounded hover:bg-white/10 text-muted-foreground" title="Toggle Sidebar">
+                        <button onClick={(e) => {
+                            e.stopPropagation();
+                            if (clickTimeout) return;
+                            const timeout = setTimeout(() => setClickTimeout(null), 300);
+                            setClickTimeout(timeout);
+                            setShowSidebar(!showSidebar);
+                        }} className="p-1.5 rounded hover:bg-white/10 text-muted-foreground" title="Toggle Sidebar">
                             <Columns className="w-4 h-4" />
                         </button>
-                        <button onClick={() => setShowAIChat(!showAIChat)} className="p-1.5 rounded hover:bg-white/10 text-muted-foreground" title="Toggle AI Chat">
+                        <button onClick={(e) => {
+                            e.stopPropagation();
+                            if (clickTimeout) return;
+                            const timeout = setTimeout(() => setClickTimeout(null), 300);
+                            setClickTimeout(timeout);
+                            setShowAIChat(!showAIChat);
+                        }} className="p-1.5 rounded hover:bg-white/10 text-muted-foreground" title="Toggle AI Chat">
                             <Bot className="w-4 h-4" />
                         </button>
-                        <button onClick={() => setShowTerminal(!showTerminal)} className="p-1.5 rounded hover:bg-white/10 text-muted-foreground" title="Toggle Terminal">
+                        <button onClick={(e) => {
+                            e.stopPropagation();
+                            if (clickTimeout) return;
+                            const timeout = setTimeout(() => setClickTimeout(null), 300);
+                            setClickTimeout(timeout);
+                            setShowTerminal(!showTerminal);
+                        }} className="p-1.5 rounded hover:bg-white/10 text-muted-foreground" title="Toggle Terminal">
                             <Terminal className="w-4 h-4" />
                         </button>
                         <button
-                            onClick={() => setShowAIEditor(!showAIEditor)}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (clickTimeout) return;
+                                const timeout = setTimeout(() => setClickTimeout(null), 300);
+                                setClickTimeout(timeout);
+                                setShowAIEditor(!showAIEditor);
+                            }}
                             className="p-1.5 rounded hover:bg-purple-500/20 text-purple-500 hover:text-purple-400"
                             title="Toggle AI Editor"
                         >

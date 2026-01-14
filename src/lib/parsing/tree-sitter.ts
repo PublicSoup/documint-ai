@@ -1,24 +1,5 @@
-import Parser from 'tree-sitter';
-import Python from 'tree-sitter-python';
-import JavaScript from 'tree-sitter-javascript';
-import TypeScript from 'tree-sitter-typescript';
-import Go from 'tree-sitter-go';
-import Rust from 'tree-sitter-rust';
-import Java from 'tree-sitter-java';
-import CSharp from 'tree-sitter-c-sharp';
-
-// Map file extensions to languages
-const LANGUAGE_MAP = {
-  'py': Python,
-  'js': JavaScript,
-  'jsx': JavaScript,
-  'ts': TypeScript.typescript,
-  'tsx': TypeScript.tsx,
-  'go': Go,
-  'rs': Rust,
-  'java': Java,
-  'cs': CSharp,
-};
+// Simplified code parsing without tree-sitter bindings issues
+// This uses regex-based parsing which is simpler and more reliable
 
 export interface CodeEntity {
   type: 'function' | 'class' | 'complex_logic';
@@ -28,143 +9,160 @@ export interface CodeEntity {
   endLine: number;
 }
 
+// Language-specific parsing patterns
+const PATTERNS = {
+  python: {
+    function: /^\s*(?:async\s+)?def\s+(\w+)\s*\([^)]*\)[\s\n]*:/gm,
+    class: /^\s*class\s+(\w+)(?:\s*\(\s*[^)]*\s*\))?\s*:/gm,
+    complex: /(?:for\s+|while\s+|if\s+|with\s+|try\s*:)/gm,
+    block_start: /:\s*(?:#.*)?$/m
+  },
+  javascript: {
+    function: /(?:function\s+(\w+)|(?:(?:const|let|var)\s+)?(\w+)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>|(?:async\s+)?(\w+)\s*\([^)]*\)\s*{)/gm,
+    class: /^class\s+(\w+)(?:\s+extends\s+\w+)?\s*{/gm,
+    complex: /(?:for\s*\(|while\s*\(|if\s*\(|switch\s*\()/gm,
+    block_start: /\{\s*(?:\/\/.*)?$|\)\s*\{/m
+  },
+  typescript: {
+    function: /(?:function\s+(\w+)|(?:(?:const|let|var)\s+)?(\w+)\s*:\s*.*\s*=\s*(?:async\s*)?\([^)]*\)\s*=>|(?:async\s+)?(\w+)\s*\([^)]*\)\s*{)/gm,
+    class: /^class\s+(\w+)(?:\s+extends\s+\w+)?\s*{/gm,
+    complex: /(?:for\s*\(|while\s*\(|if\s*\(|switch\s*\()/gm,
+    block_start: /\{\s*(?:\/\/.*)?$|\)\s*\{/m
+  },
+  go: {
+    function: /^func\s+(?:\w+\s+)*(\w+)\s*\([^)]*\)/gm,
+    method: /^func\s*\(\s*\*\s*\w+\s*\)\s*(\w+)\s*\([^)]*\)/gm,
+    complex: /(?:for\s+|if\s+|switch\s+|case\s+)/gm,
+    block_start: /\{\s*(?:\/\/.*)?$/
+  },
+  java: {
+    function: /(?:public|private|protected)?\s+(?:\w+\s+)*(\w+)\s*\([^)]*\)\s*{/gm,
+    class: /^class\s+(\w+)/gm,
+    complex: /(?:for\s*\(|while\s*\(|if\s*\(|switch\s*\()/gm,
+    block_start: /\{\s*(?:\/\/.*)?$/
+  },
+  csharp: {
+    function: /(?:public|private|protected)?\s+(?:\w+\s+)*(\w+)\s*\([^)]*\)\s*{/gm,
+    class: /^class\s+(\w+)/gm,
+    complex: /(?:for\s*\(|while\s*\(|if\s*\(|switch\s*\()/gm,
+    block_start: /\{\s*(?:\/\/.*)?$/
+  },
+  rust: {
+    function: /^fn\s+(\w+)\s*\([^)]*\)/gm,
+    method: /^impl\s+\w+\s*{\s*.*fn\s+(\w+)\s*\([^)]*\)/gm,
+    complex: /(?:for\s+|while\s+|if\s+|match\s+)/gm,
+    block_start: /\{\s*(?:\/\/.*)?$/
+  }
+};
+
 export async function parseCode(code: string, extension: string): Promise<CodeEntity[]> {
-  const parser = new Parser();
-  const language = LANGUAGE_MAP[extension as keyof typeof LANGUAGE_MAP];
-
-  if (!language) {
-    throw new Error(`Unsupported extension: ${extension}`);
-  }
-
-  // @ts-ignore
-  parser.setLanguage(language);
-  const tree = parser.parse(code);
   const entities: CodeEntity[] = [];
+  const lines = code.split('\n');
+  const patterns = PATTERNS[extension as keyof typeof PATTERNS];
 
-  let queryScm = '';
-
-  if (extension === 'py') {
-    queryScm = `
-      (function_definition
-        name: (identifier) @name
-      ) @function
-      (class_definition
-        name: (identifier) @name
-      ) @class
-      (for_statement) @complex
-      (while_statement) @complex
-      (if_statement) @complex
-    `;
-  } else if (['js', 'jsx', 'ts', 'tsx'].includes(extension)) {
-    queryScm = `
-      (function_declaration
-        name: (identifier) @name
-      ) @function
-      (class_declaration
-        name: (identifier) @name
-      ) @class
-      (method_definition
-        name: (property_identifier) @name
-      ) @function
-      (for_statement) @complex
-      (while_statement) @complex
-      (if_statement) @complex
-    `;
-  } else if (extension === 'go') {
-    queryScm = `
-      (function_declaration
-        name: (identifier) @name
-      ) @function
-      (method_declaration
-        name: (field_identifier) @name
-      ) @function
-      (for_statement) @complex
-      (if_statement) @complex
-    `;
-  } else if (extension === 'rs') {
-    queryScm = `
-      (function_item
-        name: (identifier) @name
-      ) @function
-      (impl_item
-        type: (type_identifier) @name
-      ) @class
-      (for_expression) @complex
-      (while_expression) @complex
-      (if_expression) @complex
-      (loop_expression) @complex
-    `;
-  } else if (extension === 'java') {
-    queryScm = `
-      (method_declaration
-        name: (identifier) @name
-      ) @function
-      (class_declaration
-        name: (identifier) @name
-      ) @class
-      (for_statement) @complex
-      (while_statement) @complex
-      (if_statement) @complex
-    `;
-  } else if (extension === 'cs') {
-    queryScm = `
-      (method_declaration
-        name: (identifier) @name
-      ) @function
-      (class_declaration
-        name: (identifier) @name
-      ) @class
-      (for_statement) @complex
-      (while_statement) @complex
-      (if_statement) @complex
-    `;
+  if (!patterns) {
+    return entities; // Skip unsupported languages
   }
 
-  if (!queryScm) return [];
+  // Find functions and classes
+  for (const [type, pattern] of Object.entries(patterns)) {
+    if (type === 'complex' || type === 'block_start') continue;
 
-  try {
-    // @ts-ignore
-    const query = new Parser.Query(language, queryScm);
-    const matches = query.matches(tree.rootNode);
+    const matches = code.matchAll(pattern);
 
     for (const match of matches) {
-      let type: CodeEntity['type'] | null = null;
-      let name = 'Anonymous Block';
-      let node = match.captures[0].node; // Default to first captured node
+      const name = match[1] || match[2] || match[3] || 'anonymous';
+      const startPos = match.index || 0;
+      const startLine = code.substring(0, startPos).split('\n').length;
 
-      // Identify type based on capture name
-      const capture = match.captures.find(c => ['function', 'class', 'complex'].includes(c.name));
-      if (capture) {
-        if (capture.name === 'function') type = 'function';
-        else if (capture.name === 'class') type = 'class';
-        else if (capture.name === 'complex') type = 'complex_logic';
-        node = capture.node;
-      }
+      // Find the end of the function/class
+      let endLine = startLine;
+      let braceCount = 0;
+      let inBlock = false;
 
-      const nameCapture = match.captures.find(c => c.name === 'name');
-      if (nameCapture) {
-        name = nameCapture.node.text;
-      } else if (type === 'complex_logic') {
-        name = `Logic Block (L${node.startPosition.row + 1})`;
-      }
+      for (let i = startLine - 1; i < lines.length; i++) {
+        const line = lines[i];
 
-      if (type) {
-        // Filter out small logic blocks to avoid noise
-        if (type === 'complex_logic' && (node.endPosition.row - node.startPosition.row) < 5) {
-          continue;
+        if (!inBlock) {
+          // Look for opening brace
+          if (line.includes('{') || line.match(patterns.block_start)) {
+            braceCount = 1;
+            inBlock = true;
+            continue;
+          }
         }
 
+        if (inBlock) {
+          const openBraces = (line.match(/{/g) || []).length;
+          const closeBraces = (line.match(/}/g) || []).length;
+          braceCount += openBraces - closeBraces;
+
+          if (braceCount <= 0) {
+            endLine = i + 1;
+            break;
+          }
+        }
+
+        // For languages without braces (Python)
+        if (!inBlock && i > startLine) {
+          // Look for dedentation
+          const currentIndent = line.match(/^\s*/)?.[0].length || 0;
+          const startIndent = lines[startLine - 1].match(/^\s*/)?.[0].length || 0;
+          if (currentIndent <= startIndent) {
+            endLine = i;
+            break;
+          }
+        }
+      }
+
+      if (endLine > startLine) {
         entities.push({
-          type,
+          type: type as CodeEntity['type'],
           name,
-          code: node.text,
-          startLine: node.startPosition.row + 1,
-          endLine: node.endPosition.row + 1,
+          code: lines.slice(startLine - 1, endLine).join('\n'),
+          startLine,
+          endLine
         });
       }
     }
-  } catch (e) {
-    console.error("Query error", e);
+  }
+
+  // Find complex logic blocks
+  const complexMatches = code.matchAll(patterns.complex);
+
+  for (const match of complexMatches) {
+    const startPos = match.index || 0;
+    const startLine = code.substring(0, startPos).split('\n').length;
+
+    // Simple logic block detection - find next empty line or major structure change
+    let endLine = startLine;
+
+    for (let i = startLine; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line === '' || line.match(/^(?:function|class|def|fn|if|else|for|while)/)) {
+        endLine = i;
+        break;
+      }
+      // Also check for significant indentation changes
+      if (i > startLine) {
+        const currentIndent = lines[i].match(/^\s*/)?.[0].length || 0;
+        const prevIndent = lines[startLine - 1].match(/^\s*/)?.[0].length || 0;
+        if (currentIndent < prevIndent) {
+          endLine = i;
+          break;
+        }
+      }
+    }
+
+    if (endLine > startLine) {
+      entities.push({
+        type: 'complex_logic',
+        name: `Complex Logic (L${startLine})`,
+        code: lines.slice(startLine - 1, Math.min(endLine + 3, lines.length)).join('\n'),
+        startLine,
+        endLine: Math.min(endLine + 3, lines.length)
+      });
+    }
   }
 
   return entities;

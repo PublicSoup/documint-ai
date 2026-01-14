@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "./ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "./toast";
+import UpgradeModal from "@/components/upgrade-modal";
 
 const SUPPORTED_EXTENSIONS = [
     ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".cs", ".cpp", ".c", ".rb", ".php",
@@ -35,6 +36,7 @@ export default function FileUpload({ teamId, isPro = false }: FileUploadProps) {
         architectureViolations?: string[];
         performanceBottlenecks?: string[];
     }[]>([]);
+    const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
     const filterCodeFiles = (fileList: File[]): File[] => {
         return fileList.filter(file => {
@@ -81,6 +83,16 @@ export default function FileUpload({ teamId, isPro = false }: FileUploadProps) {
 
                 try {
                     const res = await fetch("/api/analyze", { method: "POST", body: formData });
+
+                    if (res.status === 403) {
+                        const errorData = await res.json();
+                        if (errorData.error === "LIMIT_REACHED") {
+                            setShowUpgradeModal(true);
+                            setUploading(false); // Stop immediately
+                            return; // Exit function
+                        }
+                    }
+
                     if (!res.ok) throw new Error();
                     const data = await res.json();
                     if (data.results?.length > 0) {
@@ -419,6 +431,12 @@ export default function FileUpload({ teamId, isPro = false }: FileUploadProps) {
                     </motion.div>
                 </>
             )}
+
+            <UpgradeModal
+                isOpen={showUpgradeModal}
+                onClose={() => setShowUpgradeModal(false)}
+                description="You've reached your file upload limit. Upgrade to Pro for unlimited usage."
+            />
         </div>
     );
 }

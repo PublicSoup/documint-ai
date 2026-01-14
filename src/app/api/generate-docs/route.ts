@@ -6,6 +6,7 @@ import { requireFeature } from "@/lib/feature-gate";
 import { buildGlobalContext, ADVANCED_SYSTEM_PROMPT } from "@/lib/context-builder";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { getFileContent } from "@/lib/files";
+import { safeJsonParse } from "@/lib/utils";
 
 // Documentation tone personalities
 type DocTone = "technical" | "friendly" | "enterprise" | "minimal" | "educational";
@@ -91,7 +92,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "No documentation found for this file" }, { status: 400 });
         }
 
-        const doc = JSON.parse(file.documentation.content);
+        const doc = safeJsonParse(file.documentation.content, {} as any);
 
         // Generate enhanced documentation based on options
         const LM_STUDIO_URL = process.env.LM_STUDIO_URL || "http://127.0.0.1:1234";

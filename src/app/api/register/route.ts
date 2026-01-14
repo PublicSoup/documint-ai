@@ -2,6 +2,7 @@ import { db } from "../../../lib/db";
 import { hash } from "bcryptjs";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { sendEmail, emailTemplates } from "../../../lib/email";
 
 const userSchema = z.object({
     name: z.string().min(1, "Name is required"),
@@ -33,6 +34,18 @@ export async function POST(req: Request) {
         });
 
         const { password: _password, ...rest } = newUser;
+
+        // Send welcome email asynchronously (don't block the response)
+        try {
+            await sendEmail({
+                to: email,
+                subject: "Welcome to DocuMint AI! 🎉",
+                html: emailTemplates.welcome(name, "http://localhost:3000/dashboard"),
+            });
+        } catch (emailError) {
+            console.error("Failed to send welcome email:", emailError);
+            // Continue anyway, email is non-critical
+        }
 
         return NextResponse.json({ user: rest, message: "User created successfully" }, { status: 201 });
     } catch (error) {

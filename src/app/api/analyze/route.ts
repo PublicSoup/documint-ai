@@ -27,6 +27,17 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ message: "User not found in database" }, { status: 404 });
         }
 
+        // Check plan limits
+        const { canUploadFile } = await import("@/lib/subscription");
+        const limitCheck = await canUploadFile(userId);
+        if (!limitCheck.allowed) {
+            return NextResponse.json({
+                message: limitCheck.reason || "Upload limit reached",
+                error: "LIMIT_REACHED",
+                upgradeUrl: "/dashboard/billing"
+            }, { status: 403 });
+        }
+
         if (teamId) {
             const membership = await db.teamMember.findUnique({
                 where: {

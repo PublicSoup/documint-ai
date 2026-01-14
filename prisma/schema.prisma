@@ -27,6 +27,7 @@ model User {
   templates     DocTemplate[]
   reviewRequestsSent     ReviewRequest[] @relation("ReviewRequester")
   reviewRequestsReceived ReviewRequest[] @relation("ReviewReviewer")
+  passwordResetTokens    PasswordResetToken[]
 }
 
 model Subscription {
@@ -117,12 +118,14 @@ model Documentation {
   metadata    Json?
   verifiedAt    DateTime?
   verifiedById  String?
+  isPublic      Boolean  @default(false)
   status      String   @default("DRAFT") // DRAFT, REVIEW, APPROVED
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   
   file        File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
   reviews     ReviewRequest[]
+  shares      DocShare[]
   versions    DocVersion[]
 }
 
@@ -297,3 +300,31 @@ model ReviewRequest {
   reviewer        User?         @relation("ReviewReviewer", fields: [reviewerId], references: [id])
 }
 
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+model DocShare {
+  id        String   @id @default(cuid())
+  docId     String
+  token     String   @unique
+  expiresAt DateTime?
+  accessCount Int    @default(0)
+  createdAt DateTime @default(now())
+  
+  documentation Documentation @relation(fields: [docId], references: [id], onDelete: Cascade)
+  
+  @@index([docId])
+  @@index([token])
+  @@index([expiresAt])
+}

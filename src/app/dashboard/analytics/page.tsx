@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { hasFeatureAccess } from "../../../lib/subscription";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { AnalyticsCharts } from "@/components/analytics-charts";
 
 export const metadata = {
     title: "Analytics | DocuMint AI",
@@ -141,6 +142,8 @@ export default async function AnalyticsPage() {
                     bg="bg-pink-500/10"
                 />
             </div>
+
+            <AnalyticsCharts data={[]} />
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full">
                 {/* Popular Documentation */}

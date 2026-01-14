@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { db } from "../../../../lib/db";
 import crypto from "crypto";
+import { safeJsonParse } from "@/lib/utils";
 
 const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
 
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
         }
 
-        const payload = JSON.parse(body);
+        const payload = safeJsonParse(body, {} as any);
 
         // Handle Push Event
         if (headerStore.get("x-github-event") === "push") {

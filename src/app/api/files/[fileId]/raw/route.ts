@@ -93,3 +93,70 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ file
         return NextResponse.json({ error: "Failed to save content" }, { status: 500 });
     }
 }
+
+// Delete file
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ fileId: string }> }) {
+    const { fileId } = await params;
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    try {
+        const file = await db.file.findUnique({
+            where: { id: fileId },
+            include: {
+                team: {
+                    include: {
+                        members: true
+                    }
+                }
+            }
+        });
+
+        if (!file) {
+            return NextResponse.json({ error: "File not found" }, { status: 404 });
+        }
+
+        const userId = session.user.id;
+        let canDelete = false;
+
+        if (file.teamId) {
+            // Team File RBAC
+            const membership = file.team?.members.find(m => m.userId === userId);
+
+            if (!membership) {
+                return NextResponse.json({ error: "Access denied" }, { status: 403 });
+            }
+
+            if (membership.role === "OWNER" || membership.role === "ADMIN") {
+                canDelete = true;
+            } else if (file.userId === userId) {
+                canDelete = true;
+            }
+        } else {
+            // Personal File RBAC
+            if (file.userId === userId) {
+                canDelete = true;
+            }
+        }
+
+        if (!canDelete) {
+            return NextResponse.json(
+                { error: "You do not have permission to delete this file" },
+                { status: 403 }
+            );
+        }
+
+        await db.file.delete({
+            where: { id: fileId }
+        });
+
+        return NextResponse.json({ success: true });
+
+    } catch (error) {
+        console.error("Delete file error:", error);
+        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    }
+}

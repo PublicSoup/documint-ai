@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { db } from "@/lib/db";
 import { upsertSubscription, cancelSubscription, getPlanFromPriceId } from "@/lib/subscription";
+import { sendEmail, emailTemplates } from "@/lib/email";
 
 // Lazy initialization to prevent build errors when env var is missing
 function getStripe() {
@@ -168,6 +169,31 @@ async function handlePaymentSucceeded(stripeInvoice: Stripe.Invoice) {
             },
         },
     });
+
+    // Send payment confirmation email
+    const subscription = await db.subscription.findFirst({
+        where: { stripeCustomerId: customerId },
+        include: { user: true },
+    });
+
+    if (subscription?.user?.email) {
+        const amount = (invoice.amount_paid || 0) / 100;
+        const invoiceUrl = `https://dashboard.stripe.com/invoices/${invoice.id}`;
+        const planName = subscription.plan.charAt(0).toUpperCase() + subscription.plan.slice(1);
+
+        await sendEmail({
+            to: subscription.user.email,
+            subject: `Payment Confirmed - DocuMint AI ${planName} Plan`,
+            html: emailTemplates.paymentSuccess(
+                subscription.user.name || 'Customer',
+                invoiceUrl,
+                planName,
+                `$${amount}`
+            ),
+        });
+
+        console.log(`Sent payment confirmation email to ${subscription.user.email}`);
+    }
 
     console.log(`Payment succeeded for customer ${customerId}: $${(invoice.amount_paid || 0) / 100}`);
 }

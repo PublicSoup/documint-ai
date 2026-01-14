@@ -1,6 +1,9 @@
+"use client";
+
 import * as React from "react"
 import { Lock } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { motion, HTMLMotionProps } from "framer-motion"
 
 const buttonVariants = {
     primary: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-[0_0_20px_-5px_rgba(124,58,237,0.5)] hover:shadow-[0_0_25px_-5px_rgba(124,58,237,0.6)]",
@@ -17,23 +20,25 @@ const buttonSizes = {
     icon: "h-10 w-10",
 }
 
-export interface ButtonProps
-    extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps extends Omit<HTMLMotionProps<"button">, "ref"> {
     variant?: keyof typeof buttonVariants
     size?: keyof typeof buttonSizes
     isLoading?: boolean
     leftIcon?: React.ReactNode
     rightIcon?: React.ReactNode
+    children?: React.ReactNode
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ({ className, variant = "primary", size = "default", isLoading, leftIcon, rightIcon, children, disabled, ...props }, ref) => {
         return (
-            <button
+            <motion.button
                 ref={ref}
                 disabled={disabled || isLoading}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
                 className={cn(
-                    "inline-flex items-center justify-center whitespace-nowrap rounded-xl text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 active:scale-95",
+                    "inline-flex items-center justify-center whitespace-nowrap rounded-xl text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
                     buttonVariants[variant],
                     buttonSizes[size],
                     className
@@ -65,7 +70,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 {!isLoading && leftIcon && <span className="mr-2">{leftIcon}</span>}
                 {children}
                 {!isLoading && rightIcon && <span className="ml-2">{rightIcon}</span>}
-            </button>
+            </motion.button>
         )
     }
 )

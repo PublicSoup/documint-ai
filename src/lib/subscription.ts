@@ -11,6 +11,7 @@ export interface SubscriptionInfo {
     currentPeriodEnd: Date | null;
     cancelAtPeriodEnd: boolean;
     limits: PlanLimits;
+    isDevMode?: boolean;
 }
 
 export interface PlanLimits {
@@ -101,15 +102,19 @@ export async function getUserSubscription(userId: string): Promise<SubscriptionI
     });
 
     if (!subscription) {
+        // Dev Mode Override: If development environment and a flag is set, grant Pro
+        const isDev = process.env.NODE_ENV === "development" || process.env.NEXT_PUBLIC_DEV_PRO === "true";
+
         return {
-            plan: "free",
-            status: "none",
-            isActive: false,
-            isPro: false,
+            plan: isDev ? "pro" : "free",
+            status: isDev ? "active" : "none",
+            isActive: isDev,
+            isPro: isDev,
             isTeam: false,
             currentPeriodEnd: null,
             cancelAtPeriodEnd: false,
-            limits: PLAN_LIMITS.free,
+            limits: isDev ? PLAN_LIMITS.pro : PLAN_LIMITS.free,
+            isDevMode: isDev
         };
     }
 
@@ -230,10 +235,11 @@ export function getPlanLimits(plan: PlanType): PlanLimits {
  * Map Stripe price ID to plan name
  */
 export function getPlanFromPriceId(priceId: string): PlanType {
-    const priceMap: Record<string, PlanType> = {
-        [process.env.STRIPE_PRICE_ID_STARTER || ""]: "starter",
-        [process.env.STRIPE_PRICE_ID_PRO || ""]: "pro",
-        [process.env.STRIPE_PRICE_ID_TEAM || ""]: "team",
-    };
+    const priceMap: Record<string, PlanType> = {};
+
+    if (process.env.STRIPE_PRICE_ID_STARTER) priceMap[process.env.STRIPE_PRICE_ID_STARTER] = "starter";
+    if (process.env.STRIPE_PRICE_ID_PRO) priceMap[process.env.STRIPE_PRICE_ID_PRO] = "pro";
+    if (process.env.STRIPE_PRICE_ID_TEAM) priceMap[process.env.STRIPE_PRICE_ID_TEAM] = "team";
+
     return priceMap[priceId] || "free";
 }

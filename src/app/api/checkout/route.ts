@@ -63,6 +63,9 @@ export async function POST(request: NextRequest) {
                 userId: session.user.id,
                 tier,
             },
+            subscription_data: (tier === "pro" || tier === "team") ? {
+                trial_period_days: 14,
+            } : undefined,
         });
 
         return NextResponse.json({ url: checkoutSession.url });

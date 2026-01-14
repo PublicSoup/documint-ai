@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { FileCode2, Bell, Settings, LogOut, Search, Menu } from "lucide-react";
 import { GlobalSearch } from "@/components/global-search";
 import { Button } from "@/components/ui/button";
+import { NotificationDropdown } from "@/components/notification-dropdown";
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 
@@ -13,7 +14,7 @@ export function DashboardHeader() {
 
     const navItems = [
         { name: "Overview", href: "/dashboard" },
-        { name: "Code", href: "/dashboard/ide" },
+        { name: "Code", href: "/code" },
         { name: "Reviews", href: "/dashboard/reviews" },
         { name: "Visualizer", href: "/dashboard/diagrams" },
         { name: "AI Rules", href: "/dashboard/rulesets" },
@@ -67,10 +68,7 @@ export function DashboardHeader() {
                             <GlobalSearch />
                         </div>
 
-                        <Button variant="ghost" size="icon" className="text-white/70 hover:text-white hover:bg-white/10 rounded-full relative">
-                            <Bell className="w-5 h-5" />
-                            <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-black animate-pulse"></span>
-                        </Button>
+                        <NotificationDropdown />
 
                         <Button
                             variant="ghost"

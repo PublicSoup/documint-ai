@@ -16,6 +16,7 @@ import { Copy, Trash2, Pencil, Sparkles, Download, FileText } from "lucide-react
 
 export function FileTree({ files, activeFileId, onSelect, onAction }: FileTreeProps) {
     const [search, setSearch] = useState("");
+    const [isExpanded, setIsExpanded] = useState(true);
     const [menu, setMenu] = useState<{ x: number; y: number; fileId: string } | null>(null);
 
     const handleContextMenu = (e: React.MouseEvent, fileId: string) => {
@@ -103,43 +104,52 @@ export function FileTree({ files, activeFileId, onSelect, onAction }: FileTreePr
 
             <div className="flex-1 overflow-y-auto p-2 space-y-0.5 custom-scrollbar">
                 {/* Mock Folder Structure for Visuals (Since DB is flat) */}
-                <div className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-white/70 hover:text-white hover:bg-white/5 rounded cursor-pointer group">
-                    <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-                    <Folder className="w-3.5 h-3.5 text-blue-400 group-hover:text-blue-300" />
-                    <span className="font-semibold select-none">src</span>
-                </div>
-
-                <div className="pl-4 border-l border-white/5 ml-3 space-y-0.5">
-                    {filteredFiles.map(file => (
-                        <button
-                            key={file.id}
-                            onClick={() => onSelect(file.id)}
-                            onContextMenu={(e) => handleContextMenu(e, file.id)}
-                            className={cn(
-                                "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-all group relative",
-                                activeFileId === file.id
-                                    ? "bg-primary/10 text-primary font-medium"
-                                    : "text-muted-foreground hover:text-white hover:bg-white/5"
-                            )}
-                        >
-                            {/* Active Indicator */}
-                            {activeFileId === file.id && (
-                                <div className="absolute left-0 w-0.5 h-3/4 bg-primary rounded-full" />
-                            )}
-
-                            <FileCode className={cn(
-                                "w-3.5 h-3.5 shrink-0 transition-colors",
-                                activeFileId === file.id ? "text-primary" : "text-muted-foreground group-hover:text-white/70"
-                            )} />
-                            <span className="truncate select-none">{file.name}</span>
-                        </button>
-                    ))}
-                    {filteredFiles.length === 0 && (
-                        <div className="text-center py-8 text-xs text-muted-foreground italic">
-                            No files found
-                        </div>
+                <div
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-white/70 hover:text-white hover:bg-white/5 rounded cursor-pointer group select-none transition-colors"
+                >
+                    {isExpanded ? (
+                        <ChevronDown className="w-3.5 h-3.5 text-muted-foreground transition-transform" />
+                    ) : (
+                        <ChevronRight className="w-3.5 h-3.5 text-muted-foreground transition-transform" />
                     )}
+                    <Folder className={cn("w-3.5 h-3.5 transition-colors", isExpanded ? "text-blue-400 group-hover:text-blue-300" : "text-blue-400/70")} />
+                    <span className={cn("font-semibold", !isExpanded && "text-muted-foreground")}>src</span>
                 </div>
+
+                {isExpanded && (
+                    <div className="pl-4 border-l border-white/5 ml-3 space-y-0.5 animate-in slide-in-from-top-1 duration-200">
+                        {filteredFiles.map(file => (
+                            <button
+                                key={file.id}
+                                onClick={() => onSelect(file.id)}
+                                onContextMenu={(e) => handleContextMenu(e, file.id)}
+                                className={cn(
+                                    "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-all group relative",
+                                    activeFileId === file.id
+                                        ? "bg-primary/10 text-primary font-medium"
+                                        : "text-muted-foreground hover:text-white hover:bg-white/5"
+                                )}
+                            >
+                                {/* Active Indicator */}
+                                {activeFileId === file.id && (
+                                    <div className="absolute left-0 w-0.5 h-3/4 bg-primary rounded-full" />
+                                )}
+
+                                <FileCode className={cn(
+                                    "w-3.5 h-3.5 shrink-0 transition-colors",
+                                    activeFileId === file.id ? "text-primary" : "text-muted-foreground group-hover:text-white/70"
+                                )} />
+                                <span className="truncate select-none">{file.name}</span>
+                            </button>
+                        ))}
+                        {filteredFiles.length === 0 && (
+                            <div className="text-center py-8 text-xs text-muted-foreground italic">
+                                No files found
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
             {menu && (
                 <ContextMenu
