@@ -1,0 +1,16 @@
+# Ignore local environment files - use Vercel's environment variables instead
+.env
+.env.local
+.env.*.local
+
+# Development files
+node_modules/
+.dev-workspace/
+node-temp/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store

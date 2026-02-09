@@ -33,7 +33,7 @@ export function DashboardEmptyState({ teamId, isPro }: DashboardEmptyStateProps)
                     <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">
                         Welcome to DocuMint AI
                     </h2>
-                    <p className="text-muted-foreground mt-2 text-lg">
+                    <p className="text-zinc-400 mt-2 text-lg">
                         Your intelligent documentation engine. Connect your codebase to get started.
                     </p>
                 </motion.div>
@@ -46,15 +46,31 @@ export function DashboardEmptyState({ teamId, isPro }: DashboardEmptyStateProps)
                 className="w-full max-w-3xl grid gap-6"
             >
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-1">
-                    <div className="grid grid-cols-2 gap-1 p-1 bg-black/20 rounded-xl mb-6">
+                    <div className="grid grid-cols-3 gap-1 p-1 bg-black/20 rounded-xl mb-6">
                         <button className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary/10 text-primary font-medium text-sm transition-all border border-primary/20">
                             <Code2 className="w-4 h-4" />
                             Upload Code
                         </button>
-                        <button className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-muted-foreground hover:text-white hover:bg-white/5 font-medium text-sm transition-all opacity-50 cursor-not-allowed" title="Use the sidebar for GitHub import">
-                            <GitBranch className="w-4 h-4" />
-                            GitHub Repo
+                        <button
+                            onClick={async () => {
+                                const { createDemoProject } = await import("@/app/dashboard/actions");
+                                await createDemoProject(teamId);
+                                window.location.reload();
+                            }}
+                            className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/5 font-medium text-sm transition-all"
+                        >
+                            <Zap className="w-4 h-4 text-yellow-500" />
+                            Try Demo
                         </button>
+                        <div className="relative">
+                            <div className="absolute inset-0 opacity-0 hover:opacity-100 transition-opacity z-10">
+                                <GitHubImport />
+                            </div>
+                            <button className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/5 font-medium text-sm transition-all">
+                                <GitBranch className="w-4 h-4" />
+                                GitHub Repo
+                            </button>
+                        </div>
                     </div>
 
                     <div className="px-4 pb-4">
@@ -69,7 +85,7 @@ export function DashboardEmptyState({ teamId, isPro }: DashboardEmptyStateProps)
                                 <Sparkles className="w-4 h-4 text-amber-400" />
                                 Unlock Enterprise Grade
                             </h3>
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-xs text-zinc-400">
                                 Get access to the Project Graph, Audit Logs, and Autonomous Agents.
                             </p>
                         </div>
@@ -83,17 +99,17 @@ export function DashboardEmptyState({ teamId, isPro }: DashboardEmptyStateProps)
                     <Card className="p-4 bg-white/5 border-white/5">
                         <Zap className="w-5 h-5 text-amber-400 mb-2" />
                         <h3 className="font-bold text-sm text-white">Instant Analysis</h3>
-                        <p className="text-xs text-muted-foreground mt-1">Get documentation, complexity scores, and security insights in seconds.</p>
+                        <p className="text-xs text-zinc-400 mt-1">Get documentation, complexity scores, and security insights in seconds.</p>
                     </Card>
                     <Card className="p-4 bg-white/5 border-white/5">
                         <GitBranch className="w-5 h-5 text-blue-400 mb-2" />
                         <h3 className="font-bold text-sm text-white">Deep Context</h3>
-                        <p className="text-xs text-muted-foreground mt-1">AI understands cross-file dependencies and architectural patterns.</p>
+                        <p className="text-xs text-zinc-400 mt-1">AI understands cross-file dependencies and architectural patterns.</p>
                     </Card>
                     <Card className="p-4 bg-white/5 border-white/5">
                         <Sparkles className="w-5 h-5 text-purple-400 mb-2" />
                         <h3 className="font-bold text-sm text-white">Pro Suggestions</h3>
-                        <p className="text-xs text-muted-foreground mt-1">Receive actionable refactoring tips and optimization advice.</p>
+                        <p className="text-xs text-zinc-400 mt-1">Receive actionable refactoring tips and optimization advice.</p>
                     </Card>
                 </div>
             </motion.div>

@@ -68,10 +68,10 @@ export function DashboardFileTree({ files, selectedFileId, teamId }: DashboardFi
                     onClick={() => setExpanded(!expanded)}
                     className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs text-white/70 hover:text-white hover:bg-white/5 rounded cursor-pointer group"
                 >
-                    {expanded ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
+                    {expanded ? <ChevronDown className="w-3.5 h-3.5 text-zinc-400" /> : <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />}
                     <Folder className="w-3.5 h-3.5 text-blue-400 group-hover:text-blue-300" />
                     <span className="font-semibold select-none">Project Files</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground bg-white/5 px-1.5 py-0.5 rounded">{files.length}</span>
+                    <span className="ml-auto text-[10px] text-zinc-400 bg-white/5 px-1.5 py-0.5 rounded">{files.length}</span>
                 </button>
 
                 {/* Files */}
@@ -98,7 +98,7 @@ export function DashboardFileTree({ files, selectedFileId, teamId }: DashboardFi
                                                 "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-all group relative",
                                                 isSelected
                                                     ? "bg-primary/10 text-primary font-medium"
-                                                    : "text-muted-foreground hover:text-white hover:bg-white/5"
+                                                    : "text-zinc-400 hover:text-white hover:bg-white/5"
                                             )}
                                         >
                                             {/* Active Indicator */}
@@ -108,7 +108,7 @@ export function DashboardFileTree({ files, selectedFileId, teamId }: DashboardFi
 
                                             <FileCode className={cn(
                                                 "w-3.5 h-3.5 shrink-0 transition-colors",
-                                                isSelected ? "text-primary" : "text-muted-foreground group-hover:text-white/70"
+                                                isSelected ? "text-primary" : "text-zinc-400 group-hover:text-white/70"
                                             )} />
                                             <span className="truncate select-none flex-1">{file.name}</span>
 

@@ -16,13 +16,13 @@ const envSchema = z.object({
     GOOGLE_API_KEY: z.string().default(""),
 
     // Stripe Billing
-    STRIPE_SECRET_KEY: z.string().min(1, "STRIPE_SECRET_KEY is required").default("mock_stripe_secret"),
-    STRIPE_WEBHOOK_SECRET: z.string().min(1, "STRIPE_WEBHOOK_SECRET is required").default("mock_webhook_secret"),
-    STRIPE_PRICE_ID_STARTER: z.string().min(1, "STRIPE_PRICE_ID_STARTER is required").default("price_starter"),
-    STRIPE_PRICE_ID_PRO: z.string().min(1, "STRIPE_PRICE_ID_PRO is required").default("price_pro"),
-    STRIPE_PRICE_ID_TEAM: z.string().min(1, "STRIPE_PRICE_ID_TEAM is required").default("price_team"),
-    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().min(1, "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is required").default("pk_test_mock"),
-    NEXT_PUBLIC_DEV_PRO: z.enum(['true', 'false']).default('true'),
+    STRIPE_SECRET_KEY: z.string().min(1, "STRIPE_SECRET_KEY is required"),
+    STRIPE_WEBHOOK_SECRET: z.string().min(1, "STRIPE_WEBHOOK_SECRET is required"),
+    STRIPE_PRICE_ID_STARTER: z.string().min(1, "STRIPE_PRICE_ID_STARTER is required"),
+    STRIPE_PRICE_ID_PRO: z.string().min(1, "STRIPE_PRICE_ID_PRO is required"),
+    STRIPE_PRICE_ID_TEAM: z.string().min(1, "STRIPE_PRICE_ID_TEAM is required"),
+    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().min(1, "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is required"),
+    NEXT_PUBLIC_DEV_PRO: z.enum(['true', 'false']).default('false'),
 
     // Email (Resend)
     RESEND_API_KEY: z.string().optional(),

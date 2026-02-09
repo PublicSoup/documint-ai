@@ -1,4 +1,5 @@
 
+import { db } from "../db";
 import { getAICompletion, getAICompletionWithDetailedError } from "../ai";
 import * as fs from "fs/promises"; // Keep for utility usage if needed, but VFS preferred
 import * as path from "path";
@@ -155,7 +156,12 @@ export async function* runAgent(
     const fileListSnippet = fileList.slice(0, 150).join("\n");
 
     // Build Project Graph for Context Awareness
-    const graph = await buildProjectGraph(cwd);
+    const dbFiles = await db.file.findMany({
+        where: { userId },
+        select: { name: true, content: true }
+    });
+    const graphFiles = dbFiles.map(f => ({ path: f.name, content: f.content || "" }));
+    const graph = await buildProjectGraph(graphFiles);
     const graphSummary = generateGraphSummary(graph);
 
     let activeCtx = "";

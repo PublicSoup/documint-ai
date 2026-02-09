@@ -6,15 +6,17 @@ import { getProjectGraphMermaid } from "@/app/dashboard/actions";
 import { Loader2, Share2, Info } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { ProBadge } from "@/components/ui/pro-badge";
+import { FeatureGateOverlay } from "@/components/ui/feature-gate-overlay";
 
-export function ArchitectureTab() {
+export function ArchitectureTab({ teamId }: { teamId?: string }) {
     const [mermaidCode, setMermaidCode] = useState<string>("");
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         async function fetchGraph() {
             try {
-                const code = await getProjectGraphMermaid();
+                const code = await getProjectGraphMermaid(teamId);
                 // If the graph is empty or just an error placeholder, use sample diagram
                 if (!code || code.length < 50 || code.includes("Error")) {
                     console.log("📊 [Architecture] Using sample diagram");
@@ -30,7 +32,7 @@ export function ArchitectureTab() {
             }
         }
         fetchGraph();
-    }, []);
+    }, [teamId]);
 
     // Sample diagram for when no project data is available
     function getSampleDiagram(): string {
@@ -91,11 +93,16 @@ export function ArchitectureTab() {
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between">
-                <div>
-                    <h3 className="text-lg font-medium text-white">Project Architecture</h3>
-                    <p className="text-sm text-muted-foreground">
-                        Live visualization of your project's component and dependency graph.
-                    </p>
+                <div className="flex items-center gap-3">
+                    <div>
+                        <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                            Project Architecture
+                            <ProBadge />
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                            Live visualization of your project's component and dependency graph.
+                        </p>
+                    </div>
                 </div>
                 <div className="flex gap-2">
                     <Button variant="outline" size="sm" className="gap-2">
@@ -105,17 +112,21 @@ export function ArchitectureTab() {
                 </div>
             </div>
 
-            <Alert className="bg-blue-500/10 border-blue-500/20 text-blue-300">
-                <Info className="w-4 h-4" />
-                <AlertTitle>Live Graph</AlertTitle>
-                <AlertDescription>
-                    This diagram is auto-generated from your actual source code. Blue nodes are components, Green are pages, Orange are APIs.
-                </AlertDescription>
-            </Alert>
+            <FeatureGateOverlay isLocked={false} title="Architecture Visualization Locked" description="Upgrade to the Pro plan to visualize your project's structure and dependencies.">
+                <div className="space-y-4">
+                    <Alert className="bg-blue-500/10 border-blue-500/20 text-blue-300">
+                        <Info className="w-4 h-4" />
+                        <AlertTitle>Live Graph</AlertTitle>
+                        <AlertDescription>
+                            This diagram is auto-generated from your actual source code. Blue nodes are components, Green are pages, Orange are APIs.
+                        </AlertDescription>
+                    </Alert>
 
-            <div className="border border-zinc-800 rounded-xl overflow-hidden shadow-2xl bg-zinc-950/50">
-                <DiagramViewer code={mermaidCode} type="flowchart" />
-            </div>
+                    <div className="border border-zinc-800 rounded-xl overflow-hidden shadow-2xl bg-zinc-950/50">
+                        <DiagramViewer code={mermaidCode} type="flowchart" />
+                    </div>
+                </div>
+            </FeatureGateOverlay>
         </div>
     );
 }

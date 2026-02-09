@@ -98,56 +98,21 @@ const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
  * Get user's subscription info with plan limits
  */
 export async function getUserSubscription(userId: string): Promise<SubscriptionInfo> {
-    // DEV BYPASS: Return mock PRO subscription if forced or DB is unreachable
-    if (userId.startsWith("dev-")) {
-        return {
-            plan: "pro",
-            status: "active",
-            isActive: true,
-            isPro: true,
-            isTeam: false,
-            currentPeriodEnd: null,
-            cancelAtPeriodEnd: false,
-            limits: PLAN_LIMITS["pro"],
-            isDevMode: true
-        };
-    }
-
     const subscription = await db.subscription.findUnique({
         where: { userId },
     });
 
-    // Dev Mode Override: If development environment and a flag is set, grant Pro
-    // However, we only do this if NO subscription exists OR if the existing one is inactive
-    const isDev = env.NODE_ENV === "development" || env.NEXT_PUBLIC_DEV_PRO === "true";
-
-    if (!subscription || (isDev && subscription.status !== "active")) {
-        if (isDev) {
-            return {
-                plan: "pro",
-                status: "active",
-                isActive: true,
-                isPro: true,
-                isTeam: false,
-                currentPeriodEnd: null,
-                cancelAtPeriodEnd: false,
-                limits: PLAN_LIMITS.pro,
-                isDevMode: true
-            };
-        }
-
-        if (!subscription) {
-            return {
-                plan: "free",
-                status: "none",
-                isActive: false,
-                isPro: false,
-                isTeam: false,
-                currentPeriodEnd: null,
-                cancelAtPeriodEnd: false,
-                limits: PLAN_LIMITS.free,
-            };
-        }
+    if (!subscription) {
+        return {
+            plan: "free",
+            status: "none",
+            isActive: false,
+            isPro: false,
+            isTeam: false,
+            currentPeriodEnd: null,
+            cancelAtPeriodEnd: false,
+            limits: PLAN_LIMITS.free,
+        };
     }
 
     const plan = (subscription.plan as PlanType) || "free";

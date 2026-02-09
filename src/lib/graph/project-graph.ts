@@ -1,6 +1,6 @@
 
-import * as fs from "fs/promises";
-import * as path from "path";
+// import * as fs from "fs/promises"; // Removed
+// import * as path from "path"; // Removed
 
 export interface GraphNode {
     id: string; // File path relative to root
@@ -17,47 +17,54 @@ export interface ProjectGraph {
 const EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'];
 const EXCLUDE_DIRS = ['node_modules', '.next', '.git', 'dist', 'build'];
 
-export async function buildProjectGraph(rootDir: string): Promise<ProjectGraph> {
+// EXTENSIONS constant moved inside or kept if used elsewhere, but for DB we might Filter in query
+// For now, let's assume the caller filters or we filter here.
+
+export async function buildProjectGraph(files: { path: string; content: string }[]): Promise<ProjectGraph> {
     const graph: ProjectGraph = {
         nodes: new Map(),
         edges: []
     };
 
-    async function scanDir(dir: string) {
-        const entries = await fs.readdir(dir, { withFileTypes: true });
+    // 1. Parse all files into nodes
+    for (const file of files) {
+        // Skip node_modules etc if somehow they got in, though DB shouldn't have them usually
+        if (file.path.includes('node_modules') || file.path.includes('.git')) continue;
 
-        for (const entry of entries) {
-            if (entry.name.startsWith('.')) continue; // Skip hidden
-            if (EXCLUDE_DIRS.includes(entry.name)) continue;
-
-            const fullPath = path.join(dir, entry.name);
-            const relativePath = path.relative(rootDir, fullPath);
-
-            if (entry.isDirectory()) {
-                await scanDir(fullPath);
-            } else if (EXTENSIONS.includes(path.extname(entry.name))) {
-                const content = await fs.readFile(fullPath, 'utf-8');
-                const node = parseFile(relativePath, content);
-                graph.nodes.set(relativePath, node);
-            }
+        try {
+            const node = parseFile(file.path, file.content || "");
+            graph.nodes.set(file.path, node);
+        } catch (e) {
+            console.warn(`Failed to parse file ${file.path}:`, e);
         }
     }
 
-    try {
-        await scanDir(rootDir);
-        // Build edges after all nodes are processed
-        for (const [id, node] of graph.nodes) {
-            for (const imp of node.imports) {
-                // formatting import paths is complex (aliases, etc), for now we do simple matching
-                // This is a "fuzzy" edge creation for the MVP
-                const target = Array.from(graph.nodes.keys()).find(k => k.endsWith(imp) || k.includes(imp));
-                if (target) {
-                    graph.edges.push({ from: id, to: target });
-                }
+    // 2. Build edges
+    for (const [id, node] of graph.nodes) {
+        for (const imp of node.imports) {
+            // "Fuzzy" matching for MVP
+            // If import is "./utils", we look for "utils.ts", "lib/utils.ts", etc.
+            // A robust solution would resolve paths relative to `id`'s directory.
+
+            // Attempt 1: Exact match (unlikely with extensions omitted)
+            let target = graph.nodes.has(imp) ? imp : undefined;
+
+            // Attempt 2: Try finding by suffix (e.g. import "utils" matches "src/lib/utils.ts")
+            // This is very loose but works for visualization
+            if (!target) {
+                // Remove leading ./ or ../ for search
+                const cleanImp = imp.replace(/^[\.\/]+/, '');
+                target = Array.from(graph.nodes.keys()).find(k => {
+                    // Check if file path ends with import (ignoring extension or adding one)
+                    const kWithoutExt = k.replace(/\.[^/.]+$/, "");
+                    return k.endsWith(cleanImp) || kWithoutExt.endsWith(cleanImp);
+                });
+            }
+
+            if (target && target !== id) {
+                graph.edges.push({ from: id, to: target });
             }
         }
-    } catch (error) {
-        console.error("Failed to build project graph:", error);
     }
 
     return graph;

@@ -204,7 +204,7 @@ export default async function DashboardPage(props: {
                                     <Code2 className="w-12 h-12 text-primary" />
                                 </div>
                                 <CardContent className="p-6">
-                                    <p className="text-xs font-black uppercase tracking-widest text-muted-foreground mb-1">Total Files</p>
+                                    <p className="text-xs font-black uppercase tracking-widest text-zinc-400 mb-1">Total Files</p>
                                     <h3 className="text-3xl font-bold text-white">{totalFilesCount}</h3>
                                     <div className="mt-4 flex items-center gap-2 text-xs text-green-400">
                                         <TrendingUp className="w-3 h-3" />
@@ -218,7 +218,7 @@ export default async function DashboardPage(props: {
                                     <ShieldCheck className="w-12 h-12 text-green-500" />
                                 </div>
                                 <CardContent className="p-6">
-                                    <p className="text-xs font-black uppercase tracking-widest text-muted-foreground mb-1">Verified Docs</p>
+                                    <p className="text-xs font-black uppercase tracking-widest text-zinc-400 mb-1">Verified Docs</p>
                                     <h3 className="text-3xl font-bold text-white">{verifiedDocsCount}</h3>
                                     <div className="mt-4 flex items-center gap-2 text-xs text-blue-400">
                                         <Activity className="w-3 h-3" />
@@ -232,7 +232,7 @@ export default async function DashboardPage(props: {
                                     <Zap className="w-12 h-12 text-yellow-500" />
                                 </div>
                                 <CardContent className="p-6">
-                                    <p className="text-xs font-black uppercase tracking-widest text-muted-foreground mb-1">AI Tokens used</p>
+                                    <p className="text-xs font-black uppercase tracking-widest text-zinc-400 mb-1">AI Tokens used</p>
                                     <h3 className="text-3xl font-bold text-white">42.5k</h3>
                                     <div className="mt-4 flex items-center gap-2 text-xs text-primary">
                                         <Link href="/dashboard/billing" className="hover:underline flex items-center gap-1">
@@ -443,7 +443,7 @@ export default async function DashboardPage(props: {
                         featureName="Architecture Diagram"
                         description="Visualize your entire project structure, dependencies, and data flow in real-time."
                     >
-                        <ArchitectureTab />
+                        <ArchitectureTab teamId={teamId} />
                     </EnterpriseFeatureGate>
                 </TabsContent>
             </Tabs>
