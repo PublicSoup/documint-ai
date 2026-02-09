@@ -1,0 +1,353 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                     String               @id @default(cuid())
+  name                   String?
+  email                  String?              @unique
+  emailVerified          DateTime?
+  image                  String?
+  password               String?
+  settings               Json? // User settings and preferences
+  accounts               Account[]
+  sessions               Session[]
+  files                  File[]
+  teamMembers            TeamMember[]
+  comments               Comment[]
+  notifications          Notification[]
+  auditLogs              AuditLog[]
+  github                 GitHubConnection?
+  subscription           Subscription?
+  templates              DocTemplate[]
+  reviewRequestsSent     ReviewRequest[]      @relation("ReviewRequester")
+  reviewRequestsReceived ReviewRequest[]      @relation("ReviewReviewer")
+  passwordResetTokens    PasswordResetToken[]
+}
+
+model Subscription {
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  stripePriceId        String?
+  status               String    @default("inactive") // active, canceled, past_due, trialing, inactive
+  plan                 String    @default("free") // free, starter, pro, team
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean   @default(false)
+  trialEnd             DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model File {
+  id          String   @id @default(cuid())
+  name        String
+  content     String?  @db.Text
+  storagePath String?
+  language    String
+  size        Int
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamId      String?
+  team        Team?    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  documentation Documentation?
+  comments      Comment[]
+  views         DocView[]
+  permissions   FilePermission[]
+
+  @@index([userId])
+  @@index([teamId])
+  @@index([createdAt])
+  @@index([language])
+}
+
+model FilePermission {
+  id        String   @id @default(cuid())
+  fileId    String
+  userId    String
+  role      String // OWNER, EDITOR, VIEWER
+  createdAt DateTime @default(now())
+
+  file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, userId])
+}
+
+model Documentation {
+  id           String    @id @default(cuid())
+  fileId       String    @unique
+  content      String    @db.Text
+  metadata     Json?
+  verifiedAt   DateTime?
+  verifiedById String?
+  isPublic     Boolean   @default(false)
+  status       String    @default("DRAFT") // DRAFT, REVIEW, APPROVED
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  file     File            @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  reviews  ReviewRequest[]
+  shares   DocShare[]
+  versions DocVersion[]
+}
+
+model DocVersion {
+  id              String   @id @default(cuid())
+  documentationId String
+  content         String   @db.Text
+  version         Int
+  message         String? // Optional commit message
+  createdAt       DateTime @default(now())
+  createdById     String?
+
+  documentation Documentation @relation(fields: [documentationId], references: [id], onDelete: Cascade)
+
+  @@index([documentationId])
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  plan      String   @default("free")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members      TeamMember[]
+  files        File[]
+  invites      TeamInvite[]
+  templates    DocTemplate[]
+  integrations Integration[]
+}
+
+model TeamMember {
+  id       String   @id @default(cuid())
+  teamId   String
+  userId   String
+  role     String   @default("MEMBER") // OWNER, ADMIN, MEMBER
+  joinedAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+}
+
+model TeamInvite {
+  id        String   @id @default(cuid())
+  email     String
+  teamId    String
+  role      String   @default("MEMBER")
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, email])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  userId    String
+  fileId    String
+  parentId  String? // For threading
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  file    File      @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  parent  Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies Comment[] @relation("CommentReplies")
+
+  @@index([fileId])
+  @@index([userId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String // "MENTION", "INVITE", "SYSTEM"
+  message   String
+  link      String? // URL to redirect to
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([createdAt])
+}
+
+model GitHubConnection {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  accessToken String   @db.Text
+  githubId    Int
+  username    String
+  avatarUrl   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// PREMIUM FEATURES
+// ============================================
+
+// Track documentation views for analytics
+model DocView {
+  id        String   @id @default(cuid())
+  fileId    String
+  userId    String?
+  sessionId String?
+  duration  Int      @default(0) // seconds
+  createdAt DateTime @default(now())
+
+  file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([fileId])
+  @@index([createdAt])
+}
+
+// Audit log for compliance
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String // CREATE, UPDATE, DELETE, VIEW, EXPORT
+  entity    String // File, Documentation, Team, etc.
+  entityId  String
+  details   Json? // Additional context
+  ip        String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([action])
+  @@index([entity])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// Custom documentation templates
+model DocTemplate {
+  id          String   @id @default(cuid())
+  teamId      String?
+  userId      String?
+  name        String
+  description String?
+  content     String?  @db.Text // AI System Prompt or Template
+  structure   Json? // Optional structured data
+  isPublic    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  team Team? @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@index([userId])
+}
+
+// Integrations (Slack, Discord, etc.)
+model Integration {
+  id        String   @id @default(cuid())
+  teamId    String
+  type      String // SLACK, DISCORD, JIRA
+  config    Json // OAuth tokens, webhook URLs
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+}
+
+model ReviewRequest {
+  id              String   @id @default(cuid())
+  documentationId String
+  requesterId     String
+  reviewerId      String?
+  status          String   @default("PENDING") // PENDING, APPROVED, CHANGES_REQUESTED
+  comments        String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  documentation Documentation @relation(fields: [documentationId], references: [id], onDelete: Cascade)
+  requester     User          @relation("ReviewRequester", fields: [requesterId], references: [id])
+  reviewer      User?         @relation("ReviewReviewer", fields: [reviewerId], references: [id])
+
+  @@index([documentationId])
+  @@index([requesterId])
+  @@index([reviewerId])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+model DocShare {
+  id          String    @id @default(cuid())
+  docId       String
+  token       String    @unique
+  expiresAt   DateTime?
+  accessCount Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  documentation Documentation @relation(fields: [docId], references: [id], onDelete: Cascade)
+
+  @@index([docId])
+  @@index([token])
+  @@index([expiresAt])
+}
