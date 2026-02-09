@@ -29,3 +29,14 @@ export function extractCodeBlocks(text: string): CodeBlock[] {
 
   return blocks;
 }
+
+/**
+ * Safely parse JSON with fallback to default value
+ */
+export function safeJsonParse<T>(json: string, defaultValue: T): T {
+  try {
+    return JSON.parse(json) as T;
+  } catch {
+    return defaultValue;
+  }
+}
