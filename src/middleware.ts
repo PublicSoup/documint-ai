@@ -24,7 +24,10 @@ try {
 
 export async function middleware(request: NextRequest) {
     const response = NextResponse.next();
-    const ip = request.ip ?? '127.0.0.1';
+    // Get IP from headers (Next.js 16+ compatible)
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+        ?? request.headers.get('x-real-ip')
+        ?? '127.0.0.1';
 
     // 1. Enterprise Security Headers
     // HSTS - Force HTTPS for 1 year
