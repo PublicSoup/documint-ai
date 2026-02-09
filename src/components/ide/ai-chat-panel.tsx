@@ -882,7 +882,13 @@ export function AIChatPanel({
                                 setMessages(prev => prev.map(m => m.id === assistantId ? {
                                     ...m,
                                     content: m.content + event.content,
-                                    codeBlocks: extractCodeBlocks(m.content + event.content)
+                                    codeBlocks: extractCodeBlocks(m.content + event.content).map(block => ({
+                                        ...block,
+                                        id: generateId(),
+                                        fileName: block.filename,
+                                        applied: false,
+                                        timestamp: Date.now()
+                                    }))
                                 } : m));
                             } else if (event.type === "error") {
                                 toast(event.message, "error");
