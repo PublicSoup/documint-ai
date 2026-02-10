@@ -19,18 +19,19 @@ export const authOptions: NextAuthOptions = {
         signIn: "/auth/login",
     },
     providers: [
-        GitHubProvider({
-            clientId: env.GITHUB_CLIENT_ID || "",
-            clientSecret: env.GITHUB_CLIENT_SECRET || "",
-        }),
-        GoogleProvider({
-            clientId: env.GOOGLE_CLIENT_ID || "",
-            clientSecret: env.GOOGLE_CLIENT_SECRET || "",
-        }),
-        GitLabProvider({
-            clientId: env.GITLAB_CLIENT_ID || "",
-            clientSecret: env.GITLAB_CLIENT_SECRET || "",
-        }),
+        // Only register OAuth providers when credentials are configured
+        ...(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET ? [GitHubProvider({
+            clientId: env.GITHUB_CLIENT_ID,
+            clientSecret: env.GITHUB_CLIENT_SECRET,
+        })] : []),
+        ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET ? [GoogleProvider({
+            clientId: env.GOOGLE_CLIENT_ID,
+            clientSecret: env.GOOGLE_CLIENT_SECRET,
+        })] : []),
+        ...(env.GITLAB_CLIENT_ID && env.GITLAB_CLIENT_SECRET ? [GitLabProvider({
+            clientId: env.GITLAB_CLIENT_ID,
+            clientSecret: env.GITLAB_CLIENT_SECRET,
+        })] : []),
         CredentialsProvider({
             name: "Credentials",
             credentials: {
