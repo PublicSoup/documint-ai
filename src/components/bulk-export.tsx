@@ -173,7 +173,7 @@ ${docs.map(doc => {
         <div className="fixed bottom-20 right-4 bg-white rounded-xl shadow-lg border p-4 z-40 animate-in slide-in-from-bottom-4">
             <div className="flex items-center gap-3 mb-3">
                 <Archive className="w-5 h-5 text-blue-600" />
-                <span className="font-medium text-gray-900">
+                <span className="font-medium text-zinc-100">
                     {fileIds.length} file{fileIds.length > 1 ? "s" : ""} selected
                 </span>
             </div>

@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { FileCode2, Sparkles, Github, ArrowRight, User, Mail, Lock } from "lucide-react";
-import { signIn } from "next-auth/react";
+import { signIn, getProviders, type ClientSafeProvider } from "next-auth/react";
 import { useToast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 
@@ -15,6 +15,16 @@ export default function RegisterPage() {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [loading, setLoading] = useState(false);
+    const [oauthProviders, setOauthProviders] = useState<ClientSafeProvider[]>([]);
+
+    useEffect(() => {
+        getProviders().then((providers) => {
+            if (providers) {
+                const oauth = Object.values(providers).filter(p => p.id !== "credentials");
+                setOauthProviders(oauth);
+            }
+        });
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -125,23 +135,33 @@ export default function RegisterPage() {
                         </Button>
                     </form>
 
-                    <div className="relative my-8">
-                        <div className="absolute inset-0 flex items-center">
-                            <div className="w-full border-t border-white/5"></div>
-                        </div>
-                        <div className="relative flex justify-center text-[10px] font-black tracking-[0.2em] uppercase">
-                            <span className="px-4 bg-[#030014] text-white/20">Fast Track</span>
-                        </div>
-                    </div>
+                    {/* Only show OAuth section if providers are configured */}
+                    {oauthProviders.length > 0 && (
+                        <>
+                            <div className="relative my-8">
+                                <div className="absolute inset-0 flex items-center">
+                                    <div className="w-full border-t border-white/5"></div>
+                                </div>
+                                <div className="relative flex justify-center text-[10px] font-black tracking-[0.2em] uppercase">
+                                    <span className="px-4 bg-[#030014] text-white/20">Fast Track</span>
+                                </div>
+                            </div>
 
-                    <Button
-                        variant="outline"
-                        onClick={() => signIn("github", { callbackUrl: "/dashboard" })}
-                        className="w-full h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
-                    >
-                        <Github className="w-4 h-4" />
-                        Join with GitHub
-                    </Button>
+                            <div className="space-y-3">
+                                {oauthProviders.map((provider) => (
+                                    <Button
+                                        key={provider.id}
+                                        variant="outline"
+                                        onClick={() => signIn(provider.id, { callbackUrl: "/dashboard" })}
+                                        className="w-full h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
+                                    >
+                                        {provider.id === "github" && <Github className="w-4 h-4" />}
+                                        Join with {provider.name}
+                                    </Button>
+                                ))}
+                            </div>
+                        </>
+                    )}
                 </div>
 
                 <p className="mt-8 text-center text-sm text-white/40">

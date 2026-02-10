@@ -119,7 +119,7 @@ export function TemplateManager() {
             {isCreating && (
                 <div className="bg-gray-50 border rounded-xl p-4 space-y-4 animate-in fade-in slide-in-from-top-2">
                     <div className="flex justify-between items-start">
-                        <h4 className="font-medium text-gray-900">Create New Template</h4>
+                        <h4 className="font-medium text-zinc-100">Create New Template</h4>
                         <button onClick={() => setIsCreating(false)} className="text-gray-400 hover:text-gray-600">
                             <X className="w-4 h-4" />
                         </button>
@@ -198,7 +198,7 @@ export function TemplateManager() {
                                     <Layout className="w-5 h-5" />
                                 </div>
                                 <div>
-                                    <h4 className="font-medium text-gray-900">{template.name}</h4>
+                                    <h4 className="font-medium text-zinc-100">{template.name}</h4>
                                     <p className="text-xs text-gray-500 line-clamp-1">{template.description}</p>
                                     <p className="text-[10px] text-gray-400 mt-1">
                                         Updated {new Date(template.updatedAt).toLocaleDateString()}

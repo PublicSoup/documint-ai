@@ -164,7 +164,7 @@ export function GlobalSearch() {
                         >
                             <div className="mt-1">{getIcon(result.type)}</div>
                             <div className="flex-1 min-w-0">
-                                <div className="font-medium text-gray-900 truncate">
+                                <div className="font-medium text-zinc-100 truncate">
                                     {result.title}
                                 </div>
                                 <div className="text-sm text-gray-500">

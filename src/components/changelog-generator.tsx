@@ -74,7 +74,7 @@ export default function ChangelogGenerator({ fileIds }: ChangelogGeneratorProps)
             <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] max-h-[80vh] bg-white rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col">
                 {/* Header */}
                 <div className="p-4 border-b bg-gradient-to-r from-amber-50 to-orange-50">
-                    <h2 className="font-bold text-gray-900 flex items-center gap-2">
+                    <h2 className="font-bold text-zinc-100 flex items-center gap-2">
                         <FileText className="w-5 h-5 text-amber-600" />
                         AI Changelog Generator
                         <span className="ml-2 px-2 py-0.5 text-xs bg-amber-100 text-amber-700 rounded-full flex items-center gap-1">

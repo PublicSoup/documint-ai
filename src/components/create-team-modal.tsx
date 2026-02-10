@@ -45,7 +45,7 @@ export default function CreateTeamModal({ onClose }: CreateTeamModalProps) {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
                 <div className="p-6 border-b flex justify-between items-center bg-gray-50">
-                    <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                    <h3 className="font-bold text-zinc-100 flex items-center gap-2">
                         <Users className="w-5 h-5 text-blue-600" />
                         Create New Team
                     </h3>

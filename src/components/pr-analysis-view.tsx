@@ -98,7 +98,7 @@ export function PRAnalysisView({ data }: PRAnalysisViewProps) {
                                     <span className="font-mono">{suggestion.file}</span>
                                     <span>Line {suggestion.line}</span>
                                 </div>
-                                <p className="text-gray-800">{suggestion.comment}</p>
+                                <p className="text-zinc-200">{suggestion.comment}</p>
                             </div>
                         ))}
                     </div>

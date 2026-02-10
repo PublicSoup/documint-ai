@@ -76,7 +76,7 @@ export default function KeyboardShortcuts() {
             <div className="fixed inset-x-0 bottom-0 md:inset-auto md:bottom-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 z-50 p-4">
                 <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
                     <div className="p-4 border-b bg-gray-50">
-                        <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                        <h3 className="font-bold text-zinc-100 flex items-center gap-2">
                             <Keyboard className="w-5 h-5" />
                             Keyboard Shortcuts
                         </h3>

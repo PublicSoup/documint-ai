@@ -81,7 +81,7 @@ export default function NotificationsBell() {
                     />
                     <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                         <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
-                            <h3 className="font-semibold text-gray-900 text-sm">Notifications</h3>
+                            <h3 className="font-semibold text-zinc-100 text-sm">Notifications</h3>
                             {unreadCount > 0 && (
                                 <button
                                     onClick={() => markRead("all")}
@@ -113,7 +113,7 @@ export default function NotificationsBell() {
                                                         <Info className="w-4 h-4" />}
                                             </div>
                                             <div>
-                                                <p className={`text-sm ${!n.read ? 'font-medium text-gray-900' : 'text-gray-600'}`}>
+                                                <p className={`text-sm ${!n.read ? 'font-medium text-zinc-100' : 'text-gray-600'}`}>
                                                     {n.message}
                                                 </p>
                                                 <p className="text-xs text-gray-400 mt-1">

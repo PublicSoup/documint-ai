@@ -81,7 +81,7 @@ export default function CommentsSection({ fileId }: { fileId: string }) {
     return (
         <div className="bg-gray-50 border-t border-gray-200 mt-8 -mx-8 -mb-8 rounded-b-xl overflow-hidden">
             <div className="p-6 bg-white border-b">
-                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                <h3 className="font-semibold text-zinc-100 flex items-center gap-2">
                     <MessageSquare className="w-5 h-5 text-gray-500" />
                     Comments
                     <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{comments.reduce((acc, c) => acc + 1 + c.replies.length, 0)}</span>
@@ -105,7 +105,7 @@ export default function CommentsSection({ fileId }: { fileId: string }) {
                                 </div>
                                 <div className="flex-1">
                                     <div className="flex items-center gap-2 mb-1">
-                                        <span className="font-semibold text-sm text-gray-900">{comment.user.name || "Unknown"}</span>
+                                        <span className="font-semibold text-sm text-zinc-100">{comment.user.name || "Unknown"}</span>
                                         <span className="text-xs text-gray-400">{formatDate(comment.createdAt)}</span>
                                     </div>
                                     <p className="text-gray-700 text-sm leading-relaxed">{comment.content}</p>
@@ -132,7 +132,7 @@ export default function CommentsSection({ fileId }: { fileId: string }) {
                                             </div>
                                             <div className="flex-1">
                                                 <div className="flex items-center gap-2 mb-1">
-                                                    <span className="font-semibold text-xs text-gray-900">{reply.user.name}</span>
+                                                    <span className="font-semibold text-xs text-zinc-100">{reply.user.name}</span>
                                                     <span className="text-[10px] text-gray-400">{formatDate(reply.createdAt)}</span>
                                                 </div>
                                                 <p className="text-gray-700 text-sm">{reply.content}</p>
