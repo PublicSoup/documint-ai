@@ -655,7 +655,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                         }));
 
                                         const input = term.onData((data) => {
-                                            shellProcess.input.write(data);
+                                            (shellProcess.input as any).write(data);
                                         });
 
                                         return () => {

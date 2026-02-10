@@ -9,25 +9,23 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "www.google.com" },
     ],
   },
-};
-
   async headers() {
-  return [
-    {
-      source: "/(.*)",
-      headers: [
-        {
-          key: "Cross-Origin-Embedder-Policy",
-          value: "require-corp",
-        },
-        {
-          key: "Cross-Origin-Opener-Policy",
-          value: "same-origin",
-        },
-      ],
-    },
-  ];
-},
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          {
+            key: "Cross-Origin-Embedder-Policy",
+            value: "require-corp",
+          },
+          {
+            key: "Cross-Origin-Opener-Policy",
+            value: "same-origin",
+          },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;
