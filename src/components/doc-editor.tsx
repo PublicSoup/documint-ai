@@ -10,7 +10,7 @@ import DocumentationTemplates from "./documentation-templates";
 import DocSuggestions from "./doc-suggestions";
 import { DiagramViewer } from "./diagram-viewer";
 import { VerifiedBadge } from "./verified-badge";
-import { FileText, Edit2, Play, Users, Sparkles, Download, GitBranch, Github, Shovel, Loader2, Workflow, Globe, Save, X, RefreshCw, Headphones, ShieldCheck } from "lucide-react";
+import { FileText, Edit2, Play, Users, Sparkles, Download, GitBranch, Github, Shovel, Loader2, Workflow, Globe, Save, X, RefreshCw, Headphones, ShieldCheck, Lock, Activity, Check } from "lucide-react";
 
 interface DocEntity {
     type: string;
@@ -43,9 +43,10 @@ interface DocEditorProps {
     initialContent: DocContent;
     currentUser?: { id: string; name: string };
     isPublic: boolean;
+    isPro: boolean;
 }
 
-export default function DocEditor({ fileId, fileName, fileLanguage, initialContent, isPublic: initialPublicState }: DocEditorProps) {
+export default function DocEditor({ fileId, fileName, fileLanguage, initialContent, isPublic: initialPublicState, isPro }: DocEditorProps) {
     const router = useRouter();
     const { toast } = useToast();
     const [isEditing, setIsEditing] = useState(false);
@@ -63,7 +64,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
     const [personaExplanation, setPersonaExplanation] = useState<{ persona: string; text: string } | null>(null);
 
     // View Mode
-    const [mode, setMode] = useState<"standard" | "archaeology" | "code">("standard");
+    const [mode, setMode] = useState<"standard" | "archaeology" | "code" | "deep-audit">("standard");
 
     // GitHub Import State
     const [showGithubModal, setShowGithubModal] = useState(false);
@@ -640,7 +641,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                 <div>
                     <h2 className="text-2xl font-bold text-white">{fileName}</h2>
                     <div className="flex gap-2 mt-2 flex-wrap">
-                        <span className="px-2 py-1 bg-white/10 text-white/70 text-xs rounded uppercase font-bold">{fileLanguage}</span>
+                        <span className="px-2 py-1 bg-white/5 border-white/10/10 text-white/70 text-xs rounded uppercase font-bold">{fileLanguage}</span>
                         <VerifiedBadge
                             status={content.verifiedAt ? "VERIFIED" : "UNVERIFIED"}
                             verifiedAt={content.verifiedAt || undefined}
@@ -666,7 +667,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                         onClick={() => setMode(mode === "code" ? "standard" : "code")}
                         className={`px-3 py-2 text-sm font-medium rounded-lg flex items-center gap-2 border transition-colors ${mode === "code"
                             ? "bg-green-500/20 text-green-300 border-green-500/30"
-                            : "bg-white/10 text-white/70 border-white/10 hover:bg-white/20"
+                            : "bg-white/5 border-white/10/10 text-white/70 border-white/10 hover:bg-white/5 border-white/10/20"
                             }`}
                         title={mode === "code" ? "Return to docs" : "View source code"}
                     >
@@ -677,12 +678,24 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                         onClick={() => setMode(mode === "standard" ? "archaeology" : "standard")}
                         className={`px-3 py-2 text-sm font-medium rounded-lg flex items-center gap-2 border transition-colors ${mode === "archaeology"
                             ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
-                            : "bg-white/10 text-white/70 border-white/10 hover:bg-white/20"
+                            : "bg-white/5 border-white/10/10 text-white/70 border-white/10 hover:bg-white/5 border-white/10/20"
                             }`}
                         title={mode === "archaeology" ? "Return to standard view" : "Analyze code history and fossils"}
                     >
                         <Shovel className="w-4 h-4" />
                         {mode === "archaeology" ? "Exit Excavation" : "Archaeology"}
+                    </button>
+                    <button
+                        onClick={() => setMode(mode === "deep-audit" ? "standard" : "deep-audit")}
+                        className={`px-3 py-2 text-sm font-medium rounded-lg flex items-center gap-2 border transition-colors ${mode === "deep-audit"
+                            ? "bg-purple-500/20 text-purple-300 border-purple-500/30"
+                            : "bg-white/5 border-white/10/10 text-white/70 border-white/10 hover:bg-white/5 border-white/10/20"
+                            }`}
+                        title={mode === "deep-audit" ? "Return to docs" : "Deep Security & Architectural Audit"}
+                    >
+                        <ShieldCheck className="w-4 h-4" />
+                        {!isPro && <Lock className="w-3 h-3 text-amber-500" />}
+                        {mode === "deep-audit" ? "Exit Audit" : "Deep Analysis"}
                     </button>
                     {!isEditing && (
                         <>
@@ -700,7 +713,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                             </button>
                             <button
                                 onClick={() => setShowPersonaModal(true)}
-                                className="px-3 py-2 text-sm font-medium text-blue-300 bg-blue-500/10 border border-blue-500/20 hover:bg-blue-500/20 rounded-lg flex items-center gap-2"
+                                className="px-3 py-2 text-sm font-medium text-blue-300 bg-blue-500/10 border border-blue-500/20 hover:bg-blue-500/100/20 rounded-lg flex items-center gap-2"
                             >
                                 <Users className="w-4 h-4" /> Explain
                             </button>
@@ -732,7 +745,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                 disabled={verifying}
                                 className={`px-3 py-2 text-sm font-medium border rounded-lg flex items-center gap-2 disabled:opacity-50 transition-colors ${content.verifiedAt
                                     ? "bg-green-500/20 text-green-300 border-green-500/30 hover:bg-green-500/30"
-                                    : "bg-white/5 text-white/60 border-white/10 hover:bg-white/10"
+                                    : "bg-white/5 border-white/10/5 text-white/60 border-white/10 hover:bg-white/5 border-white/10/10"
                                     }`}
                                 title={content.verifiedAt ? "Mark as unverified" : "Mark as verified"}
                             >
@@ -744,7 +757,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                             <div className="relative group">
                                 <button
                                     disabled={translating}
-                                    className="px-3 py-2 text-sm font-medium text-white/70 bg-white/5 border border-white/10 hover:bg-white/10 rounded-lg flex items-center gap-2 disabled:opacity-50"
+                                    className="px-3 py-2 text-sm font-medium text-white/70 bg-white/5 border-white/10/5 border border-white/10 hover:bg-white/5 border-white/10/10 rounded-lg flex items-center gap-2 disabled:opacity-50"
                                 >
                                     {translating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
                                     {currentLang}
@@ -754,7 +767,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                         <button
                                             key={lang}
                                             onClick={() => handleTranslate(lang)}
-                                            className="w-full text-left px-4 py-2 text-sm hover:bg-white/10 text-white/80"
+                                            className="w-full text-left px-4 py-2 text-sm hover:bg-white/5 border-white/10/10 text-white/80"
                                         >
                                             {lang}
                                         </button>
@@ -766,8 +779,8 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                 onClick={handleShareToggle}
                                 disabled={sharing}
                                 className={`px-3 py-2 text-sm font-medium border rounded-lg flex items-center gap-2 disabled:opacity-50 transition-colors ${isPublic
-                                    ? "bg-blue-500/20 text-blue-300 border-blue-500/30 hover:bg-blue-500/30"
-                                    : "bg-white/5 text-white/60 border-white/10 hover:bg-white/10"
+                                    ? "bg-blue-500/20 text-blue-300 border-blue-500/30 hover:bg-blue-500/100/30"
+                                    : "bg-white/5 border-white/10/5 text-white/60 border-white/10 hover:bg-white/5 border-white/10/10"
                                     }`}
                                 title={isPublic ? "Public - Click to make private" : "Private - Click to share"}
                             >
@@ -777,46 +790,46 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
 
                             <div className="relative group">
                                 <button
-                                    className="px-3 py-2 text-sm font-medium text-white/70 bg-white/5 border border-white/10 hover:bg-white/10 rounded-lg flex items-center gap-2"
+                                    className="px-3 py-2 text-sm font-medium text-white/70 bg-white/5 border-white/10/5 border border-white/10 hover:bg-white/5 border-white/10/10 rounded-lg flex items-center gap-2"
                                 >
                                     <Download className="w-4 h-4" /> Export ▾
                                 </button>
                                 <div className="absolute right-0 top-full mt-1 glass-card bg-[#0A0A0B]/95 border border-white/10 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-20 min-w-[160px]">
                                     <button
                                         onClick={handleDownload}
-                                        className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/10 flex items-center gap-2"
+                                        className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/5 border-white/10/10 flex items-center gap-2"
                                     >
                                         📝 Markdown (.md)
                                     </button>
                                     <button
                                         onClick={handleExportHTML}
-                                        className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/10 flex items-center gap-2"
+                                        className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/5 border-white/10/10 flex items-center gap-2"
                                     >
                                         🌐 HTML (.html)
                                     </button>
                                     <button
                                         onClick={handleExportAdoc}
-                                        className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/10 flex items-center gap-2"
+                                        className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/5 border-white/10/10 flex items-center gap-2"
                                     >
                                         <span className="text-amber-500 text-xs font-bold border border-amber-500/30 bg-amber-500/10 px-1 rounded">PRO</span>
                                         📄 AsciiDoc (.adoc)
                                     </button>
                                     <button
                                         onClick={handleExportRST}
-                                        className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/10 flex items-center gap-2"
+                                        className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/5 border-white/10/10 flex items-center gap-2"
                                     >
                                         <span className="text-amber-500 text-xs font-bold border border-amber-500/30 bg-amber-500/10 px-1 rounded">PRO</span>
                                         📄 reStructuredText (.rst)
                                     </button>
                                     <button
                                         onClick={handleCopyToClipboard}
-                                        className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/10 flex items-center gap-2"
+                                        className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/5 border-white/10/10 flex items-center gap-2"
                                     >
                                         📋 Copy to Clipboard
                                     </button>
                                     <button
                                         onClick={() => handleOpenGithubModal()}
-                                        className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/10 border-t border-white/10 flex items-center gap-2"
+                                        className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/5 border-white/10/10 border-t border-white/10 flex items-center gap-2"
                                     >
                                         <Github className="w-4 h-4" /> Push to GitHub
                                     </button>
@@ -830,7 +843,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                             <button
                                 onClick={handleCancel}
                                 disabled={isSaving}
-                                className="px-3 py-2 text-sm font-medium text-white/70 bg-white/10 hover:bg-white/20 rounded-lg flex items-center gap-2"
+                                className="px-3 py-2 text-sm font-medium text-white/70 bg-white/5 border-white/10/10 hover:bg-white/5 border-white/10/20 rounded-lg flex items-center gap-2"
                             >
                                 <X className="w-4 h-4" /> Cancel
                             </button>
@@ -846,7 +859,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                     ) : (
                         <button
                             onClick={() => setIsEditing(true)}
-                            className="px-3 py-2 text-sm font-medium text-white/70 bg-white/5 border border-white/10 hover:bg-white/10 rounded-lg flex items-center gap-2"
+                            className="px-3 py-2 text-sm font-medium text-white/70 bg-white/5 border-white/10/5 border border-white/10 hover:bg-white/5 border-white/10/10 rounded-lg flex items-center gap-2"
                         >
                             <Edit2 className="w-4 h-4" /> Edit Docs
                         </button>
@@ -861,7 +874,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                         <div className="flex gap-4 h-[600px]">
                             {/* Code Editor */}
                             <div className="flex-1 bg-[#1e1e1e] border border-white/10 rounded-lg overflow-hidden flex flex-col">
-                                <div className="flex items-center justify-between px-4 py-2 bg-white/5 border-b border-white/5 shrink-0">
+                                <div className="flex items-center justify-between px-4 py-2 bg-white/5 border-white/10/5 border-b border-white/5 shrink-0">
                                     <span className="text-xs text-muted-foreground font-mono">{fileName}</span>
                                     <div className="flex items-center gap-2">
                                         {loadingRaw && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
@@ -886,13 +899,13 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
 
                             {/* AI Assistant Panel */}
                             <div className="w-[350px] bg-[#1e1e1e] border border-white/10 rounded-lg flex flex-col overflow-hidden">
-                                <div className="px-4 py-3 border-b border-white/5 bg-white/5 flex items-center gap-2 shrink-0">
+                                <div className="px-4 py-3 border-b border-white/5 bg-white/5 border-white/10/5 flex items-center gap-2 shrink-0">
                                     <Sparkles className="w-4 h-4 text-purple-400" />
                                     <span className="text-sm font-medium text-white">AI Architect</span>
                                 </div>
                                 <div className="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-4">
                                     {chatHistory.length === 0 && (
-                                        <div className="bg-white/5 p-3 rounded-lg border border-white/5">
+                                        <div className="bg-white/5 border-white/10/5 p-3 rounded-lg border border-white/5">
                                             <p className="text-xs text-white/70 leading-relaxed">
                                                 I'm ready to help you refactor <strong>{fileName}</strong>.
                                                 I can analyze the code structure, suggest security fixes, or implement new patterns.
@@ -904,7 +917,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                         <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                                             <div className={`max-w-[90%] rounded-lg p-3 text-xs ${msg.role === 'user'
                                                 ? 'bg-purple-500/20 text-purple-100 border border-purple-500/30'
-                                                : 'bg-white/5 text-white/90 border border-white/10'
+                                                : 'bg-white/5 border-white/10/5 text-white/90 border border-white/10'
                                                 }`}>
                                                 {msg.role === 'assistant' ? (
                                                     msg.content.split(/(<thinking>[\s\S]*?<\/thinking>)/g).map((part, j) => {
@@ -927,7 +940,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
 
                                     {sendingChat && (
                                         <div className="flex items-start">
-                                            <div className="bg-white/5 rounded-lg p-3 border border-white/10">
+                                            <div className="bg-white/5 border-white/10/5 rounded-lg p-3 border border-white/10">
                                                 <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
                                             </div>
                                         </div>
@@ -935,7 +948,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                     <div ref={messagesEndRef} />
                                 </div>
 
-                                <div className="p-3 border-t border-white/5 bg-white/[0.02]">
+                                <div className="p-3 border-t border-white/5 bg-white/5 border-white/10/[0.02]">
                                     <div className="relative">
                                         <textarea
                                             value={chatInput}
@@ -965,6 +978,147 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                 ) : mode === "archaeology" ? (
                     <div className="mt-8">
                         <CodeArchaeology fileId={fileId} fileName={fileName} />
+                    </div>
+                ) : mode === "deep-audit" ? (
+                    <div className="mt-8 animate-in fade-in duration-300">
+                        {isPro ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-6">
+                                    <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+                                        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                            <ShieldCheck className="w-5 h-5 text-green-400" />
+                                            Security Hardening
+                                        </h3>
+                                        <div className="space-y-4 max-h-[300px] overflow-y-auto custom-scrollbar">
+                                            {content.securityInsights && content.securityInsights.length > 0 ? (
+                                                content.securityInsights.map((insight, i) => (
+                                                    <div key={i} className="bg-black/20 rounded-lg p-4 border border-white/5">
+                                                        <div className="flex items-center justify-between mb-1">
+                                                            <span className="font-semibold text-zinc-100">Security Insight</span>
+                                                            <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-400">
+                                                                {insight.toLowerCase().includes('critical') ? 'CRITICAL' : 'NOTICE'}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-sm text-zinc-400">{insight}</p>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="flex flex-col items-center justify-center p-8 text-center text-zinc-500">
+                                                    <ShieldCheck className="w-12 h-12 mb-3 text-zinc-700" />
+                                                    <p>No specific security risks detected.</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+                                        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                            <Activity className="w-5 h-5 text-purple-400" />
+                                            Quality & Stats
+                                        </h3>
+                                        <div className="grid grid-cols-2 gap-4 mb-6">
+                                            <div className="p-4 bg-black/20 rounded-lg border border-white/5 text-center">
+                                                <div className="text-3xl font-bold text-white mb-1">{content.qualityScore || "N/A"}</div>
+                                                <div className="text-xs text-zinc-500 uppercase tracking-widest">Quality Score</div>
+                                            </div>
+                                            <div className="p-4 bg-black/20 rounded-lg border border-white/5 text-center">
+                                                <div className="text-3xl font-bold text-white mb-1">{content.metadata?.linesOfCode || "0"}</div>
+                                                <div className="text-xs text-zinc-500 uppercase tracking-widest">Lines of Code</div>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            {content.metadata?.functions !== undefined && (
+                                                <div className="flex justify-between items-center p-3 bg-white/5 rounded-lg border border-white/5">
+                                                    <span className="text-sm text-zinc-400">Functions Detected</span>
+                                                    <span className="text-white font-mono">{content.metadata.functions}</span>
+                                                </div>
+                                            )}
+                                            {content.metadata?.classes !== undefined && (
+                                                <div className="flex justify-between items-center p-3 bg-white/5 rounded-lg border border-white/5">
+                                                    <span className="text-sm text-zinc-400">Classes Detected</span>
+                                                    <span className="text-white font-mono">{content.metadata.classes}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="space-y-6">
+                                    <div className="bg-white/5 border border-white/10 rounded-xl p-6 min-h-[400px] flex flex-col">
+                                        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                            <GitBranch className="w-5 h-5 text-blue-400" />
+                                            Code Structure
+                                        </h3>
+                                        <div className="flex-grow bg-black/20 rounded-lg border border-white/5 relative overflow-hidden flex items-center justify-center p-4">
+                                            {diagramCode ? (
+                                                <div className="w-full h-full overflow-auto">
+                                                    <DiagramViewer code={diagramCode} type={diagramType} />
+                                                </div>
+                                            ) : (
+                                                <div className="text-center">
+                                                    <Workflow className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
+                                                    <p className="text-zinc-500 mb-4 text-sm">Visualize class relationships and flow.</p>
+                                                    <button
+                                                        onClick={handleGenerateDiagram}
+                                                        disabled={generatingDiagram}
+                                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 mx-auto"
+                                                    >
+                                                        {generatingDiagram ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                                                        Generate Graph
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="relative rounded-2xl overflow-hidden border border-white/10 h-[600px] bg-[#0A0A0B]">
+                                {/* Blurred Background Content */}
+                                <div className="absolute inset-0 p-8 blur-sm pointer-events-none opacity-30 select-none">
+                                    <div className="grid grid-cols-2 gap-8">
+                                        <div className="space-y-4">
+                                            <div className="h-8 w-1/3 bg-white/10 rounded"></div>
+                                            <div className="h-32 w-full bg-white/5 rounded border border-white/5"></div>
+                                            <div className="h-32 w-full bg-white/5 rounded border border-white/5"></div>
+                                        </div>
+                                        <div className="space-y-4">
+                                            <div className="h-64 w-full bg-white/5 rounded border border-white/5"></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Locked Overlay */}
+                                <div className="absolute inset-0 flex flex-col items-center justify-center text-center z-10 bg-gradient-to-b from-transparent to-black/80">
+                                    <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-2xl shadow-orange-500/20 mb-8 animate-in zoom-in duration-500">
+                                        <Lock className="w-10 h-10 text-white" />
+                                    </div>
+                                    <h3 className="text-3xl font-black text-white mb-4 tracking-tight">
+                                        Unlock Deep Analysis
+                                    </h3>
+                                    <p className="text-muted-foreground text-lg max-w-md mb-8 leading-relaxed">
+                                        Get advanced security insights, architectural diagrams, and performance profiling.
+                                    </p>
+                                    <div className="flex flex-col gap-3 w-full max-w-sm">
+                                        <button
+                                            onClick={() => router.push("/dashboard/billing")}
+                                            className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold text-lg shadow-lg hover:shadow-orange-500/25 transition-all transform hover:scale-[1.02] active:scale-[0.98]"
+                                        >
+                                            Upgrade to Pro
+                                        </button>
+                                        <button
+                                            onClick={() => setMode("standard")}
+                                            className="text-sm text-zinc-500 hover:text-white transition-colors"
+                                        >
+                                            Maybe later
+                                        </button>
+                                    </div>
+                                    <div className="mt-8 flex items-center gap-6 text-xs text-white/30 font-medium">
+                                        <span className="flex items-center gap-2"><Check className="w-3 h-3 text-green-500" /> Security Audit</span>
+                                        <span className="flex items-center gap-2"><Check className="w-3 h-3 text-green-500" /> Dependency Graph</span>
+                                        <span className="flex items-center gap-2"><Check className="w-3 h-3 text-green-500" /> Complexity Score</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 ) : (
                     <div className="space-y-8">
@@ -1008,10 +1162,10 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                 <div className="space-y-6">
                                     {content.entities.map((entity, i) => (
                                         <div key={i} className={`border rounded-lg overflow-hidden ${entity.type === 'complex_logic' ? 'border-amber-500/30' : 'border-white/10'}`}>
-                                            <div className={`px-4 py-2 border-b flex justify-between items-center ${entity.type === 'complex_logic' ? 'bg-amber-500/10' : 'bg-white/5'} border-white/5`}>
+                                            <div className={`px-4 py-2 border-b flex justify-between items-center ${entity.type === 'complex_logic' ? 'bg-amber-500/10' : 'bg-white/5 border-white/10/5'} border-white/5`}>
                                                 <div className="flex items-center gap-2">
                                                     <span className={`font-mono text-sm font-bold ${entity.type === 'complex_logic' ? 'text-amber-300' : 'text-blue-400'}`}>{entity.name}</span>
-                                                    <span className="text-xs px-2 py-0.5 bg-white/5 border border-white/10 rounded text-white/50 uppercase">{entity.type.replace('_', ' ')}</span>
+                                                    <span className="text-xs px-2 py-0.5 bg-white/5 border-white/10/5 border border-white/10 rounded text-white/50 uppercase">{entity.type.replace('_', ' ')}</span>
                                                 </div>
                                                 {!isEditing && (
                                                     <button
@@ -1058,13 +1212,13 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
             {
                 showPersonaModal && (
                     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                        <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+                        <div className="bg-white/5 border-white/10 rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
                             <div className="p-6 border-b flex justify-between items-center">
                                 <h3 className="text-xl font-bold flex items-center gap-2">
                                     <Users className="w-5 h-5 text-blue-600" />
                                     Explain as...
                                 </h3>
-                                <button onClick={() => setShowPersonaModal(false)} className="text-gray-400 hover:text-gray-600">
+                                <button onClick={() => setShowPersonaModal(false)} className="text-gray-400 hover:text-zinc-400">
                                     <X className="w-5 h-5" />
                                 </button>
                             </div>
@@ -1072,7 +1226,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                             <div className="p-6 overflow-y-auto flex-grow">
                                 {!personaExplanation ? (
                                     <div className="space-y-6">
-                                        <p className="text-gray-600">Choose a persona to explain this code:</p>
+                                        <p className="text-zinc-400">Choose a persona to explain this code:</p>
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                             {[
                                                 { id: 'junior', label: 'Junior Developer', desc: 'Simple, educational, analogies' },
@@ -1084,9 +1238,9 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                                     // @ts-ignore
                                                     onClick={() => handlePersonaExplain(p.id)}
                                                     disabled={personaLoading}
-                                                    className="p-4 border rounded-xl hover:border-blue-500 hover:bg-blue-50 text-left transition-all group"
+                                                    className="p-4 border rounded-xl hover:border-blue-500 hover:bg-blue-500/10 text-left transition-all group"
                                                 >
-                                                    <div className="font-semibold text-gray-900 group-hover:text-blue-700">{p.label}</div>
+                                                    <div className="font-semibold text-zinc-100 group-hover:text-blue-700">{p.label}</div>
                                                     <div className="text-xs text-gray-500 mt-1">{p.desc}</div>
                                                 </button>
                                             ))}
@@ -1124,13 +1278,13 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
             {
                 showGithubModal && (
                     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                        <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[80vh] flex flex-col">
-                            <div className="p-6 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
+                        <div className="bg-white/5 border-white/10 rounded-xl shadow-2xl max-w-lg w-full max-h-[80vh] flex flex-col">
+                            <div className="p-6 border-b flex justify-between items-center bg-white/5 rounded-t-xl">
                                 <h3 className="text-lg font-bold flex items-center gap-2">
                                     <Github className="w-5 h-5" />
                                     Select Repository
                                 </h3>
-                                <button onClick={() => setShowGithubModal(false)} className="text-gray-400 hover:text-gray-600">
+                                <button onClick={() => setShowGithubModal(false)} className="text-gray-400 hover:text-zinc-400">
                                     <X className="w-5 h-5" />
                                 </button>
                             </div>
@@ -1141,7 +1295,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                 {pushingToGithub ? (
                                     <div className="flex flex-col items-center justify-center py-12">
                                         <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-4" />
-                                        <p className="text-gray-600 font-medium">Creating Pull Request...</p>
+                                        <p className="text-zinc-400 font-medium">Creating Pull Request...</p>
                                         <p className="text-sm text-gray-400">This might take a moment.</p>
                                     </div>
                                 ) : (
@@ -1150,9 +1304,9 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                             <button
                                                 key={repo.id}
                                                 onClick={() => handlePushToGithub(repo.full_name)}
-                                                className="w-full text-left p-4 border rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all group"
+                                                className="w-full text-left p-4 border rounded-lg hover:border-blue-500 hover:bg-blue-500/10 transition-all group"
                                             >
-                                                <div className="font-semibold text-gray-900 group-hover:text-blue-700">{repo.full_name}</div>
+                                                <div className="font-semibold text-zinc-100 group-hover:text-blue-700">{repo.full_name}</div>
                                                 <div className="text-xs text-gray-500 flex gap-4 mt-1">
                                                     <span>{repo.language || "Unknown"}</span>
                                                     <span>{repo.private ? "Private" : "Public"}</span>

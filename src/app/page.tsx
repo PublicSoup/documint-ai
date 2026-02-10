@@ -202,38 +202,62 @@ export default function LandingPage() {
               {
                 icon: <Code2 className="w-8 h-8" />,
                 title: "Cloud IDE",
-                description: "A full VS-Code style experience in your browser with real-time AI assistance."
+                description: "A full VS-Code style experience in your browser with real-time AI assistance.",
+                color: "text-blue-400",
+                bg: "bg-blue-500/10",
+                border: "border-blue-500/20",
+                shadow: "shadow-blue-500/20"
               },
               {
                 icon: <Sparkles className="w-8 h-8" />,
                 title: "AI Documentation",
-                description: "Instantly generate human-readable docs from your source code using advanced LLMs."
+                description: "Instantly generate human-readable docs from your source code using advanced LLMs.",
+                color: "text-amber-400",
+                bg: "bg-amber-500/10",
+                border: "border-amber-500/20",
+                shadow: "shadow-amber-500/20"
               },
               {
                 icon: <Cpu className="w-8 h-8" />,
                 title: "Agentic Workflows",
-                description: "AI agents that can fix bugs, refactor code, and run tests autonomously."
+                description: "AI agents that can fix bugs, refactor code, and run tests autonomously.",
+                color: "text-purple-400",
+                bg: "bg-purple-500/10",
+                border: "border-purple-500/20",
+                shadow: "shadow-purple-500/20"
               },
               {
                 icon: <Shield className="w-8 h-8" />,
                 title: "Enterprise Security",
-                description: "Bank-grade encryption and isolation for your sensitive codebase and secrets."
+                description: "Bank-grade encryption and isolation for your sensitive codebase and secrets.",
+                color: "text-emerald-400",
+                bg: "bg-emerald-500/10",
+                border: "border-emerald-500/20",
+                shadow: "shadow-emerald-500/20"
               },
               {
                 icon: <Globe className="w-8 h-8" />,
                 title: "Universal Support",
-                description: "Support for 20+ languages including TS, Python, Rust, Go, and Java."
+                description: "Support for 20+ languages including TS, Python, Rust, Go, and Java.",
+                color: "text-indigo-400",
+                bg: "bg-indigo-500/10",
+                border: "border-indigo-500/20",
+                shadow: "shadow-indigo-500/20"
               },
               {
                 icon: <Command className="w-8 h-8" />,
                 title: "CLI Power",
-                description: "Deploy and manage your environment from any terminal with our CLI tool."
+                description: "Deploy and manage your environment from any terminal with our CLI tool.",
+                color: "text-rose-400",
+                bg: "bg-rose-500/10",
+                border: "border-rose-500/20",
+                shadow: "shadow-rose-500/20"
               }
             ].map((feature, i) => (
               <motion.div key={i} variants={fadeInUp}>
                 <Card className="glass-card h-full border-white/5 hover:border-primary/30 group">
                   <CardContent className="p-8">
-                    <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center text-primary mb-6 group-hover:scale-110 transition-transform duration-500">
+                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-500 ${feature.bg} ${feature.color} border ${feature.border} shadow-lg ${feature.shadow}`}>
                       {feature.icon}
                     </div>
                     <h3 className="text-xl font-bold mb-4">{feature.title}</h3>

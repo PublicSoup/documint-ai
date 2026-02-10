@@ -330,6 +330,7 @@ export default async function DashboardPage(props: {
                                             initialContent={parsedDoc}
                                             currentUser={{ id: session!.user.id, name: session!.user.name || "User" }}
                                             isPublic={!!selectedFile.documentation?.isPublic}
+                                            isPro={subscription.isPro || subscription.isTeam}
                                         />
                                     </div>
                                 ) : (

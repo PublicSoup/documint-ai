@@ -1,21 +1,33 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+const databaseUrl = "postgresql://postgres.bnafgbylmsukdkzccovo:DocumintPRO_2026!@aws-0-us-west-2.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1";
+
+console.log("🔌 Testing Database Connection...");
+console.log(`URL: ${databaseUrl.replace(/:[^:@]+@/, ':***@')}`); // Log masked URL
+
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: databaseUrl,
+    },
+  },
+});
 
 async function main() {
-  console.log("⏳ Testing database connection...");
   try {
+    await prisma.$connect();
+    console.log("✅ Successfully connected to the database!");
+
+    // Try a simple query
     const userCount = await prisma.user.count();
-    console.log(`✅ Database connection successful. User count: ${userCount}`);
-    
-    const subCount = await prisma.subscription.count();
-    console.log(`✅ Subscription table accessible. Count: ${subCount}`);
-  } catch (error: any) {
-    console.error("❌ Database connection failed:");
-    console.error("Message:", error.message);
-    console.error("Code:", error.code);
-  } finally {
+    console.log(`📊 User count: ${userCount}`);
+
     await prisma.$disconnect();
+    process.exit(0);
+  } catch (error) {
+    console.error("❌ Database connection failed:", error);
+    await prisma.$disconnect();
+    process.exit(1);
   }
 }
 

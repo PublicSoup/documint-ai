@@ -1,14 +1,24 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { SimpleEnhancedEditor, SimpleEnhancedEditorRef } from "./simple-enhanced-editor";
-import { X, Save, Play, Bot, Layout, Maximize2, Columns, Terminal, Settings, Sparkles, GitBranch, Files, Search as SearchIcon } from "lucide-react";
+import { X, Save, Play, Bot, Layout, Maximize2, Columns, Terminal as TerminalIcon, Settings, Sparkles, GitBranch, Files, Search as SearchIcon, Globe, Loader2 } from "lucide-react";
 import { File } from "@prisma/client";
 import { cn } from "@/lib/utils";
 import { useToast } from "../toast";
 import { Button } from "../ui/button";
 import { AIChatPanel } from "./ai-chat-panel";
 import { EnhancedFileTree } from "./enhanced-file-tree";
+import { WebContainerManager } from "@/lib/web-container";
+import { Terminal } from "./terminal";
+import { Terminal as XTerm } from '@xterm/xterm';
+import { useExecutionEngine } from "@/hooks/use-execution-engine";
+import { RunnerConfigDialog } from "./runner-config-dialog";
+import { ActivityBar } from "./activity-bar";
+import { Sidebar } from "./sidebar";
+import { EditorTabs } from "./editor-tabs";
+import { SecretsManager } from "./secrets-manager";
+import { Lock } from "lucide-react";
 
 interface EnhancedIDELayoutProps {
     files: (File & { content?: string | null })[];
@@ -24,12 +34,19 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     const [unsavedChanges, setUnsavedChanges] = useState<Record<string, boolean>>({});
     const [isSaving, setIsSaving] = useState(false);
 
+    // WebContainer State
+    const [webContainerBooted, setWebContainerBooted] = useState(false);
+    const [terminalInstance, setTerminalInstance] = useState<XTerm | null>(null);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+    const [isInstalling, setIsInstalling] = useState(false);
+
     // Layout State
     const [showSidebar, setShowSidebar] = useState(true);
     const [activeSidebarTab, setActiveSidebarTab] = useState<"explorer" | "search" | "git">("explorer");
     const [showAIChat, setShowAIChat] = useState(true);
     const [showAIEditor, setShowAIEditor] = useState(false);
-    const [showTerminal, setShowTerminal] = useState(false);
+    const [showTerminal, setShowTerminal] = useState(true);
     const editorRef = useRef<SimpleEnhancedEditorRef>(null);
     const [clickTimeout, setClickTimeout] = useState<NodeJS.Timeout | null>(null);
 
@@ -122,6 +139,80 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
             toast("Failed to create file", "error");
         }
     };
+
+    // Boot WebContainer
+    useEffect(() => {
+        const boot = async () => {
+            try {
+                const wc = await WebContainerManager.getInstance();
+                setWebContainerBooted(true);
+
+                // Mount initial files
+                const fileMounts: Record<string, { file: { contents: string } }> = {};
+
+                // Process initial files
+                initialFiles.forEach(f => {
+                    fileMounts[f.name] = { file: { contents: f.content || "" } };
+                });
+
+                // Add package.json if missing (for React/Next support)
+                if (!fileMounts['package.json']) {
+                    fileMounts['package.json'] = {
+                        file: {
+                            contents: JSON.stringify({
+                                name: "documint-preview",
+                                private: true,
+                                scripts: {
+                                    "dev": "next dev",
+                                    "build": "next build",
+                                    "start": "next start"
+                                },
+                                dependencies: {
+                                    "next": "latest",
+                                    "react": "latest",
+                                    "react-dom": "latest"
+                                }
+                            }, null, 2)
+                        }
+                    };
+                }
+
+                await wc.mount(fileMounts);
+
+                // Listen for server-ready
+                wc.on('server-ready', (port, url) => {
+                    setPreviewUrl(url);
+                    setIsPreviewOpen(true);
+                    toast("Development server ready!", "success");
+                });
+
+            } catch (e) {
+                console.error("WebContainer Boot Error:", e);
+                // toast("Failed to boot runtime environment. Check console.", "error");
+            }
+        };
+
+        boot();
+    }, []);
+
+    // Sync file changes to WebContainer
+    useEffect(() => {
+        const syncFile = async () => {
+            if (activeFileId && fileContents[activeFileId] && webContainerBooted) {
+                const file = initialFiles.find(f => f.id === activeFileId);
+                if (file) {
+                    try {
+                        await WebContainerManager.writeFile(file.name, fileContents[activeFileId]);
+                    } catch (e) {
+                        console.error("Failed to sync file to WC:", e);
+                    }
+                }
+            }
+        };
+        const timeout = setTimeout(syncFile, 500); // Debounce
+        return () => clearTimeout(timeout);
+    }, [fileContents, activeFileId, webContainerBooted]);
+
 
     // Hotkeys
     useEffect(() => {
@@ -380,7 +471,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                             setClickTimeout(timeout);
                             setShowTerminal(!showTerminal);
                         }} className="p-1.5 rounded hover:bg-white/10 text-muted-foreground" title="Toggle Terminal">
-                            <Terminal className="w-4 h-4" />
+                            <TerminalIcon className="w-4 h-4" />
                         </button>
                         <button
                             onClick={(e) => {
@@ -454,8 +545,52 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         >
                             <Save className="w-4 h-4" />
                         </button>
-                        <button className="p-1.5 rounded hover:bg-green-500/20 text-green-500 hover:text-green-400" title="Run (Preview)">
-                            <Play className="w-4 h-4" />
+                        <button
+                            onClick={async () => {
+                                if (!webContainerBooted || !terminalInstance) {
+                                    toast("runtime not ready", "error");
+                                    return;
+                                }
+
+                                setIsInstalling(true);
+                                setShowTerminal(true);
+
+                                try {
+                                    const wc = await WebContainerManager.getInstance();
+
+                                    // Install dependencies
+                                    terminalInstance.writeln("\r\n> npm install\r\n");
+                                    const installProcess = await wc.spawn('npm', ['install']);
+                                    installProcess.output.pipeTo(new WritableStream({
+                                        write(data) {
+                                            terminalInstance.write(data);
+                                        }
+                                    }));
+
+                                    if ((await installProcess.exit) !== 0) {
+                                        throw new Error("Installation failed");
+                                    }
+
+                                    // Start Dev Server
+                                    terminalInstance.writeln("\r\n> npm run dev\r\n");
+                                    const devProcess = await wc.spawn('npm', ['run', 'dev']);
+                                    devProcess.output.pipeTo(new WritableStream({
+                                        write(data) {
+                                            terminalInstance.write(data);
+                                        }
+                                    }));
+
+                                    setIsInstalling(false);
+                                } catch (e) {
+                                    terminalInstance.writeln(`\r\nError: ${e}\r\n`);
+                                    setIsInstalling(false);
+                                }
+                            }}
+                            className="p-1.5 rounded hover:bg-green-500/20 text-green-500 hover:text-green-400 disabled:opacity-50"
+                            title="Run (Preview)"
+                            disabled={isInstalling || !webContainerBooted}
+                        >
+                            {isInstalling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
                         </button>
                     </div>
                 </div>
@@ -497,13 +632,61 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 <X className="w-4 h-4" />
                             </button>
                         </div>
-                        <div className="p-3 font-mono text-xs text-green-400">
-                            <div>$ Welcome to DocuMint IDE Terminal</div>
-                            <div>$ Ready for commands...</div>
+                        <div className="flex-1 h-full min-h-0 bg-black">
+                            <Terminal
+                                onTerminalReady={async (term) => {
+                                    setTerminalInstance(term);
+                                    term.writeln("Welcome to DocuMint Web Shell");
+
+                                    // Connect shell
+                                    if (webContainerBooted) {
+                                        const wc = await WebContainerManager.getInstance();
+                                        const shellProcess = await wc.spawn('jsh', {
+                                            terminal: {
+                                                cols: term.cols,
+                                                rows: term.rows,
+                                            },
+                                        });
+
+                                        shellProcess.output.pipeTo(new WritableStream({
+                                            write(data) {
+                                                term.write(data);
+                                            }
+                                        }));
+
+                                        const input = term.onData((data) => {
+                                            shellProcess.input.write(data);
+                                        });
+
+                                        return () => {
+                                            input.dispose();
+                                            shellProcess.kill();
+                                        };
+                                    }
+                                }}
+                            />
                         </div>
                     </div>
                 )}
             </div>
+
+            {/* Preview Panel */}
+            {isPreviewOpen && previewUrl && (
+                <div className="w-[400px] flex-none border-l border-white/5 bg-white flex flex-col h-full min-h-0 z-40">
+                    <div className="h-8 bg-[#f5f5f5] border-b flex items-center justify-between px-2">
+                        <span className="text-xs text-black font-mono truncate max-w-[200px]">{previewUrl}</span>
+                        <div className="flex gap-2">
+                            <button onClick={() => window.open(previewUrl, '_blank')} className="text-zinc-500 hover:text-black">
+                                <Globe className="w-3 h-3" />
+                            </button>
+                            <button onClick={() => setIsPreviewOpen(false)} className="text-zinc-500 hover:text-red-500">
+                                <X className="w-3 h-3" />
+                            </button>
+                        </div>
+                    </div>
+                    <iframe src={previewUrl} className="flex-1 w-full border-none bg-white" title="Preview" />
+                </div>
+            )}
 
             {/* Right Sidebar (AI) */}
             {showAIChat && (

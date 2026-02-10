@@ -200,10 +200,10 @@ export default function DocumentationTemplates({ fileId, fileName, onApply }: Do
             />
 
             {/* Modal */}
-            <div className="fixed inset-4 md:inset-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[800px] md:max-h-[80vh] bg-white rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col">
+            <div className="fixed inset-4 md:inset-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[800px] md:max-h-[80vh] bg-white/5 border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col">
                 {/* Header */}
-                <div className="p-4 border-b bg-gradient-to-r from-purple-50 to-indigo-50">
-                    <h2 className="font-bold text-lg text-gray-900 flex items-center gap-2">
+                <div className="p-4 border-b bg-gradient-to-r from-purple-900/20 to-indigo-900/20">
+                    <h2 className="font-bold text-lg text-zinc-100 flex items-center gap-2">
                         <Layout className="w-5 h-5 text-purple-600" />
                         Documentation Templates
                     </h2>
@@ -221,8 +221,8 @@ export default function DocumentationTemplates({ fileId, fileName, onApply }: Do
                                 key={cat}
                                 onClick={() => setSelectedCategory(cat)}
                                 className={`px-3 py-1.5 text-sm rounded-full capitalize transition-colors ${selectedCategory === cat
-                                    ? "bg-purple-100 text-purple-700"
-                                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                                    ? "bg-purple-500/20 text-purple-300"
+                                    : "bg-white/5 text-zinc-400 hover:bg-white/10"
                                     }`}
                             >
                                 {cat}
@@ -237,8 +237,8 @@ export default function DocumentationTemplates({ fileId, fileName, onApply }: Do
                                 key={template.id}
                                 onClick={() => setSelectedTemplate(template)}
                                 className={`p-4 rounded-xl border-2 text-left transition-all relative ${selectedTemplate?.id === template.id
-                                    ? "border-purple-500 bg-purple-50"
-                                    : "border-gray-200 hover:border-gray-300 hover:shadow"
+                                    ? "border-purple-500 bg-purple-500/10"
+                                    : "border-white/10 hover:border-white/20"
                                     }`}
                             >
                                 {template.premium && (
@@ -246,13 +246,13 @@ export default function DocumentationTemplates({ fileId, fileName, onApply }: Do
                                 )}
                                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-3 ${selectedTemplate?.id === template.id
                                     ? "bg-purple-500 text-white"
-                                    : "bg-gray-100 text-gray-600"
+                                    : "bg-white/5 text-zinc-400"
                                     }`}>
                                     {getIcon(template.icon)}
                                 </div>
-                                <h3 className="font-semibold text-gray-900">{template.name}</h3>
+                                <h3 className="font-semibold text-zinc-100">{template.name}</h3>
                                 <p className="text-sm text-gray-500 mt-1">{template.description}</p>
-                                <span className="inline-block mt-2 px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
+                                <span className="inline-block mt-2 px-2 py-0.5 text-xs bg-white/5 text-zinc-400 rounded">
                                     {template.category}
                                 </span>
                             </button>
@@ -284,10 +284,10 @@ export default function DocumentationTemplates({ fileId, fileName, onApply }: Do
                 </div>
 
                 {/* Footer */}
-                <div className="p-4 border-t bg-gray-50 flex items-center justify-between">
+                <div className="p-4 border-t bg-white/5 flex items-center justify-between">
                     <button
                         onClick={() => setIsOpen(false)}
-                        className="px-4 py-2 text-gray-600 hover:text-gray-900"
+                        className="px-4 py-2 text-zinc-400 hover:text-zinc-100"
                     >
                         Cancel
                     </button>

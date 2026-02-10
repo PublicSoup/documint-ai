@@ -208,13 +208,13 @@ export default function ReadmeGenerator({ fileIds, onClose }: ReadmeGeneratorPro
                             <BookOpen className="w-5 h-5 text-white" />
                         </div>
                         <div>
-                            <h2 className="font-bold text-gray-900">README Generator</h2>
+                            <h2 className="font-bold text-zinc-100">README Generator</h2>
                             <p className="text-sm text-gray-500">Create professional documentation</p>
                         </div>
                     </div>
                     <button
                         onClick={() => { setIsOpen(false); onClose?.(); }}
-                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                        className="p-2 hover:bg-white/10 rounded-lg transition-colors"
                     >
                         <X className="w-5 h-5 text-gray-500" />
                     </button>
@@ -243,7 +243,7 @@ export default function ReadmeGenerator({ fileIds, onClose }: ReadmeGeneratorPro
                                             {template.premium && (
                                                 <Crown className="w-4 h-4 text-amber-500 absolute top-2 right-2" />
                                             )}
-                                            <p className="font-medium text-gray-900 text-sm">{template.name}</p>
+                                            <p className="font-medium text-zinc-100 text-sm">{template.name}</p>
                                             <p className="text-xs text-gray-500 mt-1">{template.description}</p>
                                         </button>
                                     ))}
@@ -301,7 +301,7 @@ export default function ReadmeGenerator({ fileIds, onClose }: ReadmeGeneratorPro
                                             onClick={() => toggleSection(section.id)}
                                             className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${sections[section.id]
                                                 ? "bg-purple-100 text-purple-700 border border-purple-200"
-                                                : "bg-gray-100 text-gray-600 border border-gray-200"
+                                                : "bg-gray-100 text-zinc-400 border border-gray-200"
                                                 }`}
                                         >
                                             {sections[section.id] ? "✓ " : ""}{section.name}
@@ -313,7 +313,7 @@ export default function ReadmeGenerator({ fileIds, onClose }: ReadmeGeneratorPro
                             {/* Advanced Settings */}
                             <button
                                 onClick={() => setShowAdvanced(!showAdvanced)}
-                                className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
+                                className="flex items-center gap-2 text-sm text-zinc-400 hover:text-zinc-100"
                             >
                                 <Settings className="w-4 h-4" />
                                 Advanced Options
@@ -324,7 +324,7 @@ export default function ReadmeGenerator({ fileIds, onClose }: ReadmeGeneratorPro
                                 <div className="space-y-4 p-4 bg-gray-50 rounded-xl">
                                     {/* Badge Style */}
                                     <div>
-                                        <label className="block text-xs font-medium text-gray-600 mb-2">
+                                        <label className="block text-xs font-medium text-zinc-400 mb-2">
                                             <Palette className="w-3 h-3 inline mr-1" />
                                             Badge Style
                                         </label>
@@ -335,7 +335,7 @@ export default function ReadmeGenerator({ fileIds, onClose }: ReadmeGeneratorPro
                                                     onClick={() => setSelectedBadgeStyle(style)}
                                                     className={`px-3 py-1 text-xs rounded-lg ${selectedBadgeStyle === style
                                                         ? "bg-purple-500 text-white"
-                                                        : "bg-white border text-gray-600"
+                                                        : "bg-white border text-zinc-400"
                                                         }`}
                                                 >
                                                     {style}
@@ -386,7 +386,7 @@ export default function ReadmeGenerator({ fileIds, onClose }: ReadmeGeneratorPro
 
                                     {/* Social Links */}
                                     <div>
-                                        <label className="block text-xs font-medium text-gray-600 mb-2">
+                                        <label className="block text-xs font-medium text-zinc-400 mb-2">
                                             <Link2 className="w-3 h-3 inline mr-1" />
                                             Social Links (optional)
                                         </label>
@@ -424,7 +424,7 @@ export default function ReadmeGenerator({ fileIds, onClose }: ReadmeGeneratorPro
 
                                     {/* Branding */}
                                     <div>
-                                        <label className="block text-xs font-medium text-gray-600 mb-2">
+                                        <label className="block text-xs font-medium text-zinc-400 mb-2">
                                             <FileText className="w-3 h-3 inline mr-1" />
                                             Branding (optional)
                                         </label>
@@ -460,14 +460,14 @@ export default function ReadmeGenerator({ fileIds, onClose }: ReadmeGeneratorPro
                                     <div className="flex gap-2">
                                         <button
                                             onClick={handleCopy}
-                                            className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded"
+                                            className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-400 hover:text-zinc-100 hover:bg-white/10 rounded"
                                         >
                                             {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
                                             {copied ? "Copied!" : "Copy"}
                                         </button>
                                         <button
                                             onClick={handleDownload}
-                                            className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded"
+                                            className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-400 hover:text-zinc-100 hover:bg-white/10 rounded"
                                         >
                                             <Download className="w-3 h-3" />
                                             Download
@@ -491,7 +491,7 @@ export default function ReadmeGenerator({ fileIds, onClose }: ReadmeGeneratorPro
                                     <div className="h-full flex flex-col items-center justify-center text-gray-500">
                                         <BookOpen className="w-12 h-12 mb-3 opacity-50" />
                                         <p className="text-sm">Configure options and click Generate</p>
-                                        <p className="text-xs text-gray-600 mt-1">Preview will appear here</p>
+                                        <p className="text-xs text-zinc-400 mt-1">Preview will appear here</p>
                                     </div>
                                 )}
                             </div>
@@ -535,7 +535,7 @@ export default function ReadmeGenerator({ fileIds, onClose }: ReadmeGeneratorPro
                     <div className="flex gap-3">
                         <button
                             onClick={() => { setIsOpen(false); onClose?.(); }}
-                            className="px-4 py-2 text-gray-600 hover:text-gray-900 font-medium"
+                            className="px-4 py-2 text-zinc-400 hover:text-zinc-100 font-medium"
                         >
                             Cancel
                         </button>

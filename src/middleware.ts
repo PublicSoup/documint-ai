@@ -6,7 +6,7 @@ import { Redis } from '@upstash/redis';
 // Simple in-memory fallback for rate limiting if Redis is not configured
 const cache = new Map();
 
-// Initialize rate limiter
+// Rate Limiter initialization with verbose logging for enterprise debugging
 let ratelimit: Ratelimit | null = null;
 
 try {
@@ -17,10 +17,14 @@ try {
             analytics: true,
             prefix: "@documint/ratelimit",
         });
+    } else {
+        console.warn("⚠️  Enterprise Rate Limiting Disabled: Missing Upstash Redis Credentials");
     }
 } catch (e) {
-    console.warn("Rate limiting disabled: Redis not configured correctly.");
+    console.error("❌ Rate Limiter Initialization Failed:", e);
 }
+
+import { getToken } from 'next-auth/jwt';
 
 export async function middleware(request: NextRequest) {
     const response = NextResponse.next();
@@ -28,6 +32,15 @@ export async function middleware(request: NextRequest) {
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
         ?? request.headers.get('x-real-ip')
         ?? '127.0.0.1';
+
+    // 0. Admin Protection
+    if (request.nextUrl.pathname.startsWith('/admin')) {
+        const token = await getToken({ req: request });
+        if (!token || token.email !== 'admin@documintai.dev') {
+            console.warn(`Unauthorized access attempt to ${request.nextUrl.pathname} from ${ip}`);
+            return NextResponse.redirect(new URL('/', request.url));
+        }
+    }
 
     // 1. Enterprise Security Headers
     // HSTS - Force HTTPS for 1 year

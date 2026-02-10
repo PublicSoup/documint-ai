@@ -37,12 +37,12 @@ export function PRAnalysisView({ data }: PRAnalysisViewProps) {
     const scoreColor = getScoreColor(analysis.impactScore);
 
     return (
-        <div className="space-y-4 p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+        <div className="space-y-4 p-4 bg-white/5 border-white/10 rounded-lg border border-gray-200 shadow-sm">
             {/* Header / Score */}
             <div className="flex items-start justify-between">
                 <div>
-                    <h4 className="font-semibold text-gray-900">AI Change Impact Report</h4>
-                    <p className="text-sm text-gray-600 mt-1">{analysis.summary}</p>
+                    <h4 className="font-semibold text-zinc-100">AI Change Impact Report</h4>
+                    <p className="text-sm text-zinc-400 mt-1">{analysis.summary}</p>
                 </div>
                 <div className="flex flex-col items-center">
                     <div className={`text-3xl font-bold ${scoreColor}`}>
@@ -93,7 +93,7 @@ export function PRAnalysisView({ data }: PRAnalysisViewProps) {
                     </h5>
                     <div className="space-y-2 max-h-60 overflow-y-auto">
                         {analysis.suggestions.map((suggestion, idx) => (
-                            <div key={idx} className="text-sm bg-gray-50 p-3 rounded border border-gray-200">
+                            <div key={idx} className="text-sm bg-white/5 p-3 rounded border border-gray-200">
                                 <div className="flex justify-between text-xs text-gray-500 mb-1">
                                     <span className="font-mono">{suggestion.file}</span>
                                     <span>Line {suggestion.line}</span>

@@ -25,7 +25,11 @@ interface PullRequest {
 
 import { useToast } from "./toast";
 
-export default function GitHubImport() {
+interface GitHubImportProps {
+    customTrigger?: React.ReactNode;
+}
+
+export default function GitHubImport({ customTrigger }: GitHubImportProps) {
     const { toast } = useToast();
     const [repos, setRepos] = useState<Repo[]>([]);
     const [searchQuery, setSearchQuery] = useState("");
@@ -183,19 +187,23 @@ export default function GitHubImport() {
     return (
         <div className="w-full">
             {!showRepos ? (
-                <Button
-                    onClick={fetchRepos}
-                    disabled={loading}
-                    variant="ghost"
-                    className="w-full h-11 bg-white/5 border border-white/10 hover:bg-white/10 text-white font-bold text-xs uppercase tracking-widest transition-all"
-                >
-                    {loading ? (
-                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    ) : (
-                        <Github className="w-4 h-4 mr-2" />
-                    )}
-                    {loading ? "Connecting..." : "Import Repo"}
-                </Button>
+                customTrigger ? (
+                    <div onClick={fetchRepos}>{customTrigger}</div>
+                ) : (
+                    <Button
+                        onClick={fetchRepos}
+                        disabled={loading}
+                        variant="ghost"
+                        className="w-full h-11 bg-white/5 border border-white/10 hover:bg-white/10 text-white font-bold text-xs uppercase tracking-widest transition-all"
+                    >
+                        {loading ? (
+                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        ) : (
+                            <Github className="w-4 h-4 mr-2" />
+                        )}
+                        {loading ? "Connecting..." : "Import Repo"}
+                    </Button>
+                )
             ) : (
                 <div className="glass-card bg-black/60 border border-white/10 rounded-2xl p-4 space-y-4 animate-in fade-in zoom-in-95 duration-200 shadow-2xl">
                     <div className="flex items-center justify-between pb-3 border-b border-white/5">

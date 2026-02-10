@@ -46,31 +46,38 @@ export function DashboardEmptyState({ teamId, isPro }: DashboardEmptyStateProps)
                 className="w-full max-w-3xl grid gap-6"
             >
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-1">
-                    <div className="grid grid-cols-3 gap-1 p-1 bg-black/20 rounded-xl mb-6">
-                        <button className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary/10 text-primary font-medium text-sm transition-all border border-primary/20">
-                            <Code2 className="w-4 h-4" />
-                            Upload Code
-                        </button>
+                    <div className="grid grid-cols-3 gap-2 p-1 bg-black/20 rounded-xl mb-6">
+                        <FileUpload
+                            teamId={teamId}
+                            isPro={isPro}
+                            customTrigger={
+                                <button className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-primary/10 text-primary font-bold text-sm transition-all border border-primary/20 hover:bg-primary/20 hover:scale-[1.02]">
+                                    <Code2 className="w-4 h-4" />
+                                    Upload Code
+                                </button>
+                            }
+                        />
+
                         <button
                             onClick={async () => {
                                 const { createDemoProject } = await import("@/app/dashboard/actions");
                                 await createDemoProject(teamId);
-                                window.location.reload();
+                                window.location.href = "/dashboard?demo=true";
                             }}
-                            className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/5 font-medium text-sm transition-all"
+                            className="flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-zinc-400 hover:text-white hover:bg-white/5 font-bold text-sm transition-all hover:scale-[1.02]"
                         >
                             <Zap className="w-4 h-4 text-yellow-500" />
                             Try Demo
                         </button>
-                        <div className="relative">
-                            <div className="absolute inset-0 opacity-0 hover:opacity-100 transition-opacity z-10">
-                                <GitHubImport />
-                            </div>
-                            <button className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/5 font-medium text-sm transition-all">
-                                <GitBranch className="w-4 h-4" />
-                                GitHub Repo
-                            </button>
-                        </div>
+
+                        <GitHubImport
+                            customTrigger={
+                                <button className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-zinc-400 hover:text-white hover:bg-white/5 font-bold text-sm transition-all hover:scale-[1.02]">
+                                    <GitBranch className="w-4 h-4" />
+                                    GitHub Repo
+                                </button>
+                            }
+                        />
                     </div>
 
                     <div className="px-4 pb-4">

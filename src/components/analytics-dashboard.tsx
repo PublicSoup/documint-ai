@@ -83,8 +83,8 @@ export default function AnalyticsDashboard() {
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                        <BarChart3 className="w-6 h-6 text-purple-600" />
+                    <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
+                        <BarChart3 className="w-6 h-6 text-purple-400" />
                         Documentation Analytics
                     </h1>
                     <p className="text-sm text-gray-500 mt-1">
@@ -94,7 +94,7 @@ export default function AnalyticsDashboard() {
                 <select
                     value={timeRange}
                     onChange={(e) => setTimeRange(Number(e.target.value))}
-                    className="px-4 py-2 border rounded-lg bg-white text-sm"
+                    className="px-4 py-2 border rounded-lg bg-white/5 border-white/10 text-sm"
                 >
                     <option value={7}>Last 7 days</option>
                     <option value={30}>Last 30 days</option>
@@ -104,46 +104,46 @@ export default function AnalyticsDashboard() {
 
             {/* Overview Cards */}
             <div className="grid grid-cols-4 gap-4">
-                <div className="bg-white p-6 rounded-xl border shadow-sm">
+                <div className="bg-white/5 border-white/10 p-6 rounded-xl border shadow-sm">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                            <FileText className="w-5 h-5 text-blue-600" />
+                        <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                            <FileText className="w-5 h-5 text-blue-400" />
                         </div>
                         <div>
-                            <p className="text-2xl font-bold text-gray-900">{data.overview.totalFiles}</p>
+                            <p className="text-2xl font-bold text-zinc-100">{data.overview.totalFiles}</p>
                             <p className="text-sm text-gray-500">Total Files</p>
                         </div>
                     </div>
                 </div>
-                <div className="bg-white p-6 rounded-xl border shadow-sm">
+                <div className="bg-white/5 border-white/10 p-6 rounded-xl border shadow-sm">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
-                            <Eye className="w-5 h-5 text-green-600" />
+                        <div className="w-10 h-10 rounded-lg bg-green-500/20 flex items-center justify-center">
+                            <Eye className="w-5 h-5 text-green-400" />
                         </div>
                         <div>
-                            <p className="text-2xl font-bold text-gray-900">{data.overview.totalViews}</p>
+                            <p className="text-2xl font-bold text-zinc-100">{data.overview.totalViews}</p>
                             <p className="text-sm text-gray-500">Total Views</p>
                         </div>
                     </div>
                 </div>
-                <div className="bg-white p-6 rounded-xl border shadow-sm">
+                <div className="bg-white/5 border-white/10 p-6 rounded-xl border shadow-sm">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
-                            <Clock className="w-5 h-5 text-purple-600" />
+                        <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                            <Clock className="w-5 h-5 text-purple-400" />
                         </div>
                         <div>
-                            <p className="text-2xl font-bold text-gray-900">{data.overview.avgViewDuration}s</p>
+                            <p className="text-2xl font-bold text-zinc-100">{data.overview.avgViewDuration}s</p>
                             <p className="text-sm text-gray-500">Avg. Duration</p>
                         </div>
                     </div>
                 </div>
-                <div className="bg-white p-6 rounded-xl border shadow-sm">
+                <div className="bg-white/5 border-white/10 p-6 rounded-xl border shadow-sm">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
-                            <Calendar className="w-5 h-5 text-orange-600" />
+                        <div className="w-10 h-10 rounded-lg bg-orange-500/20 flex items-center justify-center">
+                            <Calendar className="w-5 h-5 text-orange-400" />
                         </div>
                         <div>
-                            <p className="text-2xl font-bold text-gray-900">{data.overview.docsCreatedThisMonth}</p>
+                            <p className="text-2xl font-bold text-zinc-100">{data.overview.docsCreatedThisMonth}</p>
                             <p className="text-sm text-gray-500">Created This Month</p>
                         </div>
                     </div>
@@ -153,8 +153,8 @@ export default function AnalyticsDashboard() {
             {/* Coverage & Activity Row */}
             <div className="grid grid-cols-2 gap-6">
                 {/* Coverage */}
-                <div className="bg-white p-6 rounded-xl border shadow-sm">
-                    <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <div className="bg-white/5 border-white/10 p-6 rounded-xl border shadow-sm">
+                    <h3 className="font-semibold text-zinc-100 mb-4 flex items-center gap-2">
                         <CheckCircle className="w-5 h-5 text-green-500" />
                         Documentation Coverage
                     </h3>
@@ -172,13 +172,13 @@ export default function AnalyticsDashboard() {
                                     strokeLinecap="round"
                                 />
                             </svg>
-                            <span className="absolute inset-0 flex items-center justify-center text-xl font-bold text-gray-900">
+                            <span className="absolute inset-0 flex items-center justify-center text-xl font-bold text-zinc-100">
                                 {data.coverage.percentage}%
                             </span>
                         </div>
                         <div>
-                            <p className="text-gray-600">
-                                <span className="font-semibold text-gray-900">{data.coverage.documented}</span> of {data.coverage.total} files documented
+                            <p className="text-zinc-400">
+                                <span className="font-semibold text-zinc-100">{data.coverage.documented}</span> of {data.coverage.total} files documented
                             </p>
                             {data.coverage.percentage < 80 && (
                                 <p className="text-sm text-amber-600 mt-2">
@@ -190,8 +190,8 @@ export default function AnalyticsDashboard() {
                 </div>
 
                 {/* Activity Chart */}
-                <div className="bg-white p-6 rounded-xl border shadow-sm">
-                    <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <div className="bg-white/5 border-white/10 p-6 rounded-xl border shadow-sm">
+                    <h3 className="font-semibold text-zinc-100 mb-4 flex items-center gap-2">
                         <TrendingUp className="w-5 h-5 text-blue-500" />
                         Recent Activity
                     </h3>
@@ -229,8 +229,8 @@ export default function AnalyticsDashboard() {
             {/* Top & Stale Docs */}
             <div className="grid grid-cols-2 gap-6">
                 {/* Top Documents */}
-                <div className="bg-white p-6 rounded-xl border shadow-sm">
-                    <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <div className="bg-white/5 border-white/10 p-6 rounded-xl border shadow-sm">
+                    <h3 className="font-semibold text-zinc-100 mb-4 flex items-center gap-2">
                         <TrendingUp className="w-5 h-5 text-purple-500" />
                         Most Viewed Docs
                     </h3>
@@ -238,15 +238,15 @@ export default function AnalyticsDashboard() {
                         <div className="space-y-3">
                             {data.topDocs.map((doc, i) => (
                                 <div key={doc.id} className="flex items-center gap-3">
-                                    <span className="w-6 h-6 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-xs font-bold">
+                                    <span className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-400 flex items-center justify-center text-xs font-bold">
                                         {i + 1}
                                     </span>
                                     <div className="flex-1 min-w-0">
-                                        <p className="font-medium text-gray-900 truncate">{doc.name}</p>
+                                        <p className="font-medium text-zinc-100 truncate">{doc.name}</p>
                                         <p className="text-xs text-gray-500">{doc.language}</p>
                                     </div>
                                     <div className="text-right">
-                                        <p className="font-semibold text-gray-900">{doc.views}</p>
+                                        <p className="font-semibold text-zinc-100">{doc.views}</p>
                                         <p className="text-xs text-gray-500">views</p>
                                     </div>
                                 </div>
@@ -258,8 +258,8 @@ export default function AnalyticsDashboard() {
                 </div>
 
                 {/* Stale Documents */}
-                <div className="bg-white p-6 rounded-xl border shadow-sm">
-                    <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <div className="bg-white/5 border-white/10 p-6 rounded-xl border shadow-sm">
+                    <h3 className="font-semibold text-zinc-100 mb-4 flex items-center gap-2">
                         <AlertCircle className="w-5 h-5 text-amber-500" />
                         Stale Documentation
                     </h3>
@@ -268,7 +268,7 @@ export default function AnalyticsDashboard() {
                             {data.staleDocs.map((doc) => (
                                 <div key={doc.id} className="flex items-center gap-3">
                                     <div className="flex-1 min-w-0">
-                                        <p className="font-medium text-gray-900 truncate">{doc.name}</p>
+                                        <p className="font-medium text-zinc-100 truncate">{doc.name}</p>
                                     </div>
                                     <div className="text-right">
                                         <p className="text-amber-600 font-semibold">{doc.daysSinceUpdate}d</p>
@@ -278,7 +278,7 @@ export default function AnalyticsDashboard() {
                             ))}
                         </div>
                     ) : (
-                        <p className="text-green-600 text-sm flex items-center gap-2">
+                        <p className="text-green-400 text-sm flex items-center gap-2">
                             <CheckCircle className="w-4 h-4" />
                             All docs are up to date!
                         </p>

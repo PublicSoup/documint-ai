@@ -52,12 +52,12 @@ export default function ActivityFeed() {
 
     if (loading) {
         return (
-            <div className="bg-white rounded-xl border p-6 animate-pulse">
-                <div className="h-4 bg-gray-200 rounded w-1/3 mb-4"></div>
+            <div className="bg-white/5 border-white/10 rounded-xl border p-6 animate-pulse">
+                <div className="h-4 bg-white/10 rounded w-1/3 mb-4"></div>
                 <div className="space-y-3">
-                    <div className="h-3 bg-gray-200 rounded w-full"></div>
-                    <div className="h-3 bg-gray-200 rounded w-5/6"></div>
-                    <div className="h-3 bg-gray-200 rounded w-4/6"></div>
+                    <div className="h-3 bg-white/10 rounded w-full"></div>
+                    <div className="h-3 bg-white/10 rounded w-5/6"></div>
+                    <div className="h-3 bg-white/10 rounded w-4/6"></div>
                 </div>
             </div>
         );
@@ -94,18 +94,18 @@ export default function ActivityFeed() {
             </div>
 
             {/* Recent Activity */}
-            <div className="bg-white rounded-xl border overflow-hidden">
-                <div className="px-4 py-3 border-b bg-gray-50">
-                    <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+            <div className="bg-white/5 border-white/10 rounded-xl border overflow-hidden">
+                <div className="px-4 py-3 border-b border-white/10 bg-white/5">
+                    <h3 className="font-semibold text-zinc-100 flex items-center gap-2">
                         <Clock className="w-4 h-4" />
                         Recent Activity
                     </h3>
                 </div>
                 <div className="divide-y">
                     {activity.map((item) => (
-                        <div key={item.id} className="px-4 py-3 hover:bg-gray-50 transition-colors">
-                            <p className="text-sm text-gray-600">
-                                <span className="font-medium text-gray-900">{item.action}</span>{" "}
+                        <div key={item.id} className="px-4 py-3 hover:bg-white/5 transition-colors">
+                            <p className="text-sm text-zinc-400">
+                                <span className="font-medium text-zinc-100">{item.action}</span>{" "}
                                 <span className="text-blue-600">{item.file}</span>
                             </p>
                             <p className="text-xs text-gray-400 mt-1">{item.time}</p>
@@ -129,18 +129,18 @@ function StatCard({
     color: "blue" | "green" | "purple" | "amber";
 }) {
     const colors = {
-        blue: "bg-blue-50 text-blue-600",
-        green: "bg-green-50 text-green-600",
-        purple: "bg-purple-50 text-purple-600",
-        amber: "bg-amber-50 text-amber-600"
+        blue: "bg-blue-500/20 text-blue-400",
+        green: "bg-green-500/20 text-green-400",
+        purple: "bg-purple-500/20 text-purple-400",
+        amber: "bg-amber-500/20 text-amber-400"
     };
 
     return (
-        <div className="bg-white rounded-xl border p-4">
+        <div className="bg-white/5 border-white/10 rounded-xl border p-4">
             <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-3 ${colors[color]}`}>
                 {icon}
             </div>
-            <p className="text-2xl font-bold text-gray-900">{value}</p>
+            <p className="text-2xl font-bold text-zinc-100">{value}</p>
             <p className="text-sm text-gray-500">{label}</p>
         </div>
     );

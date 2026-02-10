@@ -78,7 +78,7 @@ export default function DocSuggestions({ fileId }: DocSuggestionsProps) {
                         <Lightbulb className="w-5 h-5 text-purple-600" />
                     </div>
                     <div>
-                        <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                        <h3 className="font-bold text-zinc-100 flex items-center gap-2">
                             Smart Suggestions
                             <span className="px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded-full flex items-center gap-1">
                                 <Crown className="w-3 h-3" /> Pro
@@ -92,8 +92,8 @@ export default function DocSuggestions({ fileId }: DocSuggestionsProps) {
                 <div className="flex items-center gap-3">
                     {score !== null && (
                         <div className={`px-3 py-1 rounded-full text-sm font-medium ${score >= 80 ? "bg-green-100 text-green-700" :
-                                score >= 50 ? "bg-amber-100 text-amber-700" :
-                                    "bg-red-100 text-red-700"
+                            score >= 50 ? "bg-amber-100 text-amber-700" :
+                                "bg-red-100 text-red-700"
                             }`}>
                             Score: {score}%
                         </div>
@@ -154,16 +154,16 @@ export default function DocSuggestions({ fileId }: DocSuggestionsProps) {
                                                 {TYPE_LABELS[suggestion.type]}
                                             </span>
                                             {suggestion.entity && (
-                                                <code className="text-xs text-gray-600 bg-white/50 px-1.5 py-0.5 rounded">
+                                                <code className="text-xs text-zinc-400 bg-white/50 px-1.5 py-0.5 rounded">
                                                     {suggestion.entity}
                                                 </code>
                                             )}
                                         </div>
-                                        <p className="font-medium text-gray-900 mt-1">
+                                        <p className="font-medium text-zinc-100 mt-1">
                                             {suggestion.message}
                                         </p>
                                         {isExpanded && (
-                                            <p className="text-sm text-gray-600 mt-2 bg-white/50 p-3 rounded-lg border">
+                                            <p className="text-sm text-zinc-400 mt-2 bg-white/50 p-3 rounded-lg border">
                                                 💡 {suggestion.suggestion}
                                             </p>
                                         )}
