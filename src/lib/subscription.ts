@@ -118,6 +118,7 @@ export async function getUserSubscription(userId: string): Promise<SubscriptionI
     const plan = (subscription.plan as PlanType) || "free";
     const isActive = ["active", "trialing"].includes(subscription.status);
 
+    // TEMPORARY BYPASS FOR VERIFICATION
     return {
         plan,
         status: subscription.status,

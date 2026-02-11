@@ -32,6 +32,26 @@ export const authOptions: NextAuthOptions = {
             clientId: env.GITLAB_CLIENT_ID,
             clientSecret: env.GITLAB_CLIENT_SECRET,
         })] : []),
+        ...(env.AUTH0_CLIENT_ID && env.AUTH0_CLIENT_SECRET && env.AUTH0_ISSUER ? [{
+            id: 'auth0',
+            name: 'Auth0',
+            type: 'oauth',
+            version: '2.0',
+            wellKnown: `${env.AUTH0_ISSUER}/.well-known/openid-configuration`,
+            authorization: { params: { scope: "openid email profile" } },
+            idToken: true,
+            profile(profile) {
+                return {
+                    id: profile.sub,
+                    name: profile.name,
+                    email: profile.email,
+                    image: profile.picture,
+                };
+            },
+            clientId: env.AUTH0_CLIENT_ID,
+            clientSecret: env.AUTH0_CLIENT_SECRET,
+            issuer: env.AUTH0_ISSUER,
+        }] : []),
         CredentialsProvider({
             name: "Credentials",
             credentials: {

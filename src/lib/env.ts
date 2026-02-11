@@ -44,6 +44,9 @@ const envSchema = z.object({
     GITHUB_CLIENT_SECRET: z.string().optional(),
     GITLAB_CLIENT_ID: z.string().optional(),
     GITLAB_CLIENT_SECRET: z.string().optional(),
+    AUTH0_CLIENT_ID: z.string().optional(),
+    AUTH0_CLIENT_SECRET: z.string().optional(),
+    AUTH0_ISSUER: z.string().url().optional(),
 
     // GitHub Integration
     GITHUB_WEBHOOK_SECRET: z.string().optional(),
@@ -93,6 +96,12 @@ export const env = envSchema.parse({
     GITHUB_CLIENT_SECRET: process.env.GITHUB_CLIENT_SECRET || process.env.GITHUB_SECRET || undefined,
     GITLAB_CLIENT_ID: process.env.GITLAB_CLIENT_ID || undefined,
     GITLAB_CLIENT_SECRET: process.env.GITLAB_CLIENT_SECRET || undefined,
+    AUTH0_CLIENT_ID: process.env.AUTH0_CLIENT_ID || undefined,
+    AUTH0_CLIENT_SECRET: process.env.AUTH0_CLIENT_SECRET || undefined,
+    AUTH0_ISSUER: process.env.AUTH0_ISSUER || undefined,
+    AUTH0_CLIENT_ID: process.env.AUTH0_CLIENT_ID || undefined,
+    AUTH0_CLIENT_SECRET: process.env.AUTH0_CLIENT_SECRET || undefined,
+    AUTH0_ISSUER: process.env.AUTH0_ISSUER || undefined,
 
     // GitHub Integration
     GITHUB_WEBHOOK_SECRET: process.env.GITHUB_WEBHOOK_SECRET || undefined,
