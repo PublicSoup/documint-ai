@@ -99,9 +99,7 @@ export const env = envSchema.parse({
     AUTH0_CLIENT_ID: process.env.AUTH0_CLIENT_ID || undefined,
     AUTH0_CLIENT_SECRET: process.env.AUTH0_CLIENT_SECRET || undefined,
     AUTH0_ISSUER: process.env.AUTH0_ISSUER || undefined,
-    AUTH0_CLIENT_ID: process.env.AUTH0_CLIENT_ID || undefined,
-    AUTH0_CLIENT_SECRET: process.env.AUTH0_CLIENT_SECRET || undefined,
-    AUTH0_ISSUER: process.env.AUTH0_ISSUER || undefined,
+
 
     // GitHub Integration
     GITHUB_WEBHOOK_SECRET: process.env.GITHUB_WEBHOOK_SECRET || undefined,

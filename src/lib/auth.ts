@@ -35,12 +35,12 @@ export const authOptions: NextAuthOptions = {
         ...(env.AUTH0_CLIENT_ID && env.AUTH0_CLIENT_SECRET && env.AUTH0_ISSUER ? [{
             id: 'auth0',
             name: 'Auth0',
-            type: 'oauth',
+            type: 'oauth' as const,
             version: '2.0',
             wellKnown: `${env.AUTH0_ISSUER}/.well-known/openid-configuration`,
             authorization: { params: { scope: "openid email profile" } },
             idToken: true,
-            profile(profile) {
+            profile(profile: any) {
                 return {
                     id: profile.sub,
                     name: profile.name,
