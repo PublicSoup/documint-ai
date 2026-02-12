@@ -27,7 +27,7 @@ export function IDEStatusBar({
 }: IDEStatusBarProps) {
     const filePercentage = maxFiles === -1 ? 0 : (fileCount / maxFiles) * 100;
     const tokenPercentage = maxTokens === -1 ? 0 : (tokensUsed / maxTokens) * 100;
-    
+
     const isFileLimitNear = filePercentage > 80;
     const isTokenLimitNear = tokenPercentage > 80;
 
@@ -65,9 +65,9 @@ export function IDEStatusBar({
                     <span>Workspace:</span>
                     {maxFiles !== -1 && (
                         <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden inline-block align-middle">
-                            <div 
-                                className={cn("h-full transition-all duration-500", isFileLimitNear ? "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]" : "bg-emerald-400")} 
-                                style={{ width: `${Math.min(filePercentage, 100)}%` }} 
+                            <div
+                                className={cn("h-full transition-all duration-500", isFileLimitNear ? "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]" : "bg-emerald-400")}
+                                style={{ width: `${Math.min(filePercentage, 100)}%` }}
                             />
                         </div>
                     )}
@@ -84,9 +84,9 @@ export function IDEStatusBar({
                     <span>AI Engine:</span>
                     {maxTokens !== -1 && (
                         <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden inline-block align-middle">
-                            <div 
-                                className={cn("h-full transition-all duration-500", isTokenLimitNear ? "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]" : "bg-purple-400")} 
-                                style={{ width: `${Math.min(tokenPercentage, 100)}%` }} 
+                            <div
+                                className={cn("h-full transition-all duration-500", isTokenLimitNear ? "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]" : "bg-purple-400")}
+                                style={{ width: `${Math.min(tokenPercentage, 100)}%` }}
                             />
                         </div>
                     )}
@@ -109,38 +109,20 @@ export function IDEStatusBar({
                 {/* Branch */}
                 <div className="flex items-center gap-1.5 hover:bg-white/10 px-2 h-full transition-colors cursor-pointer">
                     <GitBranch className="w-3 h-3 text-white/60" />
-                    <span>main*</span>
+                    <span>main</span>
                 </div>
 
                 {/* Upgrade Nudge */}
                 {(isFileLimitNear || isTokenLimitNear || plan.toLowerCase() === "free") && (
-                    <button 
+                    <button
                         onClick={() => window.location.href = '/checkout'}
-                        className="bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-black px-2 py-0.5 rounded font-black text-[9px] uppercase tracking-wider animate-bounce-subtle flex items-center gap-1 shadow-[0_0_15px_rgba(251,191,36,0.3)] transition-all"
+                        className="bg-amber-500 hover:bg-amber-400 text-black px-2 py-0.5 rounded font-bold text-[9px] uppercase tracking-wider flex items-center gap-1 transition-colors ml-2"
                     >
                         <Zap className="w-2.5 h-2.5 fill-current" />
-                        Go Pro
+                        Upgrade
                     </button>
                 )}
-                
-                <div className="flex items-center gap-1.5 text-white/40 ml-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]" />
-                    <span className="font-mono tracking-tighter">Vercel: Connected</span>
-                </div>
             </div>
-            
-            <style jsx global>{`
-                @keyframes bounce-subtle {
-                    0%, 100% { transform: translateY(0); }
-                    50% { transform: translateY(-1px); }
-                }
-                .animate-bounce-subtle {
-                    animation: bounce-subtle 2s infinite ease-in-out;
-                }
-                .shadow-glow {
-                    box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
-                }
-            `}</style>
         </div>
     );
 }

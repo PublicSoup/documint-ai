@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { SimpleEnhancedEditor, SimpleEnhancedEditorRef } from "./simple-enhanced-editor";
-import { X, Save, Play, Bot, Layout, Maximize2, Columns, Terminal as TerminalIcon, Settings, Sparkles, GitBranch, Files, Search as SearchIcon, Globe, Loader2, Lock, FileText, Share2, Wand2, Zap, Layout as LayoutIcon, SplitSquareVertical } from "lucide-react";
+import { X, Save, Play, Bot, Layout, Maximize2, Columns, Terminal as TerminalIcon, Settings, Sparkles, GitBranch, Files, Search as SearchIcon, Globe, Loader2, Lock, FileText, Share2, Wand2, Zap, Layout as LayoutIcon, SplitSquareVertical, ChevronUp, ChevronDown, Trash2, SplitSquareHorizontal } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { File } from "@prisma/client";
 import { cn } from "@/lib/utils";
@@ -24,6 +24,8 @@ import ReadmeGenerator from "../readme-generator";
 import { ContextualHeader } from "./contextual-header";
 import { DiagramViewer } from "../diagram-viewer";
 import { getProjectGraphMermaid } from "@/app/dashboard/actions";
+import { CommandPalette } from "../command-palette";
+import { useIDESettings } from "@/hooks/use-ide-settings";
 
 // Auto-detect Monaco language from file name
 function getLanguageFromFileName(fileName: string): string {
@@ -74,19 +76,40 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
     const [isInstalling, setIsInstalling] = useState(false);
 
-    // Layout State
-    const [showSidebar, setShowSidebar] = useState(true);
-    const [activeSidebarTab, setActiveSidebarTab] = useState<"explorer" | "search" | "git">("explorer");
-    const [showAIChat, setShowAIChat] = useState(true);
-    const [showAIEditor, setShowAIEditor] = useState(false);
-    const [showTerminal, setShowTerminal] = useState(true);
-    const [showDocPreview, setShowDocPreview] = useState(false);
-    const [showLocalTopology, setShowLocalTopology] = useState(false);
+    // Layout State (synced)
+    const { settings, updateSetting, loading: settingsLoading } = useIDESettings();
+    const showSidebar = settings.showSidebar;
+    const setShowSidebar = (val: boolean) => updateSetting("showSidebar", val);
+
+    const activeSidebarTab = settings.activeSidebarTab;
+    const setActiveSidebarTab = (val: "explorer" | "search" | "git") => updateSetting("activeSidebarTab", val);
+
+    const showAIChat = settings.showAIChat;
+    const setShowAIChat = (val: boolean) => updateSetting("showAIChat", val);
+
+    const showAIEditor = settings.showAIEditor;
+    const setShowAIEditor = (val: boolean) => updateSetting("showAIEditor", val);
+
+    const showTerminal = settings.showTerminal;
+    const setShowTerminal = (val: boolean) => updateSetting("showTerminal", val);
+
+    const showDocPreview = settings.showDocPreview;
+    const setShowDocPreview = (val: boolean) => updateSetting("showDocPreview", val);
+
+    const showLocalTopology = settings.showLocalTopology;
+    const setShowLocalTopology = (val: boolean) => updateSetting("showLocalTopology", val);
+
     const [localMermaid, setLocalMermaid] = useState<string>("");
     const editorRef = useRef<SimpleEnhancedEditorRef>(null);
     const [clickTimeout, setClickTimeout] = useState<NodeJS.Timeout | null>(null);
 
     // Handle query parameter for auto-opening files
+    useEffect(() => {
+        if (typeof window !== 'undefined' && window.innerWidth < 768) {
+            setShowSidebar(false);
+        }
+    }, [setShowSidebar]);
+
     useEffect(() => {
         const fileToOpen = searchParams.get('file');
         if (fileToOpen) {
@@ -275,6 +298,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     }, [fileContents, activeFileId, webContainerBooted, files]); // Added files dependency
 
 
+    const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+
     // Hotkeys
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -295,27 +320,36 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         break;
                     case 'b':
                         e.preventDefault();
-                        setShowSidebar(prev => !prev);
+                        setShowSidebar(!showSidebar); // Toggle
+                        break;
+                    case 'k':
+                        e.preventDefault();
+                        setIsCommandPaletteOpen(true);
                         break;
                     case 'i':
                         e.preventDefault();
-                        setShowAIChat(prev => !prev);
+                        setShowAIChat(!showAIChat); // Toggle
                         break;
                     case '`':
                         e.preventDefault();
-                        setShowTerminal(prev => !prev);
+                        setShowTerminal(!showTerminal);
                         break;
                 }
-            } else if (isCmd && e.key.toLowerCase() === 's' && isEditing) {
-                // Allow Cmd+S to save even when in editor
-                e.preventDefault();
-                handleSave();
+            } else if (isCmd && isEditing) {
+                // Allow Cmd+S and Cmd+K even when in editor
+                if (e.key.toLowerCase() === 's') {
+                    e.preventDefault();
+                    handleSave();
+                } else if (e.key.toLowerCase() === 'k') {
+                    e.preventDefault();
+                    setIsCommandPaletteOpen(true);
+                }
             }
         };
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [activeFileId, fileContents, unsavedChanges]);
+    }, [activeFileId, fileContents, unsavedChanges, showSidebar, showAIChat, showTerminal]);
 
     const activeFile = files.find(f => f.id === activeFileId);
 
@@ -440,65 +474,72 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
             {/* Left Sidebar Content */}
             {showSidebar && (
-                <div className="w-56 md:w-64 flex-none flex flex-col border-r border-white/5 bg-[#1e1e1e] h-full overflow-hidden animate-in slide-in-from-left-1 duration-200 z-30">
-                    {activeSidebarTab === "explorer" && (
-                        <EnhancedFileTree
-                            files={files}
-                            activeFileId={activeFileId}
-                            onSelect={handleFileSelect}
-                            onAction={handleAction}
-                            onRefresh={() => window.location.reload()}
-                        />
-                    )}
-                    {activeSidebarTab === "search" && (
-                        <div className="flex flex-col h-full">
-                            <div className="p-4 border-b border-white/5">
-                                <h2 className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-3">Search</h2>
-                                <div className="relative">
-                                    <SearchIcon className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-                                    <input
-                                        placeholder="Search in project..."
-                                        className="w-full bg-black/20 border border-white/5 rounded-md pl-9 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-primary/50"
-                                    />
+                <>
+                    {/* Mobile Backdrop */}
+                    <div
+                        className="md:hidden fixed inset-0 z-20 bg-black/50 backdrop-blur-sm"
+                        onClick={() => setShowSidebar(false)}
+                    />
+                    <div className="absolute md:relative w-56 md:w-64 flex-none flex flex-col border-r border-white/5 bg-[#1e1e1e] h-full overflow-hidden animate-in slide-in-from-left-1 duration-200 z-30 shadow-2xl md:shadow-none">
+                        {activeSidebarTab === "explorer" && (
+                            <EnhancedFileTree
+                                files={files}
+                                activeFileId={activeFileId}
+                                onSelect={handleFileSelect}
+                                onAction={handleAction}
+                                onRefresh={() => window.location.reload()}
+                            />
+                        )}
+                        {activeSidebarTab === "search" && (
+                            <div className="flex flex-col h-full">
+                                <div className="p-4 border-b border-white/5">
+                                    <h2 className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-3">Search</h2>
+                                    <div className="relative">
+                                        <SearchIcon className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                                        <input
+                                            placeholder="Search in project..."
+                                            className="w-full bg-black/20 border border-white/5 rounded-md pl-9 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-primary/50"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex-1 flex items-center justify-center p-4 text-center">
+                                    <p className="text-[10px] text-white/20 uppercase tracking-wider font-bold">Search results will appear here</p>
                                 </div>
                             </div>
-                            <div className="flex-1 flex items-center justify-center p-4 text-center">
-                                <p className="text-[10px] text-white/20 uppercase tracking-wider font-bold">Search results will appear here</p>
-                            </div>
-                        </div>
-                    )}
-                    {activeSidebarTab === "git" && (
-                        <div className="flex flex-col h-full overflow-hidden">
-                            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
-                                <h2 className="text-[10px] font-black uppercase tracking-widest text-white/30">Source Control</h2>
-                                <div className="bg-white/5 rounded-md p-3 border border-white/5">
-                                    <p className="text-xs text-white/70 mb-2 font-medium">Staged Changes</p>
-                                    <div className="space-y-1">
-                                        <div className="flex items-center justify-between text-[11px] text-emerald-400/80 hover:bg-white/5 p-1 rounded group cursor-pointer">
-                                            <span className="truncate flex-1">modified: package.json</span>
-                                            <div className="flex gap-1 opacity-0 group-hover:opacity-100">
-                                                <X className="w-3 h-3 hover:text-red-400" />
+                        )}
+                        {activeSidebarTab === "git" && (
+                            <div className="flex flex-col h-full overflow-hidden">
+                                <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
+                                    <h2 className="text-[10px] font-black uppercase tracking-widest text-white/30">Source Control</h2>
+                                    <div className="bg-white/5 rounded-md p-3 border border-white/5">
+                                        <p className="text-xs text-white/70 mb-2 font-medium">Staged Changes</p>
+                                        <div className="space-y-1">
+                                            <div className="flex items-center justify-between text-[11px] text-emerald-400/80 hover:bg-white/5 p-1 rounded group cursor-pointer">
+                                                <span className="truncate flex-1">modified: package.json</span>
+                                                <div className="flex gap-1 opacity-0 group-hover:opacity-100">
+                                                    <X className="w-3 h-3 hover:text-red-400" />
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                                <div className="bg-white/5 rounded-md p-3 border border-white/5">
-                                    <p className="text-xs text-white/70 mb-2 font-medium">Changes</p>
-                                    <div className="space-y-1 italic text-white/20 text-[10px]">
-                                        No unstaged changes
+                                    <div className="bg-white/5 rounded-md p-3 border border-white/5">
+                                        <p className="text-xs text-white/70 mb-2 font-medium">Changes</p>
+                                        <div className="space-y-1 italic text-white/20 text-[10px]">
+                                            No unstaged changes
+                                        </div>
                                     </div>
                                 </div>
+                                <div className="p-4 mt-auto border-t border-white/5">
+                                    <textarea
+                                        placeholder="Message (Cmd+Enter to commit)"
+                                        className="w-full bg-black/20 border border-white/10 rounded-md p-2 text-xs text-white focus:outline-none focus:border-primary/50 resize-none h-20 mb-2"
+                                    />
+                                    <Button className="w-full h-8 text-xs font-bold" size="sm">Commit to main</Button>
+                                </div>
                             </div>
-                            <div className="p-4 mt-auto border-t border-white/5">
-                                <textarea
-                                    placeholder="Message (Cmd+Enter to commit)"
-                                    className="w-full bg-black/20 border border-white/10 rounded-md p-2 text-xs text-white focus:outline-none focus:border-primary/50 resize-none h-20 mb-2"
-                                />
-                                <Button className="w-full h-8 text-xs font-bold" size="sm">Commit to main</Button>
-                            </div>
-                        </div>
-                    )}
-                </div>
+                        )}
+                    </div>
+                </>
             )}
 
             {/* Main Area */}
@@ -822,8 +863,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                 <IDEStatusBar
                     fileCount={files.length}
                     maxFiles={subscription?.limits?.totalFiles || 25}
-                    tokensUsed={4500}
-                    maxTokens={10000}
+                    tokensUsed={subscription?.usage?.tokens || 0}
+                    maxTokens={subscription?.limits?.maxTokens || 10000}
                     plan={subscription?.plan || "Free"}
                     isSaving={isSaving}
                     activeFile={activeFile?.name}
@@ -831,23 +872,54 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
 
 
-                {/* Terminal Panel */}
+                {/* Terminal Panel (Enterprise) */}
                 {showTerminal && (
-                    <div className="flex-none h-48 border-t border-white/5 bg-black overflow-hidden flex flex-col">
-                        <div className="flex-none flex items-center justify-between h-8 bg-[#007acc] px-3">
-                            <span className="text-xs font-medium">Terminal</span>
-                            <button
-                                onClick={() => setShowTerminal(false)}
-                                className="text-white/70 hover:text-white"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
+                    <div className="flex-none h-32 border-t border-white/5 bg-[#18181b] flex flex-col shadow-[0_-4px_20px_rgba(0,0,0,0.4)] z-20">
+                        {/* Terminal Header */}
+                        <div className="flex-none h-8 flex items-center justify-between px-3 border-b border-white/5 select-none bg-[#1e1e1e]">
+                            <div className="flex items-center gap-4 h-full">
+                                <button className="h-full border-b border-primary text-[11px] font-medium text-white flex items-center gap-1.5 px-1">
+                                    <TerminalIcon className="w-3.5 h-3.5" />
+                                    Terminal
+                                </button>
+                                <button className="h-full border-b border-transparent text-[11px] font-medium text-white/40 hover:text-white/70 flex items-center gap-1.5 px-1 transition-colors">
+                                    Output
+                                </button>
+                                <button className="h-full border-b border-transparent text-[11px] font-medium text-white/40 hover:text-white/70 flex items-center gap-1.5 px-1 transition-colors">
+                                    Problems
+                                    <span className="bg-primary/20 text-primary px-1 rounded-full text-[9px] font-bold">0</span>
+                                </button>
+                                <button className="h-full border-b border-transparent text-[11px] font-medium text-white/40 hover:text-white/70 flex items-center gap-1.5 px-1 transition-colors">
+                                    Debug Console
+                                </button>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                                <button className="p-1 rounded hover:bg-white/5 text-white/40 hover:text-white transition-colors" title="Split">
+                                    <SplitSquareHorizontal className="w-3.5 h-3.5" />
+                                </button>
+                                <button className="p-1 rounded hover:bg-white/5 text-white/40 hover:text-white transition-colors" title="Clear">
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                                <div className="w-px h-3 bg-white/10 mx-1" />
+                                <button className="p-1 rounded hover:bg-white/5 text-white/40 hover:text-white transition-colors" title="Maximize">
+                                    <ChevronUp className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                    onClick={() => setShowTerminal(false)}
+                                    className="p-1 rounded hover:bg-red-500/10 text-white/40 hover:text-red-400 transition-colors"
+                                    title="Close"
+                                >
+                                    <X className="w-3.5 h-3.5" />
+                                </button>
+                            </div>
                         </div>
-                        <div className="flex-1 h-full min-h-0 bg-black">
+
+                        {/* Terminal Content */}
+                        <div className="flex-1 min-h-0 bg-[#000000] p-1 pl-3 overflow-hidden">
                             <Terminal
                                 onTerminalReady={async (term) => {
                                     setTerminalInstance(term);
-                                    term.writeln("Welcome to DocuMint Web Shell");
+                                    term.writeln("\x1b[1;32m➜\x1b[0m \x1b[1;36mdocumint-project\x1b[0m");
 
                                     // Connect shell
                                     if (webContainerBooted) {
@@ -873,6 +945,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                             input.dispose();
                                             shellProcess.kill();
                                         };
+                                    } else {
+                                        term.writeln("\x1b[2mInitializing WebContainer runtime...\x1b[0m");
                                     }
                                 }}
                             />
@@ -971,6 +1045,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                     />
                 </div>
             )}
+
+            <CommandPalette open={isCommandPaletteOpen} onOpenChange={setIsCommandPaletteOpen} />
         </div>
     );
 }

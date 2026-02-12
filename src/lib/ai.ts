@@ -116,46 +116,61 @@ export async function getAICompletionWithDetailedError(
         const modelName = options.model || "gemini-1.5-flash";
         const model = genAI.getGenerativeModel({
             model: modelName,
+            systemInstruction: messages.find(m => m.role === "system")?.content,
             generationConfig: {
                 temperature: options.temperature ?? 0.4,
                 maxOutputTokens: options.maxTokens ?? 4096,
             }
         });
 
-        // Build a single prompt from all messages
-        // This approach works with ALL Gemini models (no systemInstruction dependency)
-        let fullPrompt = "";
-        for (const msg of messages) {
-            if (msg.role === "system") {
-                fullPrompt += `<system>\n${msg.content}\n</system>\n\n`;
-            } else if (msg.role === "user") {
-                fullPrompt += `<user>\n${msg.content}\n</user>\n\n`;
-            } else if (msg.role === "assistant") {
-                fullPrompt += `<assistant>\n${msg.content}\n</assistant>\n\n`;
+        // Convert messages to Gemini format (Content[])
+        const contents = messages
+            .filter(m => m.role !== "system") // System prompt is handled via systemInstruction
+            .map(m => ({
+                role: m.role === "assistant" ? "model" : "user",
+                parts: [{ text: m.content }]
+            }));
+
+        console.log(`[Gemini] Sending to ${modelName}, messages: ${contents.length}`);
+
+        let result;
+        let attempts = 0;
+        const maxRetries = 3;
+
+        while (attempts < maxRetries) {
+            try {
+                result = await model.generateContent({ contents });
+                break; // Success
+            } catch (apiError: any) {
+                attempts++;
+                console.error(`[Gemini] API Error (Attempt ${attempts}/${maxRetries}):`, apiError);
+                let errorMessage = apiError.message || "Unknown API Error";
+
+                // Handle Rate Limiting (429) and Service Unavailable (503)
+                if (errorMessage.includes("429") || errorMessage.includes("503")) {
+                    if (attempts >= maxRetries) {
+                        return { success: false, error: `Gemini Error: Rate limit or Service unavailable (Max retries reached).` };
+                    }
+                    // Exponential backoff: 1s, 2s, 4s...
+                    const waitTime = Math.pow(2, attempts) * 1000;
+                    console.warn(`[Gemini] Retrying in ${waitTime}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, waitTime));
+                    continue;
+                }
+
+                // Parse other specific error codes and fail immediately
+                if (errorMessage.includes("400")) {
+                    return { success: false, error: "Bad Request (400) - The model may not be available in your region." };
+                } else if (errorMessage.includes("401") || errorMessage.includes("403")) {
+                    return { success: false, error: "Unauthorized - Check your GOOGLE_API_KEY." };
+                }
+
+                return { success: false, error: `Gemini Error: ${errorMessage}` };
             }
         }
 
-        console.log(`[Gemini] Sending to ${modelName}, prompt length: ${fullPrompt.length}`);
-
-        let result;
-        try {
-            result = await model.generateContent(fullPrompt);
-        } catch (apiError: any) {
-            console.error("[Gemini] API Error:", apiError);
-            let errorMessage = apiError.message || "Unknown API Error";
-
-            // Parse specific error codes
-            if (errorMessage.includes("400")) {
-                errorMessage = "Bad Request (400) - The model may not be available in your region.";
-            } else if (errorMessage.includes("401") || errorMessage.includes("403")) {
-                errorMessage = "Unauthorized - Check your GOOGLE_API_KEY.";
-            } else if (errorMessage.includes("429")) {
-                errorMessage = "Rate limit exceeded - Try again in a few seconds.";
-            } else if (errorMessage.includes("500") || errorMessage.includes("503")) {
-                errorMessage = "Gemini service temporarily unavailable.";
-            }
-
-            return { success: false, error: `Gemini Error: ${errorMessage}` };
+        if (!result) {
+            return { success: false, error: "Gemini Error: Failed to generate content after retries." };
         }
 
         const response = result.response;

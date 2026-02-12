@@ -40,6 +40,13 @@ export default function CommentsSection({ fileId }: { fileId: string }) {
 
     useEffect(() => {
         fetchComments();
+
+        // Poll for new comments every 5 seconds (Real-time update)
+        const interval = setInterval(() => {
+            fetchComments();
+        }, 5000);
+
+        return () => clearInterval(interval);
     }, [fileId]);
 
     const handleSubmit = async (e: React.FormEvent) => {

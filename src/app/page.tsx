@@ -14,12 +14,15 @@ import {
   FileCode,
   Sparkles,
   Command,
-  CheckCircle2
+  CheckCircle2,
+  Menu,
+  X
 } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { PLANS } from '@/config/plans';
+import { useState } from 'react';
 
 const jsonLd = {
   "@context": "https://schema.org",
@@ -50,6 +53,7 @@ const staggerContainer = {
 };
 
 export default function LandingPage() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   return (
     <div className="min-h-screen bg-[#030014] text-white selection:bg-primary/30 overflow-hidden">
       <script
@@ -82,16 +86,44 @@ export default function LandingPage() {
           </nav>
 
           <div className="flex items-center gap-4">
-            <Link href="/auth/login">
+            <Link href="/auth/login" className="hidden md:block">
               <Button variant="ghost" className="hover:bg-white/5">Log in</Button>
             </Link>
-            <Link href="/auth/register">
+            <Link href="/auth/register" className="hidden md:block">
               <Button className="bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 rounded-full px-6">
                 Get Started <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </Link>
+            <button
+              className="md:hidden p-2 text-white/70 hover:text-white"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            >
+              {mobileMenuOpen ? <X /> : <Menu />}
+            </button>
           </div>
         </div>
+
+        {/* Mobile Menu Overlay */}
+        {mobileMenuOpen && (
+          <div className="md:hidden fixed inset-0 top-20 bg-[#030014]/95 backdrop-blur-lg z-40 p-6 flex flex-col gap-6 animate-in slide-in-from-top-5">
+            <nav className="flex flex-col gap-4 text-lg font-medium text-white/70">
+              <Link href="#features" className="hover:text-primary transition-colors" onClick={() => setMobileMenuOpen(false)}>Features</Link>
+              <Link href="#solutions" className="hover:text-primary transition-colors" onClick={() => setMobileMenuOpen(false)}>Solutions</Link>
+              <Link href="#pricing" className="hover:text-primary transition-colors" onClick={() => setMobileMenuOpen(false)}>Pricing</Link>
+            </nav>
+            <div className="h-px bg-white/10" />
+            <div className="flex flex-col gap-4">
+              <Link href="/auth/login" onClick={() => setMobileMenuOpen(false)}>
+                <Button variant="ghost" className="w-full justify-start hover:bg-white/5">Log in</Button>
+              </Link>
+              <Link href="/auth/register" onClick={() => setMobileMenuOpen(false)}>
+                <Button className="w-full bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 rounded-full">
+                  Get Started <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </Link>
+            </div>
+          </div>
+        )}
       </header>
 
       {/* Hero Section */}

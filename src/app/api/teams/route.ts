@@ -19,6 +19,13 @@ export async function GET() {
                             include: {
                                 _count: {
                                     select: { members: true }
+                                },
+                                members: {
+                                    include: {
+                                        user: {
+                                            select: { name: true, email: true, image: true }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -31,12 +38,21 @@ export async function GET() {
             throw ApiErrors.notFound("User");
         }
 
-        // Transform to return list of teams with role
+        // Transform to return list of teams with role and members
         const teams = dbUser.teamMembers.map(tm => ({
             id: tm.team.id,
             name: tm.team.name,
             role: tm.role,
             memberCount: tm.team._count.members,
+            members: tm.team.members.map(m => ({
+                userId: m.userId,
+                role: m.role,
+                user: {
+                    name: m.user.name,
+                    email: m.user.email,
+                    image: m.user.image
+                }
+            })),
             joinedAt: tm.joinedAt,
             slug: tm.team.slug
         }));
