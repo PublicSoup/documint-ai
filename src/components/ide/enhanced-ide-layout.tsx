@@ -758,20 +758,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                 {/* Editor Area */}
                 <div className="flex-1 relative min-h-0 overflow-hidden flex">
                     <div className={cn("flex-1 min-w-0 relative h-full transition-all duration-300 ease-in-out", (showDocPreview || showLocalTopology) && "border-r border-white/10")}>
-                        {/* Surgical AI HUD */}
-                        {activeFile && (
-                            <div className="absolute top-4 right-4 flex items-center gap-1 bg-[#1e1e1e]/90 backdrop-blur-xl border border-white/10 p-1 rounded-xl shadow-2xl z-20 animate-in fade-in slide-in-from-top-2 duration-500">
-                                <button className="p-1.5 rounded hover:bg-white/5 text-white/40 hover:text-white transition-all flex items-center gap-2 px-3">
-                                    <Zap className="w-3.5 h-3.5 text-amber-400" />
-                                    <span className="text-[10px] font-bold uppercase tracking-widest">Speed Fix</span>
-                                </button>
-                                <div className="w-px h-3 bg-white/10 mx-1" />
-                                <button className="p-1.5 rounded hover:bg-white/5 text-white/40 hover:text-white transition-all flex items-center gap-2 px-3">
-                                    <Wand2 className="w-3.5 h-3.5 text-purple-400" />
-                                    <span className="text-[10px] font-bold uppercase tracking-widest">Refactor</span>
-                                </button>
-                            </div>
-                        )}
+                        {/* Editor content area - no overlaying HUD */}
 
                         {activeFileId && activeFile ? (
                             <SimpleEnhancedEditor
