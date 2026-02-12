@@ -66,7 +66,7 @@ export default function LoginPage() {
                         <h2 className="text-3xl font-bold text-white tracking-tight">Welcome back</h2>
                         <p className="mt-2 text-sm text-white/50">Enter your credentials to access your workspace</p>
                     </div>
-p-[[]]
+
                     <form className="space-y-6" onSubmit={handleSubmit}>
                         <div className="space-y-4">
                             <div className="space-y-2">
