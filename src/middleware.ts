@@ -63,11 +63,12 @@ export async function middleware(request: NextRequest) {
     // In a true enterprise env, we'd use nonces.
     const csp = `
     default-src 'self';
-    script-src 'self' 'unsafe-eval' 'unsafe-inline' https://va.vercel-scripts.com;
-    style-src 'self' 'unsafe-inline';
+    script-src 'self' 'unsafe-eval' 'unsafe-inline' https://va.vercel-scripts.com https://js.stripe.com;
+    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
     img-src 'self' blob: data: https:;
-    font-src 'self' data:;
-    connect-src 'self' https://api.openai.com https://api.anthropic.com;
+    font-src 'self' data: https://fonts.gstatic.com;
+    connect-src 'self' https://api.openai.com https://api.anthropic.com https://*.auth0.com https://api.stripe.com https://checkout.stripe.com https://vitals.vercel-insights.com;
+    frame-src 'self' https://*.auth0.com https://checkout.stripe.com https://js.stripe.com;
     frame-ancestors 'self';
   `.replace(/\s{2,}/g, ' ').trim();
 

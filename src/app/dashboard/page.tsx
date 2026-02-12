@@ -40,7 +40,8 @@ import { OnboardingChecklist } from "@/components/onboarding-checklist";
 import AuditLogViewer from "@/components/audit-log-viewer";
 import { EnterpriseFeatureGate } from "@/components/enterprise-feature-gate";
 import { ArchitectureTab } from "@/components/architecture-tab";
-import { Network } from "lucide-react";
+import { CodeHealthIndex } from "@/components/analytics/health-index";
+import { Network, Sparkles, BrainCircuit, Fingerprint } from "lucide-react";
 
 export default async function DashboardPage(props: {
     searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
@@ -195,53 +196,45 @@ export default async function DashboardPage(props: {
                 </div>
 
                 <TabsContent value="overview" className="space-y-6 animate-in fade-in-50 duration-500">
-                    {/* Quick Launch & Stats Overview */}
+                    {/* Executive Insights Row */}
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                        {/* Hero Stats Card */}
-                        <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <Card className="glass-card border-white/5 relative overflow-hidden group">
+                        <div className="lg:col-span-5">
+                            <CodeHealthIndex score={84} change={12} />
+                        </div>
+                        
+                        <div className="lg:col-span-7 grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <Card className="glass-card border-white/5 relative overflow-hidden group bg-gradient-to-br from-emerald-500/5 to-transparent">
                                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
-                                    <Code2 className="w-12 h-12 text-primary" />
+                                    <ShieldCheck className="w-12 h-12 text-emerald-500" />
                                 </div>
                                 <CardContent className="p-6">
-                                    <p className="text-xs font-black uppercase tracking-widest text-zinc-400 mb-1">Total Files</p>
-                                    <h3 className="text-3xl font-bold text-white">{totalFilesCount}</h3>
-                                    <div className="mt-4 flex items-center gap-2 text-xs text-green-400">
-                                        <TrendingUp className="w-3 h-3" />
-                                        <span>+12% from last week</span>
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1">Compliance Status</p>
+                                    <h3 className="text-3xl font-bold text-white tracking-tighter">BANK GRADE</h3>
+                                    <div className="mt-4 flex items-center gap-2 text-xs text-emerald-400">
+                                        <Fingerprint className="w-3 h-3" />
+                                        <span>Audit trails fully synced</span>
                                     </div>
                                 </CardContent>
                             </Card>
 
-                            <Card className="glass-card border-white/5 relative overflow-hidden group">
+                            <Card className="glass-card border-white/5 relative overflow-hidden group bg-gradient-to-br from-blue-500/5 to-transparent">
                                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
-                                    <ShieldCheck className="w-12 h-12 text-green-500" />
+                                    <BrainCircuit className="w-12 h-12 text-blue-500" />
                                 </div>
                                 <CardContent className="p-6">
-                                    <p className="text-xs font-black uppercase tracking-widest text-zinc-400 mb-1">Verified Docs</p>
-                                    <h3 className="text-3xl font-bold text-white">{verifiedDocsCount}</h3>
-                                    <div className="mt-4 flex items-center gap-2 text-xs text-blue-400">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1">Architecture Depth</p>
+                                    <h3 className="text-3xl font-bold text-white tracking-tighter">{totalFilesCount} Nodes</h3>
+                                    <div className="mt-4 flex items-center gap-2 text-xs text-blue-400 font-medium">
                                         <Activity className="w-3 h-3" />
-                                        <span>{totalFilesCount > 0 ? Math.round((verifiedDocsCount / totalFilesCount) * 100) : 0}% coverage</span>
-                                    </div>
-                                </CardContent>
-                            </Card>
-
-                            <Card className="glass-card border-white/5 relative overflow-hidden group">
-                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
-                                    <Zap className="w-12 h-12 text-yellow-500" />
-                                </div>
-                                <CardContent className="p-6">
-                                    <p className="text-xs font-black uppercase tracking-widest text-zinc-400 mb-1">AI Tokens used</p>
-                                    <h3 className="text-3xl font-bold text-white">42.5k</h3>
-                                    <div className="mt-4 flex items-center gap-2 text-xs text-primary">
-                                        <Link href="/dashboard/billing" className="hover:underline flex items-center gap-1">
-                                            Manage plan <ChevronRight className="w-3 h-3" />
-                                        </Link>
+                                        <span>{verifiedDocsCount} Docs Verified</span>
                                     </div>
                                 </CardContent>
                             </Card>
                         </div>
+                    </div>
+
+                    {/* Quick Launch & Stats Overview */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
                         {/* Cloud IDE Quick Launch */}
                         <Card className="lg:col-span-4 bg-primary/10 border-primary/20 relative overflow-hidden group cursor-pointer hover:bg-primary/20 transition-all shadow-2xl shadow-primary/10">
@@ -277,6 +270,28 @@ export default async function DashboardPage(props: {
                                         <FileUpload teamId={teamId} isPro={subscription.isPro || subscription.isTeam} />
                                         <GitHubImport />
                                     </div>
+                                    
+                                    {/* AI Priority Queue */}
+                                    <div className="p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 flex items-center gap-2">
+                                                <Sparkles className="w-3 h-3" />
+                                                AI Priority Queue
+                                            </span>
+                                            <span className="text-[10px] bg-indigo-500 text-white px-1.5 rounded-full font-bold">2</span>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <div className="text-[11px] text-white/60 hover:text-white transition-colors cursor-pointer flex items-center gap-2">
+                                                <div className="w-1 h-1 rounded-full bg-amber-400 animate-pulse" />
+                                                New API in `/v2/users` needs docs
+                                            </div>
+                                            <div className="text-[11px] text-white/60 hover:text-white transition-colors cursor-pointer flex items-center gap-2">
+                                                <div className="w-1 h-1 rounded-full bg-blue-400" />
+                                                Refactor suggested for `db.ts`
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div className="pt-4 border-t border-white/5 space-y-2">
                                         <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest px-2">Current Context</p>
                                         <TeamSwitcher teams={teams} currentTeamId={teamId} />

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { DiagramViewer } from "@/components/diagram-viewer";
 import { getProjectGraphMermaid } from "@/app/dashboard/actions";
+import { useRouter } from "next/navigation";
 import { Loader2, Share2, Info } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import { ProBadge } from "@/components/ui/pro-badge";
 import { FeatureGateOverlay } from "@/components/ui/feature-gate-overlay";
 
 export function ArchitectureTab({ teamId }: { teamId?: string }) {
+    const router = useRouter();
     const [mermaidCode, setMermaidCode] = useState<string>("");
     const [loading, setLoading] = useState(true);
 
@@ -123,7 +125,15 @@ export function ArchitectureTab({ teamId }: { teamId?: string }) {
                     </Alert>
 
                     <div className="border border-zinc-800 rounded-xl overflow-hidden shadow-2xl bg-zinc-950/50">
-                        <DiagramViewer code={mermaidCode} type="flowchart" />
+                        <DiagramViewer 
+                            code={mermaidCode} 
+                            type="flowchart" 
+                            onNodeClick={(filePath) => {
+                                console.log("🚀 [Architecture] Navigating to file:", filePath);
+                                // Redirect to IDE with specific file open
+                                router.push(`/code?file=${encodeURIComponent(filePath)}`);
+                            }}
+                        />
                     </div>
                 </div>
             </FeatureGateOverlay>

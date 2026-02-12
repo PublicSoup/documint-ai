@@ -14,7 +14,16 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { EditUserDialog } from '@/components/admin/edit-user-dialog';
-import { Trash2, Edit, Search, UserX, Loader2, ShieldAlert } from 'lucide-react';
+import { Trash2, Edit, Search, UserX, Loader2, ShieldAlert, KeyRound, Copy, Check } from 'lucide-react';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    DialogFooter,
+} from "@/components/ui/dialog";
+
 import { toast } from 'sonner';
 
 interface User {
@@ -37,6 +46,8 @@ export default function AdminUsersPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [editingUser, setEditingUser] = useState<User | null>(null);
+    const [resetResult, setResetResult] = useState<{ email: string; password: string } | null>(null);
+    const [copied, setCopied] = useState(false);
     const router = useRouter();
 
     const fetchUsers = async () => {
@@ -91,6 +102,35 @@ export default function AdminUsersPage() {
             }
         } catch (e) {
             toast.error("Error updating user");
+        }
+    };
+
+    const handleResetPassword = async (user: User) => {
+        if (!confirm(`Are you sure you want to reset the password for ${user.email}?`)) return;
+
+        try {
+            const res = await fetch(`/api/admin/users/${user.id}/reset-password`, {
+                method: 'POST'
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                setResetResult({ email: user.email || '', password: data.password });
+                toast.success("Password reset successfully");
+            } else {
+                toast.error("Failed to reset password");
+            }
+        } catch (e) {
+            toast.error("Error resetting password");
+        }
+    };
+
+    const copyToClipboard = () => {
+        if (resetResult) {
+            navigator.clipboard.writeText(resetResult.password);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+            toast.success("Password copied to clipboard");
         }
     };
 
@@ -180,6 +220,23 @@ export default function AdminUsersPage() {
                                             >
                                                 <Trash2 className="w-4 h-4" />
                                             </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                className="text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 h-8 w-8 p-0"
+                                                title="Reset Password"
+                                                onClick={() => handleResetPassword(user)}
+                                            >
+                                                <KeyRound className="w-4 h-4" />
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-8 w-8 p-0"
+                                                onClick={() => handleDelete(user.id)}
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </Button>
                                         </div>
                                     </TableCell>
                                 </TableRow>
@@ -195,6 +252,56 @@ export default function AdminUsersPage() {
                     onSave={handleUpdate}
                 />
             </div>
+
+            {/* Password Reset Result Dialog */}
+            <Dialog open={!!resetResult} onOpenChange={(open) => !open && setResetResult(null)}>
+                <DialogContent className="bg-zinc-900 border-zinc-800 text-white sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                            <KeyRound className="w-5 h-5 text-amber-500" />
+                            Password Reset Successful
+                        </DialogTitle>
+                        <DialogDescription className="text-zinc-400">
+                            The password for <strong>{resetResult?.email}</strong> has been reset.
+                            <br />
+                            Please copy this password immediately. It will not be shown again.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex items-center space-x-2 mt-4">
+                        <div className="grid flex-1 gap-2">
+                            <div className="relative">
+                                <Input
+                                    readOnly
+                                    value={resetResult?.password || ''}
+                                    className="pr-10 font-mono text-lg bg-black/50 border-zinc-700 text-amber-500 selection:bg-amber-500/30"
+                                />
+                                <Button
+                                    size="sm"
+                                    className="absolute right-1 top-1 h-8 w-8 p-0 bg-transparent hover:bg-zinc-800"
+                                    onClick={copyToClipboard}
+                                >
+                                    {copied ? (
+                                        <Check className="h-4 w-4 text-emerald-500" />
+                                    ) : (
+                                        <Copy className="h-4 w-4 text-zinc-400" />
+                                    )}
+                                    <span className="sr-only">Copy</span>
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter className="sm:justify-start">
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            className="bg-zinc-800 hover:bg-zinc-700 text-white w-full"
+                            onClick={() => setResetResult(null)}
+                        >
+                            Close
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

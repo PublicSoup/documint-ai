@@ -7,9 +7,10 @@ import { Loader2, Download, RefreshCcw } from "lucide-react";
 interface DiagramViewerProps {
     code: string;
     type?: string;
+    onNodeClick?: (id: string) => void;
 }
 
-export function DiagramViewer({ code, type = "class" }: DiagramViewerProps) {
+export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramViewerProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [svg, setSvg] = useState<string>("");
     const [error, setError] = useState<string | null>(null);
@@ -21,7 +22,17 @@ export function DiagramViewer({ code, type = "class" }: DiagramViewerProps) {
             securityLevel: "loose",
             fontFamily: "inherit",
         });
-    }, []);
+
+        // Expose callback for Mermaid to find
+        (window as any).mermaidNodeClick = (id: string) => {
+            console.log("📊 [Mermaid] Node clicked:", id);
+            if (onNodeClick) onNodeClick(id);
+        };
+
+        return () => {
+            delete (window as any).mermaidNodeClick;
+        };
+    }, [onNodeClick]);
 
     useEffect(() => {
         const autoRepair = (input: string): string => {

@@ -18,7 +18,13 @@ import { ActivityBar } from "./activity-bar";
 import { Sidebar } from "./sidebar";
 import { EditorTabs } from "./editor-tabs";
 import { SecretsManager } from "./secrets-manager";
-import { Lock } from "lucide-react";
+import { IDEStatusBar } from "./status-bar";
+import { ReadmeGenerator } from "../readme-generator";
+import { ContextualHeader } from "./contextual-header";
+import { DiagramViewer } from "../diagram-viewer";
+import { getProjectGraphMermaid } from "@/app/dashboard/actions";
+import { Lock, FileText, Share2, Wand2, Zap, Layout as LayoutIcon, SplitSquareVertical } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 
 interface EnhancedIDELayoutProps {
     files: (File & { content?: string | null })[];
@@ -28,6 +34,7 @@ interface EnhancedIDELayoutProps {
 
 export default function EnhancedIDELayout({ files: initialFiles, user, subscription }: EnhancedIDELayoutProps) {
     const { toast } = useToast();
+    const searchParams = useSearchParams();
     const [activeFileId, setActiveFileId] = useState<string | undefined>(initialFiles[0]?.id);
     const [openFiles, setOpenFiles] = useState<string[]>(initialFiles.length > 0 ? [initialFiles[0].id] : []);
     const [fileContents, setFileContents] = useState<Record<string, string>>({});
@@ -47,13 +54,23 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     const [showAIChat, setShowAIChat] = useState(true);
     const [showAIEditor, setShowAIEditor] = useState(false);
     const [showTerminal, setShowTerminal] = useState(true);
+    const [showDocPreview, setShowDocPreview] = useState(false);
+    const [showLocalTopology, setShowLocalTopology] = useState(false);
+    const [localMermaid, setLocalMermaid] = useState<string>("");
     const editorRef = useRef<SimpleEnhancedEditorRef>(null);
     const [clickTimeout, setClickTimeout] = useState<NodeJS.Timeout | null>(null);
 
-    // Initial load of content (simulation, in real app we fetch content on demand)
+    // Handle query parameter for auto-opening files
     useEffect(() => {
-        // Hypothetically fetch content
-    }, []);
+        const fileToOpen = searchParams.get('file');
+        if (fileToOpen) {
+            const file = initialFiles.find(f => f.id === fileToOpen || f.name === fileToOpen);
+            if (file) {
+                handleFileSelect(file.id);
+                toast(`Opened ${file.name} from Architecture Map`, "success");
+            }
+        }
+    }, [searchParams]);
 
     const handleFileSelect = async (fileId: string) => {
         if (!openFiles.includes(fileId)) {
@@ -258,6 +275,16 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
     const activeFile = initialFiles.find(f => f.id === activeFileId);
 
+    // Fetch local topology for active file
+    useEffect(() => {
+        if (showLocalTopology) {
+            getProjectGraphMermaid().then(code => {
+                // Heuristic: only show nodes connected to active file
+                setLocalMermaid(code);
+            });
+        }
+    }, [showLocalTopology, activeFileId]);
+
     const handleAction = async (action: "ai" | "delete" | "rename" | "new_file" | "new_folder" | "refresh", fileId?: string) => {
         if (action === "new_file") {
             await handleCreateFile();
@@ -414,6 +441,13 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
             {/* Main Area */}
             <div className="flex-1 flex flex-col min-w-0 max-w-full bg-[#1e1e1e] relative z-10 h-full overflow-hidden">
+                {/* Enterprise Header */}
+                <ContextualHeader 
+                    filePath={activeFile?.name || "No file selected"} 
+                    riskScore={activeFile?.id ? 45 : 0} // Would ideally come from a computed state
+                    isSaving={isSaving}
+                />
+
                 {/* Tabs & Toolbar */}
                 <div className="flex-none flex items-center justify-between h-10 bg-[#1e1e1e] border-b border-white/5 select-none overflow-hidden">
                     <div className="flex items-center h-full overflow-x-auto custom-scrollbar">
@@ -481,10 +515,32 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 setClickTimeout(timeout);
                                 setShowAIEditor(!showAIEditor);
                             }}
-                            className="p-1.5 rounded hover:bg-purple-500/20 text-purple-500 hover:text-purple-400"
+                            className={cn("p-1.5 rounded transition-colors", showAIEditor ? "bg-purple-500/20 text-purple-400" : "text-purple-500 hover:bg-purple-500/10")}
                             title="Toggle AI Editor"
                         >
                             <Bot className="w-4 h-4" />
+                        </button>
+
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (clickTimeout) return;
+                                const timeout = setTimeout(() => setClickTimeout(null), 300);
+                                setClickTimeout(timeout);
+                                setShowDocPreview(!showDocPreview);
+                            }}
+                            className={cn("p-1.5 rounded transition-colors", showDocPreview ? "bg-blue-500/20 text-blue-400" : "text-blue-500 hover:bg-blue-500/10")}
+                            title="Toggle Doc Preview"
+                        >
+                            <FileText className="w-4 h-4" />
+                        </button>
+
+                        <button
+                            onClick={() => setShowLocalTopology(!showLocalTopology)}
+                            className={cn("p-1.5 rounded transition-colors", showLocalTopology ? "bg-emerald-500/20 text-emerald-400" : "text-emerald-500 hover:bg-emerald-500/10")}
+                            title="Toggle Local Topology"
+                        >
+                            <LayoutIcon className="w-4 h-4" />
                         </button>
 
                         {/* AI Agent Button - Code Editor Mode */}
@@ -596,18 +652,123 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                 </div>
 
                 {/* Editor Area */}
-                <div className="flex-1 relative min-h-0 overflow-hidden">
-                    {activeFileId && activeFile ? (
-                        <SimpleEnhancedEditor
-                            ref={editorRef}
-                            code={fileContents[activeFileId] || "// Loading content..."}
-                            language={activeFile.language === 'ts' || activeFile.language === 'tsx' ? 'typescript' : activeFile.language === 'js' ? 'javascript' : activeFile.language}
-                            fileName={activeFile.name}
-                            onChange={handleContentChange}
-                            onSave={handleSave}
-                            onRun={() => toast("Run functionality not implemented yet", "success")}
-                        />
-                    ) : (
+                <div className="flex-1 relative min-h-0 overflow-hidden flex">
+                    <div className={cn("flex-1 min-w-0 relative h-full transition-all duration-300 ease-in-out", (showDocPreview || showLocalTopology) && "border-r border-white/10")}>
+                        {/* Surgical AI HUD */}
+                        {activeFile && (
+                            <div className="absolute top-4 right-4 flex items-center gap-1 bg-[#1e1e1e]/90 backdrop-blur-xl border border-white/10 p-1 rounded-xl shadow-2xl z-20 animate-in fade-in slide-in-from-top-2 duration-500">
+                                <button className="p-1.5 rounded hover:bg-white/5 text-white/40 hover:text-white transition-all flex items-center gap-2 px-3">
+                                    <Zap className="w-3.5 h-3.5 text-amber-400" />
+                                    <span className="text-[10px] font-bold uppercase tracking-widest">Speed Fix</span>
+                                </button>
+                                <div className="w-px h-3 bg-white/10 mx-1" />
+                                <button className="p-1.5 rounded hover:bg-white/5 text-white/40 hover:text-white transition-all flex items-center gap-2 px-3">
+                                    <Wand2 className="w-3.5 h-3.5 text-purple-400" />
+                                    <span className="text-[10px] font-bold uppercase tracking-widest">Refactor</span>
+                                </button>
+                            </div>
+                        )}
+
+                        {activeFileId && activeFile ? (
+                            <SimpleEnhancedEditor
+                                ref={editorRef}
+                                code={fileContents[activeFileId] || "// Loading content..."}
+                                language={activeFile.language === 'ts' || activeFile.language === 'tsx' ? 'typescript' : activeFile.language === 'js' ? 'javascript' : activeFile.language}
+                                fileName={activeFile.name}
+                                onChange={handleContentChange}
+                                onSave={handleSave}
+                                onRun={() => toast("Run functionality not implemented yet", "success")}
+                            />
+                        ) : (
+                            <div className="h-full flex flex-col items-center justify-center text-muted-foreground space-y-4 bg-zinc-900/20">
+                                <div className="relative">
+                                    <Layout className="w-16 h-16 opacity-10" />
+                                    <Sparkles className="w-6 h-6 absolute -top-2 -right-2 text-primary opacity-20 animate-pulse" />
+                                </div>
+                                <p className="text-xs font-medium tracking-widest uppercase opacity-30">DocuMint Agentic IDE</p>
+                                <div className="flex flex-col gap-2 items-center">
+                                    <div className="flex gap-2 text-[10px] font-mono text-white/20">
+                                        <kbd className="bg-white/5 px-1.5 py-0.5 rounded border border-white/10">⌘ P</kbd>
+                                        <span>Quick Open</span>
+                                    </div>
+                                    <div className="flex gap-2 text-[10px] font-mono text-white/20">
+                                        <kbd className="bg-white/5 px-1.5 py-0.5 rounded border border-white/10">⌘ /</kbd>
+                                        <span>AI Assistant</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {showDocPreview && activeFile && (
+                        <div className="w-[40%] max-w-[800px] min-w-[350px] bg-[#0c0c0e] overflow-y-auto custom-scrollbar animate-in slide-in-from-right duration-500 border-l border-white/5 shadow-2xl z-20">
+                            <div className="p-3 border-b border-white/10 bg-[#161618] flex items-center justify-between sticky top-0 z-20 backdrop-blur-md">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-6 h-6 rounded bg-blue-500/10 flex items-center justify-center">
+                                        <FileText className="w-3.5 h-3.5 text-blue-400" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/80">Documentation</h3>
+                                        <p className="text-[9px] text-white/30 font-mono truncate max-w-[150px]">{activeFile.name}</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    <button className="p-1.5 rounded hover:bg-white/5 text-white/40" title="Refresh">
+                                        <Maximize2 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button onClick={() => setShowDocPreview(false)} className="p-1.5 rounded hover:bg-red-500/10 text-white/30 hover:text-red-400 transition-colors">
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="p-8 prose prose-invert prose-sm max-w-none">
+                                <ReadmeGenerator 
+                                    fileId={activeFileId} 
+                                    fileName={activeFile.name}
+                                    fileContent={fileContents[activeFileId || ""]}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {showLocalTopology && activeFile && (
+                        <div className="w-[40%] max-w-[800px] min-w-[350px] bg-[#0c0c0e] overflow-hidden flex flex-col animate-in slide-in-from-right duration-500 border-l border-white/5 shadow-2xl z-20">
+                            <div className="p-3 border-b border-white/10 bg-[#161618] flex items-center justify-between sticky top-0 z-20 backdrop-blur-md">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-6 h-6 rounded bg-emerald-500/10 flex items-center justify-center">
+                                        <LayoutIcon className="w-3.5 h-3.5 text-emerald-400" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/80">Active Topology</h3>
+                                        <p className="text-[9px] text-white/30 font-mono truncate max-w-[150px]">{activeFile.name}</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    <button onClick={() => setShowLocalTopology(false)} className="p-1.5 rounded hover:bg-red-500/10 text-white/30 hover:text-red-400 transition-colors">
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="flex-1 p-4 overflow-hidden relative">
+                                <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/20 pointer-events-none z-10" />
+                                <DiagramViewer code={localMermaid} type="flowchart" onNodeClick={handleFileSelect} />
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Status Bar */}
+                <IDEStatusBar 
+                    fileCount={initialFiles.length}
+                    maxFiles={subscription?.limits?.totalFiles || 25}
+                    tokensUsed={4500} 
+                    maxTokens={10000} 
+                    plan={subscription?.plan || "Free"}
+                    isSaving={isSaving}
+                    activeFile={activeFile?.name}
+                />
+
+                {/* Terminal Panel */}
                         <div className="h-full flex flex-col items-center justify-center text-muted-foreground space-y-4">
                             <Layout className="w-16 h-16 opacity-20" />
                             <p className="text-sm">Select a file to start editing</p>

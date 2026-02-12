@@ -1,3 +1,4 @@
+console.log('Starting script...');
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
@@ -8,6 +9,7 @@ async function main() {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // 1. Create or Update the User
+    console.log('Upserting user...');
     const user = await prisma.user.upsert({
         where: { email },
         update: {
@@ -15,12 +17,14 @@ async function main() {
         },
         create: {
             email,
-            name: 'Admin User',
+            name: 'System Administrator',
             password: hashedPassword,
         },
     });
 
     // 2. Upsert Pro Subscription (The "second plan" is usually Starter -> Pro -> Team, so Pro)
+    console.log('User upserted. ID:', user.id);
+    console.log('Upserting subscription...');
     // Based on src/lib/subscription.ts: starter, pro, team
     await prisma.subscription.upsert({
         where: { userId: user.id },
