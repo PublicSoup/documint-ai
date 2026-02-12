@@ -13,11 +13,27 @@ import {
   Terminal,
   FileCode,
   Sparkles,
-  Command
+  Command,
+  CheckCircle2
 } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { PLANS } from '@/config/plans';
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "DocuMint AI",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Web",
+  "offers": {
+    "@type": "AggregateOffer",
+    "priceCurrency": "USD",
+    "lowPrice": "19.00",
+    "highPrice": "99.00"
+  }
+};
 
 const fadeInUp = {
   initial: { opacity: 0, y: 20 },
@@ -36,6 +52,10 @@ const staggerContainer = {
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-[#030014] text-white selection:bg-primary/30 overflow-hidden">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       {/* Animated Background Elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none -z-10">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 blur-[120px] rounded-full animate-pulse" />
@@ -267,6 +287,57 @@ export default function LandingPage() {
               </motion.div>
             ))}
           </motion.div>
+        </div>
+      </section>
+
+      {/* Pricing Section */}
+      <section id="pricing" className="py-32 px-6 relative">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-20">
+            <h2 className="text-4xl md:text-5xl font-bold mb-6 italic italic-accent">Simple, Transparent Pricing</h2>
+            <p className="text-white/40 text-lg max-w-2xl mx-auto">
+              Start for free, upgrade when you need more power.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {PLANS.map((plan) => (
+              <Card key={plan.id} className={`glass-card border-white/5 relative overflow-hidden group hover:border-primary/30 transition-all duration-300 ${plan.popular ? 'border-primary/50 shadow-2xl shadow-primary/10' : ''}`}>
+                {plan.popular && (
+                  <div className="absolute top-0 right-0 bg-primary text-white text-xs font-bold px-3 py-1 rounded-bl-xl">
+                    POPULAR
+                  </div>
+                )}
+                <CardContent className="p-8 flex flex-col h-full">
+                  <h3 className="text-xl font-bold mb-2">{plan.name}</h3>
+                  <div className="mb-6">
+                    <span className="text-4xl font-bold text-white">{plan.price}</span>
+                    <span className="text-white/40">/{plan.interval}</span>
+                  </div>
+                  <p className="text-white/60 mb-8">{plan.description}</p>
+
+                  <ul className="space-y-4 mb-8 flex-grow">
+                    <li className="flex items-center gap-3 text-sm text-white/80">
+                      <Zap className="w-4 h-4 text-primary" />
+                      <span>{plan.limit}</span>
+                    </li>
+                    {plan.features.map((feature, i) => (
+                      <li key={i} className="flex items-center gap-3 text-sm text-white/60">
+                        <CheckCircle2 className="w-4 h-4 text-green-400" />
+                        <span>{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <Link href="/auth/register" className="w-full">
+                    <Button className={`w-full ${plan.popular ? 'bg-primary hover:bg-primary/90' : 'bg-white/10 hover:bg-white/20'} text-white`}>
+                      Get Started
+                    </Button>
+                  </Link>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
       </section>
 

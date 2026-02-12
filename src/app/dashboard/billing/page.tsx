@@ -16,6 +16,7 @@ import InvoiceHistory from "@/components/invoice-history";
 import AuditLogViewer from "@/components/audit-log-viewer";
 import { TemplateManager } from "@/components/template-manager";
 import { cn } from "@/lib/utils";
+import { PLANS } from "@/config/plans";
 
 interface UsageData {
     filesProcessed: number;
@@ -247,30 +248,7 @@ export default function BillingHub() {
         }
     };
 
-    const plans = [
-        {
-            id: "starter",
-            name: "Starter",
-            price: "$19",
-            limit: "100 files/mo",
-            features: ["All languages", "Standard Documentation", "Basic Quality Scoring"],
-        },
-        {
-            id: "pro",
-            name: "Pro",
-            price: "$29",
-            limit: "1,000 files/mo",
-            features: ["14-Day Free Trial", "Enterprise Diagnostic Engine", "Security & Secret Audit", "Architecture Alerts", "Refactoring Suggestions"],
-            popular: true,
-        },
-        {
-            id: "team",
-            name: "Team",
-            price: "$99",
-            limit: "10,000 files/mo",
-            features: ["Onboarding Time Metrics", "Performance Profiling", "Team Collab", "Custom API Access"],
-        },
-    ];
+
 
     const tabs = [
         { id: "plans" as const, label: "Plans & Usage", icon: Zap },
@@ -387,7 +365,7 @@ export default function BillingHub() {
                             <div>
                                 <h2 className="text-xl font-bold text-white mb-6">Available Plans</h2>
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                    {plans.map((plan) => (
+                                    {PLANS.map((plan) => (
                                         <Card
                                             key={plan.id}
                                             className={cn(

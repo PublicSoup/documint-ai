@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, CheckCircle2, Crown, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
+import { PLANS } from "@/config/plans";
 
 interface UpgradeModalProps {
     isOpen: boolean;
@@ -59,22 +60,12 @@ export default function UpgradeModal({ isOpen, onClose, title = "Limit Reached",
                                 Unlock Pro Features
                             </h3>
                             <ul className="space-y-3 text-left">
-                                <li className="flex items-center gap-3 text-sm text-gray-300">
-                                    <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />
-                                    <span>Unlimited file analysis & uploads</span>
-                                </li>
-                                <li className="flex items-center gap-3 text-sm text-gray-300">
-                                    <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />
-                                    <span>Advanced architecture & security audits</span>
-                                </li>
-                                <li className="flex items-center gap-3 text-sm text-gray-300">
-                                    <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />
-                                    <span>Smart refactoring suggestions</span>
-                                </li>
-                                <li className="flex items-center gap-3 text-sm text-gray-300">
-                                    <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />
-                                    <span>Team collaboration tools</span>
-                                </li>
+                                {PLANS.find(p => p.id === 'pro')?.features.map((feature, i) => (
+                                    <li key={i} className="flex items-center gap-3 text-sm text-gray-300">
+                                        <CheckCircle2 className="w-4 h-4 text-green-400 shrink-0" />
+                                        <span>{feature}</span>
+                                    </li>
+                                ))}
                             </ul>
                         </div>
 

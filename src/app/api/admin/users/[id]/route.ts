@@ -12,7 +12,11 @@ export async function PUT(
 ) {
     try {
         const session = await getServerSession(authOptions);
-        if (!session || session.user?.email !== "admin@documintai.dev") {
+        const adminEmail = process.env.ADMIN_EMAIL || "admin@documintai.dev";
+        const isEnvAdmin = session?.user?.email === adminEmail;
+        const isDbAdmin = session?.user?.role === "ADMIN";
+
+        if (!session || (!isEnvAdmin && !isDbAdmin)) {
             return new NextResponse("Unauthorized", { status: 401 });
         }
 
@@ -44,7 +48,11 @@ export async function DELETE(
 ) {
     try {
         const session = await getServerSession(authOptions);
-        if (!session || session.user?.email !== "admin@documintai.dev") {
+        const adminEmail = process.env.ADMIN_EMAIL || "admin@documintai.dev";
+        const isEnvAdmin = session?.user?.email === adminEmail;
+        const isDbAdmin = session?.user?.role === "ADMIN";
+
+        if (!session || (!isEnvAdmin && !isDbAdmin)) {
             return new NextResponse("Unauthorized", { status: 401 });
         }
 

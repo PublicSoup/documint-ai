@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { SimpleEnhancedEditor, SimpleEnhancedEditorRef } from "./simple-enhanced-editor";
-import { X, Save, Play, Bot, Layout, Maximize2, Columns, Terminal as TerminalIcon, Settings, Sparkles, GitBranch, Files, Search as SearchIcon, Globe, Loader2 } from "lucide-react";
+import { X, Save, Play, Bot, Layout, Maximize2, Columns, Terminal as TerminalIcon, Settings, Sparkles, GitBranch, Files, Search as SearchIcon, Globe, Loader2, Lock, FileText, Share2, Wand2, Zap, Layout as LayoutIcon, SplitSquareVertical } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { File } from "@prisma/client";
 import { cn } from "@/lib/utils";
 import { useToast } from "../toast";
@@ -19,12 +20,36 @@ import { Sidebar } from "./sidebar";
 import { EditorTabs } from "./editor-tabs";
 import { SecretsManager } from "./secrets-manager";
 import { IDEStatusBar } from "./status-bar";
-import { ReadmeGenerator } from "../readme-generator";
+import ReadmeGenerator from "../readme-generator";
 import { ContextualHeader } from "./contextual-header";
 import { DiagramViewer } from "../diagram-viewer";
 import { getProjectGraphMermaid } from "@/app/dashboard/actions";
-import { Lock, FileText, Share2, Wand2, Zap, Layout as LayoutIcon, SplitSquareVertical } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+
+// Auto-detect Monaco language from file name
+function getLanguageFromFileName(fileName: string): string {
+    const ext = fileName.split('.').pop()?.toLowerCase();
+    const map: Record<string, string> = {
+        ts: 'typescript', tsx: 'typescript',
+        js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
+        css: 'css', scss: 'scss', less: 'less',
+        html: 'html', htm: 'html',
+        json: 'json', jsonc: 'json',
+        md: 'markdown', mdx: 'markdown',
+        py: 'python', rb: 'ruby', rs: 'rust', go: 'go', java: 'java',
+        c: 'c', h: 'c', cpp: 'cpp', hpp: 'cpp',
+        cs: 'csharp', php: 'php', sql: 'sql',
+        sh: 'shell', bash: 'shell', zsh: 'shell',
+        yaml: 'yaml', yml: 'yaml',
+        xml: 'xml', svg: 'xml',
+        graphql: 'graphql', gql: 'graphql',
+        dockerfile: 'dockerfile',
+        toml: 'ini', ini: 'ini',
+        env: 'plaintext', txt: 'plaintext', log: 'plaintext',
+    };
+    return map[ext || ''] || 'plaintext';
+}
+
+
 
 interface EnhancedIDELayoutProps {
     files: (File & { content?: string | null })[];
@@ -35,6 +60,7 @@ interface EnhancedIDELayoutProps {
 export default function EnhancedIDELayout({ files: initialFiles, user, subscription }: EnhancedIDELayoutProps) {
     const { toast } = useToast();
     const searchParams = useSearchParams();
+    const [files, setFiles] = useState(initialFiles);
     const [activeFileId, setActiveFileId] = useState<string | undefined>(initialFiles[0]?.id);
     const [openFiles, setOpenFiles] = useState<string[]>(initialFiles.length > 0 ? [initialFiles[0].id] : []);
     const [fileContents, setFileContents] = useState<Record<string, string>>({});
@@ -64,13 +90,23 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     useEffect(() => {
         const fileToOpen = searchParams.get('file');
         if (fileToOpen) {
-            const file = initialFiles.find(f => f.id === fileToOpen || f.name === fileToOpen);
+            // Check dynamic files list, not just initial
+            const file = files.find(f => f.id === fileToOpen || f.name === fileToOpen);
             if (file) {
                 handleFileSelect(file.id);
                 toast(`Opened ${file.name} from Architecture Map`, "success");
             }
         }
-    }, [searchParams]);
+    }, [searchParams, files]); // Added files dependency
+
+    // Fetch local topology for active file
+    useEffect(() => {
+        if (showLocalTopology) {
+            getProjectGraphMermaid().then((code: string | null) => {
+                setLocalMermaid(code || "");
+            });
+        }
+    }, [showLocalTopology, activeFileId]);
 
     const handleFileSelect = async (fileId: string) => {
         if (!openFiles.includes(fileId)) {
@@ -78,13 +114,16 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
         }
         setActiveFileId(fileId);
 
-        // If content not loaded, fetch it (mock for now)
+        // If content not loaded, fetch it
         if (!fileContents[fileId]) {
             try {
                 const res = await fetch(`/api/files/${fileId}/raw`);
                 const data = await res.json();
-                if (data.content) {
+                if (data.content !== undefined) {
                     setFileContents(prev => ({ ...prev, [fileId]: data.content }));
+                } else {
+                    // New/empty file — set empty string so editor shows blank
+                    setFileContents(prev => ({ ...prev, [fileId]: "" }));
                 }
             } catch (e) {
                 toast("Failed to load file content", "error");
@@ -133,7 +172,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     };
 
     const handleCreateFile = async () => {
-        const fileName = prompt("Enter file name (e.g., myFile.ts):");
+        const fileName = prompt("Enter file name (e.g., myFile.ts, styles.css):");
         if (!fileName) return;
 
         try {
@@ -145,9 +184,13 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
             if (res.ok) {
                 const newFile = await res.json();
-                toast("File created successfully", "success");
-                // In a real app, we'd update the file list instead of reloading
-                setTimeout(() => window.location.reload(), 1000);
+                // Add to file list state so it appears immediately (no reload needed)
+                setFiles(prev => [...prev, newFile]);
+                // Auto-open the new file
+                setFileContents(prev => ({ ...prev, [newFile.id]: newFile.content || "" }));
+                setOpenFiles(prev => [...prev, newFile.id]);
+                setActiveFileId(newFile.id);
+                toast(`Created ${fileName}`, "success");
             } else {
                 const text = await res.text();
                 toast(text || "Failed to create file", "error");
@@ -164,11 +207,11 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                 const wc = await WebContainerManager.getInstance();
                 setWebContainerBooted(true);
 
-                // Mount initial files
+                // Mount initial files (using state 'files' to be safe, though initially same as initialFiles)
                 const fileMounts: Record<string, { file: { contents: string } }> = {};
 
-                // Process initial files
-                initialFiles.forEach(f => {
+                // Process files
+                files.forEach(f => {
                     fileMounts[f.name] = { file: { contents: f.content || "" } };
                 });
 
@@ -210,13 +253,14 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
         };
 
         boot();
-    }, []);
+    }, []); // Run once on mount
 
     // Sync file changes to WebContainer
     useEffect(() => {
         const syncFile = async () => {
             if (activeFileId && fileContents[activeFileId] && webContainerBooted) {
-                const file = initialFiles.find(f => f.id === activeFileId);
+                // Must search in current dynamic files state
+                const file = files.find(f => f.id === activeFileId);
                 if (file) {
                     try {
                         await WebContainerManager.writeFile(file.name, fileContents[activeFileId]);
@@ -228,7 +272,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
         };
         const timeout = setTimeout(syncFile, 500); // Debounce
         return () => clearTimeout(timeout);
-    }, [fileContents, activeFileId, webContainerBooted]);
+    }, [fileContents, activeFileId, webContainerBooted, files]); // Added files dependency
 
 
     // Hotkeys
@@ -273,26 +317,16 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [activeFileId, fileContents, unsavedChanges]);
 
-    const activeFile = initialFiles.find(f => f.id === activeFileId);
+    const activeFile = files.find(f => f.id === activeFileId);
 
-    // Fetch local topology for active file
-    useEffect(() => {
-        if (showLocalTopology) {
-            getProjectGraphMermaid().then(code => {
-                // Heuristic: only show nodes connected to active file
-                setLocalMermaid(code);
-            });
-        }
-    }, [showLocalTopology, activeFileId]);
+
 
     const handleAction = async (action: "ai" | "delete" | "rename" | "new_file" | "new_folder" | "refresh", fileId?: string) => {
         if (action === "new_file") {
             await handleCreateFile();
         } else if (action === "new_folder") {
-            // Handle folder creation
             toast("Folder creation not implemented yet", "success");
         } else if (action === "refresh") {
-            // Handle refresh
             window.location.reload();
         } else if (action === "ai" && fileId) {
             setActiveFileId(fileId);
@@ -300,13 +334,41 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
             if (!openFiles.includes(fileId)) {
                 setOpenFiles([...openFiles, fileId]);
             }
+        } else if (action === "rename" && fileId) {
+            const file = files.find(f => f.id === fileId);
+            const newName = prompt("Enter new file name:", file?.name || "");
+            if (!newName || newName === file?.name) return;
+            try {
+                const res = await fetch(`/api/files/${fileId}/raw`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ name: newName })
+                });
+                if (res.ok) {
+                    setFiles(prev => prev.map(f => f.id === fileId ? { ...f, name: newName, language: getLanguageFromFileName(newName) } : f));
+                    toast(`Renamed to ${newName}`, "success");
+                } else {
+                    toast("Failed to rename file", "error");
+                }
+            } catch (e) {
+                toast("Failed to rename file", "error");
+            }
         } else if (action === "delete" && fileId) {
             if (confirm("Are you sure you want to delete this file?")) {
                 try {
-                    await fetch(`/api/files/${fileId}/raw`, { method: "DELETE" });
-                    toast("File deleted", "success");
-                    // Refresh or redirect (In real app, we'd invalidate router cache)
-                    setTimeout(() => window.location.reload(), 1000);
+                    const res = await fetch(`/api/files/${fileId}/raw`, { method: "DELETE" });
+                    if (res.ok) {
+                        // Remove from state instead of reloading
+                        setFiles(prev => prev.filter(f => f.id !== fileId));
+                        setOpenFiles(prev => prev.filter(id => id !== fileId));
+                        if (activeFileId === fileId) {
+                            const remaining = openFiles.filter(id => id !== fileId);
+                            setActiveFileId(remaining[remaining.length - 1]);
+                        }
+                        toast("File deleted", "success");
+                    } else {
+                        toast("Failed to delete file", "error");
+                    }
                 } catch (e) {
                     toast("Failed to delete", "error");
                 }
@@ -381,7 +443,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                 <div className="w-56 md:w-64 flex-none flex flex-col border-r border-white/5 bg-[#1e1e1e] h-full overflow-hidden animate-in slide-in-from-left-1 duration-200 z-30">
                     {activeSidebarTab === "explorer" && (
                         <EnhancedFileTree
-                            files={initialFiles}
+                            files={files}
                             activeFileId={activeFileId}
                             onSelect={handleFileSelect}
                             onAction={handleAction}
@@ -442,8 +504,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
             {/* Main Area */}
             <div className="flex-1 flex flex-col min-w-0 max-w-full bg-[#1e1e1e] relative z-10 h-full overflow-hidden">
                 {/* Enterprise Header */}
-                <ContextualHeader 
-                    filePath={activeFile?.name || "No file selected"} 
+                <ContextualHeader
+                    filePath={activeFile?.name || "No file selected"}
                     riskScore={activeFile?.id ? 45 : 0} // Would ideally come from a computed state
                     isSaving={isSaving}
                 />
@@ -452,7 +514,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                 <div className="flex-none flex items-center justify-between h-10 bg-[#1e1e1e] border-b border-white/5 select-none overflow-hidden">
                     <div className="flex items-center h-full overflow-x-auto custom-scrollbar">
                         {openFiles.map(fileId => {
-                            const file = initialFiles.find(f => f.id === fileId);
+                            // Use dynamic state to find file
+                            const file = files.find(f => f.id === fileId);
                             if (!file) return null;
                             const isActive = fileId === activeFileId;
                             const isUnsaved = unsavedChanges[fileId];
@@ -672,8 +735,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         {activeFileId && activeFile ? (
                             <SimpleEnhancedEditor
                                 ref={editorRef}
-                                code={fileContents[activeFileId] || "// Loading content..."}
-                                language={activeFile.language === 'ts' || activeFile.language === 'tsx' ? 'typescript' : activeFile.language === 'js' ? 'javascript' : activeFile.language}
+                                code={fileContents[activeFileId] ?? ""}
+                                language={getLanguageFromFileName(activeFile.name)}
                                 fileName={activeFile.name}
                                 onChange={handleContentChange}
                                 onSave={handleSave}
@@ -722,10 +785,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 </div>
                             </div>
                             <div className="p-8 prose prose-invert prose-sm max-w-none">
-                                <ReadmeGenerator 
-                                    fileId={activeFileId} 
-                                    fileName={activeFile.name}
-                                    fileContent={fileContents[activeFileId || ""]}
+                                <ReadmeGenerator
+                                    fileIds={activeFileId ? [activeFileId] : []}
                                 />
                             </div>
                         </div>
@@ -758,28 +819,17 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                 </div>
 
                 {/* Status Bar */}
-                <IDEStatusBar 
-                    fileCount={initialFiles.length}
+                <IDEStatusBar
+                    fileCount={files.length}
                     maxFiles={subscription?.limits?.totalFiles || 25}
-                    tokensUsed={4500} 
-                    maxTokens={10000} 
+                    tokensUsed={4500}
+                    maxTokens={10000}
                     plan={subscription?.plan || "Free"}
                     isSaving={isSaving}
                     activeFile={activeFile?.name}
                 />
 
-                {/* Terminal Panel */}
-                        <div className="h-full flex flex-col items-center justify-center text-muted-foreground space-y-4">
-                            <Layout className="w-16 h-16 opacity-20" />
-                            <p className="text-sm">Select a file to start editing</p>
-                            <div className="flex gap-2 text-xs">
-                                <span className="bg-white/5 px-2 py-1 rounded">Cmd+P to Search</span>
-                                <span className="bg-white/5 px-2 py-1 rounded">Cmd+S to Save</span>
-                                <span className="bg-white/5 px-2 py-1 rounded">Cmd+` to Terminal</span>
-                            </div>
-                        </div>
-                    )}
-                </div>
+
 
                 {/* Terminal Panel */}
                 {showTerminal && (
@@ -856,7 +906,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         activeFileId={activeFileId}
                         activeFileContent={activeFileId ? fileContents[activeFileId] : undefined}
                         activeFileName={activeFile ? activeFile.name : undefined}
-                        allFiles={initialFiles.map(f => ({ id: f.id, name: f.name, language: f.language }))}
+                        allFiles={files.map(f => ({ id: f.id, name: f.name, language: f.language }))}
                         allFileContents={fileContents}
                         onInsertCode={(code) => {
                             if (activeFileId) {
@@ -898,17 +948,18 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 const res = await fetch("/api/files/create", {
                                     method: "POST",
                                     headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ name, content }) // content optional in API but useful if supported
+                                    body: JSON.stringify({ name, content })
                                 });
 
                                 if (res.ok) {
                                     const newFile = await res.json();
                                     toast(`File ${name} created`, "success");
 
-                                    // Refresh logic or update state (mock update for now)
-                                    // In real app, we might need to reload or update ‘initialFiles’ if not managed by global state
-                                    // For now, let's just trigger a reload to see the new file
-                                    setTimeout(() => window.location.reload(), 500);
+                                    // Dynamic state update without reload
+                                    setFiles(prev => [...prev, newFile]);
+                                    setFileContents(prev => ({ ...prev, [newFile.id]: content || "" }));
+                                    setOpenFiles(prev => [...prev, newFile.id]);
+                                    setActiveFileId(newFile.id);
                                 } else {
                                     toast("Failed to create file", "error");
                                 }

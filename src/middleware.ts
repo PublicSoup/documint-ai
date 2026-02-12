@@ -36,7 +36,12 @@ export async function middleware(request: NextRequest) {
     // 0. Admin Protection
     if (request.nextUrl.pathname.startsWith('/admin')) {
         const token = await getToken({ req: request });
-        if (!token || token.email !== 'admin@documintai.dev') {
+        const adminEmail = process.env.ADMIN_EMAIL || 'admin@documintai.dev';
+
+        const isEnvAdmin = token?.email === adminEmail;
+        const isDbAdmin = token?.role === 'ADMIN';
+
+        if (!token || (!isEnvAdmin && !isDbAdmin)) {
             console.warn(`Unauthorized access attempt to ${request.nextUrl.pathname} from ${ip}`);
             return NextResponse.redirect(new URL('/', request.url));
         }

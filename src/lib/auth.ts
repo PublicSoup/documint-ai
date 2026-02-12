@@ -67,17 +67,7 @@ export const authOptions: NextAuthOptions = {
                 const email = credentials.email.trim();
 
                 // DEV BYPASS: Allow login without DB if in dev mode or DB is down
-                if (process.env.NODE_ENV === "development" &&
-                    email === "admin@documintai.dev" &&
-                    credentials.password === "password") {
-                    console.log("⚠️ Using Dev Auth Bypass for admin@documintai.dev");
-                    return {
-                        id: "dev-admin-id",
-                        email: "admin@documintai.dev",
-                        name: "Dev Admin",
-                        image: null,
-                    };
-                }
+
 
                 const user = await db.user.findUnique({
                     where: {
@@ -113,6 +103,7 @@ export const authOptions: NextAuthOptions = {
                     email: user.email,
                     name: user.name,
                     image: user.image,
+                    role: user.role, // Pass role
                 };
             }
         })
@@ -121,12 +112,14 @@ export const authOptions: NextAuthOptions = {
         async session({ session, token }) {
             if (token && session.user) {
                 session.user.id = token.id as string;
+                session.user.role = token.role as string; // Pass to session
             }
             return session;
         },
         async jwt({ token, user, account }) {
             if (user) {
                 token.id = user.id;
+                token.role = user.role; // Pass to token
             }
             // Capture GitHub Access Token on Sign In
             if (account && account.provider === "github" && account.access_token) {

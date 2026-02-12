@@ -28,7 +28,11 @@ export async function GET(req: NextRequest) {
             });
         }
 
-        const res = await fetch("https://api.github.com/user/repos?sort=updated&per_page=20", {
+        const { searchParams } = new URL(req.url);
+        const page = searchParams.get("page") || "1";
+        const perPage = searchParams.get("per_page") || "20";
+
+        const res = await fetch(`https://api.github.com/user/repos?sort=updated&per_page=${perPage}&page=${page}`, {
             headers: {
                 Authorization: `Bearer ${connection.accessToken}`,
                 Accept: "application/vnd.github.v3+json",

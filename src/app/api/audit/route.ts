@@ -15,30 +15,31 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        // DEV MODE BYPASS: Return sample audit logs
-        if (session.user.id.startsWith("dev-")) {
-            console.log("🔧 [Dev Mode] Returning mock audit logs");
-            const mockLogs = [
-                { id: "1", action: "LOGIN", entity: "USER", entityId: "dev-admin-id", details: { method: "credentials" }, ip: "127.0.0.1", createdAt: new Date() },
-                { id: "2", action: "CREATE", entity: "FILE", entityId: "mock-file-1", details: { name: "example.ts" }, ip: "127.0.0.1", createdAt: new Date(Date.now() - 3600000) },
-                { id: "3", action: "VIEW", entity: "DASHBOARD", entityId: "main", details: {}, ip: "127.0.0.1", createdAt: new Date(Date.now() - 7200000) },
-            ];
-            return NextResponse.json({
-                logs: mockLogs,
-                pagination: { page: 1, limit: 50, total: mockLogs.length, pages: 1 }
-            });
-        }
+
 
         const { searchParams } = new URL(request.url);
         const page = parseInt(searchParams.get("page") || "1");
         const limit = parseInt(searchParams.get("limit") || "50");
         const action = searchParams.get("action");
         const entity = searchParams.get("entity");
+        const filterUserId = searchParams.get("userId");
         const startDate = searchParams.get("startDate");
         const endDate = searchParams.get("endDate");
 
+        // Determine permissions
+        const isAdmin = session.user.role === "ADMIN" || session.user.email === process.env.ADMIN_EMAIL;
+
         // Build where clause
-        const where: any = { userId: session.user.id };
+        const where: any = {};
+
+        if (!isAdmin) {
+            // Non-admins can only see their own logs
+            where.userId = session.user.id;
+        } else if (filterUserId) {
+            // Admins can filter by specific user
+            where.userId = filterUserId;
+        }
+        // If admin and no filterUserId, show all (except potentially filtering nulls if needed, but usually we want system logs too)
 
         if (action) where.action = action;
         if (entity) where.entity = entity;
@@ -57,9 +58,14 @@ export async function GET(request: NextRequest) {
             orderBy: { createdAt: "desc" },
             skip: (page - 1) * limit,
             take: limit,
+            include: {
+                user: {
+                    select: { name: true, email: true }
+                }
+            }
         });
 
-        // Enrich with user info if needed
+        // Enrich with user info
         const enrichedLogs = logs.map(log => ({
             id: log.id,
             action: log.action,
@@ -68,6 +74,9 @@ export async function GET(request: NextRequest) {
             details: log.details,
             ip: log.ip,
             createdAt: log.createdAt,
+            user: log.user, // Pass the included user object
+            hash: log.hash, // Expose hash for verification
+            previousHash: log.previousHash
         }));
 
         return NextResponse.json({

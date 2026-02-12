@@ -36,19 +36,23 @@ export default function BulkExport({ fileIds, onComplete }: BulkExportProps) {
         setProgress(0);
 
         try {
-            const docs: { name: string; content: string }[] = [];
 
-            for (let i = 0; i < fileIds.length; i++) {
-                const res = await fetch(`/api/docs/${fileIds[i]}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    docs.push({
-                        name: data.file?.name || `file_${i}`,
-                        content: data.documentation?.content || ""
-                    });
-                }
-                setProgress(Math.round(((i + 1) / fileIds.length) * 100));
-            }
+
+            const response = await fetch("/api/docs/export", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ fileIds }),
+            });
+
+            if (!response.ok) throw new Error("Export failed");
+
+            const data = await response.json();
+            const docs = Object.values(data.files).map((f: any) => ({
+                name: f.name,
+                content: f.content
+            }));
+
+            setProgress(100);
 
             // Generate export file
             let exportContent = "";

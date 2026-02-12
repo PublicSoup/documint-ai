@@ -6,10 +6,26 @@ import { resolveUserId } from "../../../../lib/resolve-user";
 import { parseCode } from "../../../../lib/parsing/tree-sitter";
 import { generateDocumentation } from "../../../../lib/ai";
 import { uploadFile } from "../../../../lib/supabase/storage";
+import { PLANS_CONFIG } from "../../../../config/plans";
 
 const SUPPORTED_EXTENSIONS = ["py", "js", "ts", "tsx", "jsx", "go", "rs", "java", "cs", "cpp", "c", "rb", "php"];
 
-// Import files from a GitHub repository
+// Helper to create stream
+function iteratorToStream(iterator: any) {
+    return new ReadableStream({
+        async pull(controller) {
+            const { value, done } = await iterator.next();
+            if (done) {
+                controller.close();
+            } else {
+                controller.enqueue(value);
+            }
+        },
+    });
+}
+
+const encoder = new TextEncoder();
+
 export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
@@ -30,128 +46,156 @@ export async function POST(req: NextRequest) {
         headers.Authorization = `Bearer ${githubToken}`;
     }
 
-    try {
-        // Resolve database user ID
-        const userId = await resolveUserId(session);
-        if (!userId) {
-            return NextResponse.json({ error: "User not found" }, { status: 404 });
-        }
+    // Resolve user and plan
+    const userId = await resolveUserId(session);
+    if (!userId) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-        // Get repository contents
-        const contentsUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
-        const contentsRes = await fetch(contentsUrl, { headers });
-
-        if (!contentsRes.ok) {
-            const error = await contentsRes.json();
-            return NextResponse.json({ error: error.message || "Failed to fetch repo contents" }, { status: contentsRes.status });
-        }
-
-        const contents = await contentsRes.json();
-        const files = Array.isArray(contents) ? contents : [contents];
-
-        // Filter and process code files
-        const codeFiles = files.filter((file: any) => {
-            if (file.type !== "file") return false;
-            const ext = file.name.split(".").pop()?.toLowerCase();
-            return ext && SUPPORTED_EXTENSIONS.includes(ext);
-        });
-
-        const results = [];
-        const maxFiles = 10; // Limit for free tier
-
-        for (let i = 0; i < Math.min(codeFiles.length, maxFiles); i++) {
-            const file = codeFiles[i];
-
-            try {
-                // Fetch file content
-                const fileRes = await fetch(file.download_url);
-                const content = await fileRes.text();
-                const extension = file.name.split(".").pop() || "";
-
-                // Upload to Supabase Storage
-                const storagePath = `${userId}/${Date.now()}-${file.name}`;
-                await uploadFile(storagePath, content);
-
-                // Save to database
-                // @ts-ignore
-                const dbFile = await db.file.create({
-                    data: {
-                        name: file.name,
-                        storagePath,
-                        language: extension,
-                        size: content.length,
-                        userId: userId,
-                    },
-                });
-
-                // Parse and document
-                let entities: any[] = [];
-                try {
-                    entities = await parseCode(content, extension);
-                } catch (e) {
-                    console.warn(`Parsing failed for ${file.name}`);
-                }
-
-                // Generate documentation
-                let analysisResult = null;
-                try {
-                    // Enterprise Quality Check
-                    const { analyzeCodeQuality } = await import("../../../../lib/parsing/code-quality");
-                    // @ts-ignore
-                    analysisResult = analyzeCodeQuality(content, entities, extension);
-                } catch (e) {
-                    console.warn(`Quality analysis failed for ${file.name}`);
-                }
-
-                const docPromises = entities.map((entity: any) =>
-                    generateDocumentation(entity.code, extension, entity.type)
-                        .then((doc: string) => ({ ...entity, doc }))
-                );
-                const entityDocs = await Promise.all(docPromises);
-                const fileSummary = await generateDocumentation(content.substring(0, 2000), extension, "file");
-
-                await db.documentation.create({
-                    data: {
-                        fileId: dbFile.id,
-                        content: JSON.stringify({
-                            summary: fileSummary,
-                            entities: entityDocs,
-                            metadata: {
-                                source: "github",
-                                repo: `${owner}/${repo}`,
-                                path: file.path,
-                            },
-                            // Store enterprise analysis in metadata
-                            quality: analysisResult
-                        }),
-                    },
-                });
-
-                results.push({
-                    name: file.name,
-                    status: "success",
-                    fileId: dbFile.id,
-                    // Return analysis for UI
-                    qualityScore: analysisResult?.qualityScore || 0,
-                    securityInsights: analysisResult?.securityInsights,
-                    architectureViolations: analysisResult?.architectureViolations,
-                    performanceBottlenecks: analysisResult?.performanceBottlenecks
-                });
-            } catch (err) {
-                console.error(`Failed to process ${file.name}:`, err);
-                results.push({ name: file.name, status: "error" });
+    const user = await db.user.findUnique({
+        where: { id: userId },
+        select: {
+            subscription: {
+                select: { plan: true }
             }
         }
+    });
 
-        return NextResponse.json({
-            message: "Import complete",
-            results,
-            totalFiles: codeFiles.length,
-            imported: results.filter(r => r.status === "success").length,
-            skipped: codeFiles.length - Math.min(codeFiles.length, maxFiles),
-        });
-    } catch (error) {
-        console.error("GitHub import error:", error);
-        return NextResponse.json({ error: "Failed to import repository" }, { status: 500 });
+    // Determine limit based on plan
+    const planId = user?.subscription?.plan || "free";
+    // @ts-ignore
+    const maxFiles = PLANS_CONFIG[planId]?.limit || 10;
+
+    async function* makeIterator() {
+        try {
+            yield encoder.encode(JSON.stringify({ status: "initializing", message: "Connecting to GitHub..." }) + "\n");
+
+            // Get repository contents
+            const contentsUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
+            const contentsRes = await fetch(contentsUrl, { headers });
+
+            if (!contentsRes.ok) {
+                const error = await contentsRes.json();
+                yield encoder.encode(JSON.stringify({ error: error.message || "Failed to fetch repo contents" }) + "\n");
+                return;
+            }
+
+            const contents = await contentsRes.json();
+            const files = Array.isArray(contents) ? contents : [contents];
+
+            // Filter code files
+            const codeFiles = files.filter((file: any) => {
+                if (file.type !== "file") return false;
+                const ext = file.name.split(".").pop()?.toLowerCase();
+                return ext && SUPPORTED_EXTENSIONS.includes(ext);
+            });
+
+            yield encoder.encode(JSON.stringify({
+                status: "found_files",
+                total: codeFiles.length,
+                max: maxFiles,
+                message: `Found ${codeFiles.length} files. Importing max ${maxFiles}...`
+            }) + "\n");
+
+            let successfulImports = 0;
+            const limit = Math.min(codeFiles.length, maxFiles);
+
+            for (let i = 0; i < limit; i++) {
+                const file = codeFiles[i];
+                yield encoder.encode(JSON.stringify({
+                    status: "processing",
+                    current: i + 1,
+                    total: limit,
+                    file: file.name
+                }) + "\n");
+
+                try {
+                    // Fetch file content
+                    const fileRes = await fetch(file.download_url);
+                    const content = await fileRes.text();
+                    const extension = file.name.split(".").pop() || "";
+
+                    // Upload to Supabase Storage
+                    const storagePath = `${userId}/${Date.now()}-${file.name}`;
+                    await uploadFile(storagePath, content);
+
+                    // Save to database
+                    // @ts-ignore
+                    const dbFile = await db.file.create({
+                        data: {
+                            name: file.name,
+                            storagePath,
+                            language: extension,
+                            size: content.length,
+                            userId: userId,
+                        },
+                    });
+
+                    // Parse and document
+                    let entities: any[] = [];
+                    try {
+                        entities = await parseCode(content, extension);
+                    } catch (e) {
+                        console.warn(`Parsing failed for ${file.name}`);
+                    }
+
+                    // Generate documentation
+                    let analysisResult = null;
+                    try {
+                        const { analyzeCodeQuality } = await import("../../../../lib/parsing/code-quality");
+                        // @ts-ignore
+                        analysisResult = analyzeCodeQuality(content, entities, extension);
+                    } catch (e) { }
+
+                    const docPromises = entities.map((entity: any) =>
+                        generateDocumentation(entity.code, extension, entity.type)
+                            .then((doc: string) => ({ ...entity, doc }))
+                    );
+                    const entityDocs = await Promise.all(docPromises);
+                    const fileSummary = await generateDocumentation(content.substring(0, 2000), extension, "file");
+
+                    await db.documentation.create({
+                        data: {
+                            fileId: dbFile.id,
+                            content: JSON.stringify({
+                                summary: fileSummary,
+                                entities: entityDocs,
+                                metadata: {
+                                    source: "github",
+                                    repo: `${owner}/${repo}`,
+                                    path: file.path,
+                                },
+                                quality: analysisResult
+                            }),
+                        },
+                    });
+
+                    successfulImports++;
+                    yield encoder.encode(JSON.stringify({
+                        status: "file_complete",
+                        file: file.name,
+                        imported: successfulImports
+                    }) + "\n");
+
+                } catch (err) {
+                    console.error(`Failed to process ${file.name}:`, err);
+                    yield encoder.encode(JSON.stringify({ status: "file_error", file: file.name, error: "Failed to process" }) + "\n");
+                }
+            }
+
+            yield encoder.encode(JSON.stringify({ status: "complete", imported: successfulImports, total: limit }) + "\n");
+
+        } catch (error) {
+            console.error("GitHub import error:", error);
+            yield encoder.encode(JSON.stringify({ error: "Internal server error during import" }) + "\n");
+        }
     }
+
+    const stream = iteratorToStream(makeIterator());
+
+    return new NextResponse(stream, {
+        headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    });
 }

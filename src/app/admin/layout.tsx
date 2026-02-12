@@ -19,7 +19,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
     useEffect(() => {
         if (status === 'loading') return;
-        if (!session || session.user?.email !== 'admin@documintai.dev') {
+        const isAdmin = session?.user?.role === 'ADMIN' || session?.user?.email === 'admin@documintai.dev';
+
+        if (!session || !isAdmin) {
             router.push('/');
         }
     }, [session, status, router]);

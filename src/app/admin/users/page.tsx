@@ -14,7 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { EditUserDialog } from '@/components/admin/edit-user-dialog';
-import { Trash2, Edit, Search, UserX, Loader2, ShieldAlert, KeyRound, Copy, Check } from 'lucide-react';
+import { Trash2, Edit, Search, UserX, Loader2, ShieldAlert, KeyRound, Copy, Check, FileText } from 'lucide-react';
 import {
     Dialog,
     DialogContent,
@@ -209,16 +209,9 @@ export default function AdminUsersPage() {
                                                 variant="ghost"
                                                 className="text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 h-8 w-8 p-0"
                                                 onClick={() => setEditingUser(user)}
+                                                title="Edit User"
                                             >
                                                 <Edit className="w-4 h-4" />
-                                            </Button>
-                                            <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-8 w-8 p-0"
-                                                onClick={() => handleDelete(user.id)}
-                                            >
-                                                <Trash2 className="w-4 h-4" />
                                             </Button>
                                             <Button
                                                 size="sm"
@@ -232,8 +225,18 @@ export default function AdminUsersPage() {
                                             <Button
                                                 size="sm"
                                                 variant="ghost"
+                                                className="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 h-8 w-8 p-0"
+                                                title="View Logs"
+                                                onClick={() => router.push(`/admin/audit?userId=${user.id}`)}
+                                            >
+                                                <FileText className="w-4 h-4" />
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
                                                 className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-8 w-8 p-0"
                                                 onClick={() => handleDelete(user.id)}
+                                                title="Delete User"
                                             >
                                                 <Trash2 className="w-4 h-4" />
                                             </Button>
@@ -302,6 +305,6 @@ export default function AdminUsersPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div>
+        </div >
     );
 }

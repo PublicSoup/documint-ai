@@ -46,14 +46,30 @@ export default function GitHubImport({ customTrigger }: GitHubImportProps) {
     const [analyzingPR, setAnalyzingPR] = useState<number | null>(null);
     const [prAnalysis, setPrAnalysis] = useState<{ [key: number]: any }>({});
 
-    const fetchRepos = async () => {
+    const [page, setPage] = useState(1);
+    const [hasMore, setHasMore] = useState(true);
+
+    const fetchRepos = async (nextPage = 1) => {
         setLoading(true);
         setError(null);
         try {
-            const res = await fetch("/api/github/repos");
+            const res = await fetch(`/api/github/repos?page=${nextPage}&per_page=20`);
             const data = await res.json();
             if (data.repos) {
-                setRepos(data.repos);
+                if (nextPage === 1) {
+                    setRepos(data.repos);
+                } else {
+                    setRepos(prev => [...prev, ...data.repos]);
+                }
+
+                // If we got fewer than 20 items, we've reached the end
+                if (data.repos.length < 20) {
+                    setHasMore(false);
+                } else {
+                    setHasMore(true);
+                }
+
+                setPage(nextPage);
                 setShowRepos(true);
             } else {
                 setError("Failed to load repositories");
@@ -105,36 +121,70 @@ export default function GitHubImport({ customTrigger }: GitHubImportProps) {
         }
     };
 
+    const [importProgress, setImportProgress] = useState<{
+        status: string;
+        current?: number;
+        total?: number;
+        file?: string;
+        imported?: number;
+        error?: string;
+    } | null>(null);
+
     const handleImport = async (repo: Repo) => {
         setImporting(repo.full_name);
+        setImportProgress({ status: "initializing" });
+
         try {
             const [owner, repoName] = repo.full_name.split("/");
-            const res = await fetch("/api/github/import", {
+            const response = await fetch("/api/github/import", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ owner, repo: repoName }),
             });
 
-            if (res.ok) {
-                const data = await res.json();
-                setImported(prev => [...prev, repo.full_name]);
-
-                const issueCount = data.results.reduce((acc: number, r: any) => acc + (r.securityInsights?.length || 0), 0);
-                const violationCount = data.results.reduce((acc: number, r: any) => acc + (r.architectureViolations?.length || 0), 0);
-
-                if (issueCount > 0 || violationCount > 0) {
-                    toast(`Imported ${data.imported} files. Detected ${issueCount} security issues & ${violationCount} violations.`, "error");
-                } else {
-                    toast(`Imported ${data.imported} files successfully!`, "success");
-                }
-            } else {
-                const data = await res.json();
-                toast(data.error || "Import failed", "error");
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || "Import failed");
             }
-        } catch {
-            toast("Failed to import repository", "error");
+
+            if (!response.body) throw new Error("No response body");
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value);
+                const lines = chunk.split("\n").filter(line => line.trim() !== "");
+
+                for (const line of lines) {
+                    try {
+                        const update = JSON.parse(line);
+
+                        if (update.error) {
+                            toast(update.error, "error");
+                            break;
+                        }
+
+                        setImportProgress(update);
+
+                        if (update.status === "complete") {
+                            toast(`Imported ${update.imported} files successfully!`, "success");
+                            setImported(prev => [...prev, repo.full_name]);
+                        }
+                    } catch (e) {
+                        console.error("Error parsing update:", e);
+                    }
+                }
+            }
+
+        } catch (err: any) {
+            toast(err.message || "Failed to import repository", "error");
         } finally {
             setImporting(null);
+            setImportProgress(null);
         }
     };
 
@@ -173,7 +223,7 @@ export default function GitHubImport({ customTrigger }: GitHubImportProps) {
                 toast(`Repository ${data.repo.name} created!`, "success");
                 setCreateForm({ name: "", description: "", isPrivate: false });
                 setShowCreate(false);
-                fetchRepos(); // Refresh list
+                fetchRepos(1); // Refresh list
             } else {
                 toast(data.error || "Failed to create repository", "error");
             }
@@ -188,10 +238,10 @@ export default function GitHubImport({ customTrigger }: GitHubImportProps) {
         <div className="w-full">
             {!showRepos ? (
                 customTrigger ? (
-                    <div onClick={fetchRepos}>{customTrigger}</div>
+                    <div onClick={() => fetchRepos(1)}>{customTrigger}</div>
                 ) : (
                     <Button
-                        onClick={fetchRepos}
+                        onClick={() => fetchRepos(1)}
                         disabled={loading}
                         variant="ghost"
                         className="w-full h-11 bg-white/5 border border-white/10 hover:bg-white/10 text-white font-bold text-xs uppercase tracking-widest transition-all"
@@ -348,7 +398,14 @@ export default function GitHubImport({ customTrigger }: GitHubImportProps) {
                                                         }`}
                                                 >
                                                     {importing === repo.full_name ? (
-                                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                        <div className="flex items-center gap-2">
+                                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                            {importProgress && importProgress.status === "processing" && (
+                                                                <span className="text-[9px] font-mono opacity-70">
+                                                                    {importProgress.current}/{importProgress.total}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     ) : imported.includes(repo.full_name) ? (
                                                         <Check className="w-3.5 h-3.5" />
                                                     ) : (

@@ -5,6 +5,7 @@ import { upsertSubscription, cancelSubscription, getPlanFromPriceId } from "@/li
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { stripe } from "@/lib/stripe";
 import { env } from "@/lib/env";
+import { logAudit } from "@/lib/audit-logger";
 
 const webhookSecret = env.STRIPE_WEBHOOK_SECRET;
 
@@ -149,16 +150,14 @@ async function handlePaymentSucceeded(stripeInvoice: Stripe.Invoice) {
     const customerId = invoice.customer as string;
 
     // Log the payment 
-    await db.auditLog.create({
-        data: {
-            action: "PAYMENT_SUCCESS",
-            entity: "Subscription",
-            entityId: (invoice.subscription as string) || customerId,
-            details: {
-                amount: (invoice.amount_paid || 0) / 100,
-                currency: invoice.currency,
-                invoiceId: invoice.id,
-            },
+    await logAudit({
+        action: "PAYMENT_SUCCESS",
+        entity: "Subscription",
+        entityId: (invoice.subscription as string) || customerId,
+        details: {
+            amount: (invoice.amount_paid || 0) / 100,
+            currency: invoice.currency,
+            invoiceId: invoice.id,
         },
     });
 
@@ -218,17 +217,15 @@ async function handlePaymentFailed(stripeInvoice: Stripe.Invoice) {
     }
 
     // Log the failure
-    await db.auditLog.create({
-        data: {
-            userId: subscription?.userId,
-            action: "PAYMENT_FAILED",
-            entity: "Subscription",
-            entityId: (invoice.subscription as string) || customerId,
-            details: {
-                amount: (invoice.amount_due || 0) / 100,
-                currency: invoice.currency,
-                invoiceId: invoice.id,
-            },
+    await logAudit({
+        userId: subscription?.userId,
+        action: "PAYMENT_FAILED",
+        entity: "Subscription",
+        entityId: (invoice.subscription as string) || customerId,
+        details: {
+            amount: (invoice.amount_due || 0) / 100,
+            currency: invoice.currency,
+            invoiceId: invoice.id,
         },
     });
 
