@@ -35,7 +35,13 @@ export default function RegisterPage() {
                 setTimeout(() => router.push("/auth/login"), 1500);
             } else {
                 const data = await res.json();
-                toast(data.message || "Registration failed", "error");
+                // Show specific validation errors if available
+                if (data.details?.errors && Array.isArray(data.details.errors)) {
+                    const messages = data.details.errors.map((e: any) => e.message).join(". ");
+                    toast(messages || "Registration failed", "error");
+                } else {
+                    toast(data.message || "Registration failed", "error");
+                }
             }
         } catch (error) {
             console.error(error);
@@ -109,12 +115,14 @@ export default function RegisterPage() {
                                     <input
                                         type="password"
                                         required
+                                        minLength={8}
                                         className="w-full pl-11 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder:text-white/10 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all"
                                         placeholder="••••••••"
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
                                     />
                                 </div>
+                                <p className="text-[10px] text-white/25 ml-1 mt-1">Min 8 chars • 1 uppercase • 1 lowercase • 1 number</p>
                             </div>
                         </div>
 
