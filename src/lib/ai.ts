@@ -112,8 +112,8 @@ export async function getAICompletionWithDetailedError(
     }
 
     try {
-        // Use gemini-1.5-flash as default (free tier, widely available)
-        const modelName = options.model || "gemini-1.5-flash";
+        // Use gemini-2.0-flash as default (fast, widely available)
+        const modelName = options.model || "gemini-2.0-flash";
         const model = genAI.getGenerativeModel({
             model: modelName,
             systemInstruction: messages.find(m => m.role === "system")?.content,

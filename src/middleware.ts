@@ -69,10 +69,10 @@ export async function middleware(request: NextRequest) {
     const csp = `
     default-src 'self';
     script-src 'self' 'unsafe-eval' 'unsafe-inline' https://va.vercel-scripts.com https://js.stripe.com https://cdn.jsdelivr.net;
-    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net;
     img-src 'self' blob: data: https:;
-    font-src 'self' data: https://fonts.gstatic.com;
-    connect-src 'self' https://api.openai.com https://api.anthropic.com https://*.auth0.com https://api.stripe.com https://checkout.stripe.com https://vitals.vercel-insights.com;
+    font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net;
+    connect-src 'self' https://generativelanguage.googleapis.com https://api.openai.com https://api.anthropic.com https://*.auth0.com https://api.stripe.com https://checkout.stripe.com https://vitals.vercel-insights.com;
     frame-src 'self' https://*.auth0.com https://checkout.stripe.com https://js.stripe.com https://stackblitz.com;
     worker-src 'self' blob:;
     frame-ancestors 'self';

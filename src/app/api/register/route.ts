@@ -65,6 +65,10 @@ export async function POST(req: Request) {
         }, 201);
 
     } catch (error) {
+        console.error("[Register] Error:", error instanceof Error ? error.message : error);
+        if (error instanceof Error && error.stack) {
+            console.error("[Register] Stack:", error.stack);
+        }
         return errorResponse(error);
     }
 }
