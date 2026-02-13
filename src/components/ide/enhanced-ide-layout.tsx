@@ -899,8 +899,16 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 </div>
                             </div>
                             <div className="flex-1 p-4 overflow-hidden relative">
-                                <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/20 pointer-events-none z-10" />
-                                <DiagramViewer code={localMermaid} type="flowchart" onNodeClick={handleFileSelect} />
+                                <DiagramViewer code={localMermaid} type="flowchart" onNodeClick={(filePath) => {
+                                    // Resolve file path to database ID
+                                    const file = files.find(f => f.name === filePath || f.id === filePath || f.name.endsWith(filePath));
+                                    if (file) {
+                                        handleFileSelect(file.id);
+                                        toast(`Opened ${file.name}`, "success");
+                                    } else {
+                                        toast(`File not found: ${filePath}`, "error");
+                                    }
+                                }} />
                             </div>
                         </div>
                     )}

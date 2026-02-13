@@ -29,18 +29,19 @@ export function projectGraphToMermaid(graph: ProjectGraph): string {
     for (const [folder, nodeIds] of folderGroups) {
         // Only show folder name, or 'root' for top-level files
         const folderLabel = folder === 'root' ? '📦 Project Root' : `📁 ${folder}`;
-        
+
         mermaid += `    subgraph cluster_${groupIdx++} ["${folderLabel}"]\n`;
         mermaid += `        direction TB\n`;
-        
+
         for (const id of nodeIds) {
             const node = graph.nodes.get(id)!;
             const safeId = id.replace(/[^a-zA-Z0-9]/g, "_");
             const filename = id.split('/').pop() || id;
-            
-            // Rich Label with Metadata
+
+            // Rich Label with Metadata (plain text for mermaid compatibility)
             const riskIcon = node.riskScore > 70 ? "🔥" : node.riskScore > 40 ? "⚠️" : "✅";
-            const label = `${riskIcon} ${filename}<br/><small>Exports: ${node.exports.length} | Risk: ${node.riskScore}</small>`;
+            const typeIcon = node.type === 'component' ? '🧩' : node.type === 'api' ? '🔌' : node.type === 'page' ? '📄' : node.type === 'hook' ? '🪝' : node.type === 'lib' ? '📚' : '📦';
+            const label = `${typeIcon} ${filename} ${riskIcon}`;
 
             // Determine Risk Class
             let riskClass = "riskLow";

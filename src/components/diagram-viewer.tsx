@@ -19,8 +19,30 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
         mermaid.initialize({
             startOnLoad: false,
             theme: "dark",
+            themeVariables: {
+                darkMode: true,
+                background: '#0c0c0e',
+                primaryColor: '#3b82f6',
+                primaryTextColor: '#e2e8f0',
+                primaryBorderColor: '#6366f1',
+                lineColor: '#6366f1',
+                secondaryColor: '#10b981',
+                tertiaryColor: '#1e1b4b',
+                edgeLabelBackground: '#1e1b4b',
+                nodeTextColor: '#e2e8f0',
+                clusterBkg: '#1a1a2e',
+                clusterBorder: '#334155',
+                titleColor: '#e2e8f0',
+            },
             securityLevel: "loose",
-            fontFamily: "inherit",
+            fontFamily: "'Inter', 'Segoe UI', sans-serif",
+            flowchart: {
+                htmlLabels: true,
+                curve: 'basis',
+                padding: 16,
+                nodeSpacing: 40,
+                rankSpacing: 50,
+            }
         });
 
         // Expose callback for Mermaid to find
@@ -127,6 +149,15 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
 
     const handleMouseUp = () => setIsDragging(false);
 
+    const handleWheel = (e: React.WheelEvent) => {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        setTransform(prev => ({
+            ...prev,
+            k: Math.max(0.2, Math.min(5, prev.k * delta))
+        }));
+    };
+
     if (error) {
         return (
             <div className="p-4 border border-red-500/20 bg-red-500/10 rounded-lg text-red-400 text-sm">
@@ -170,6 +201,7 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
+                onWheel={handleWheel}
             >
                 {svg ? (
                     <div
