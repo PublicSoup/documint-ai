@@ -890,6 +890,12 @@ export function AIChatPanel({
                                         timestamp: Date.now()
                                     }))
                                 } : m));
+                            } else if (event.type === "file_created") {
+                                // Auto-refresh file tree and auto-open the new file (Cursor-like)
+                                if (onCreateFile && event.fileName) {
+                                    onCreateFile(event.fileName, event.content || "");
+                                    toast(`Created ${event.fileName}`, "success");
+                                }
                             } else if (event.type === "error") {
                                 toast(event.message, "error");
                             }
