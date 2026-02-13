@@ -21,7 +21,8 @@ import {
     Search,
     ChevronRight,
     Terminal,
-    Lock
+    Lock,
+    Check
 } from "lucide-react";
 import Link from "next/link";
 import FileUpload from "@/components/file-upload";
@@ -201,18 +202,35 @@ export default async function DashboardPage(props: {
                         <div className="lg:col-span-5">
                             <CodeHealthIndex score={84} change={12} />
                         </div>
-                        
+
                         <div className="lg:col-span-7 grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <Card className="glass-card border-white/5 relative overflow-hidden group bg-gradient-to-br from-emerald-500/5 to-transparent">
+                            <Card className="glass-card border-white/5 relative overflow-hidden group bg-gradient-to-br from-violet-500/5 to-transparent">
                                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
-                                    <ShieldCheck className="w-12 h-12 text-emerald-500" />
+                                    <Zap className="w-12 h-12 text-violet-500" />
                                 </div>
                                 <CardContent className="p-6">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1">Compliance Status</p>
-                                    <h3 className="text-3xl font-bold text-white tracking-tighter">BANK GRADE</h3>
-                                    <div className="mt-4 flex items-center gap-2 text-xs text-emerald-400">
-                                        <Fingerprint className="w-3 h-3" />
-                                        <span>Audit trails fully synced</span>
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1">Quick Start</p>
+                                    <h3 className="text-2xl font-bold text-white tracking-tighter mb-3">Get Started</h3>
+                                    <div className="space-y-2">
+                                        <Link href="/code" className="flex items-center gap-2 text-xs text-violet-300 hover:text-white transition-colors group/item">
+                                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${totalFilesCount > 0 ? 'border-emerald-500 bg-emerald-500/20' : 'border-white/20'}`}>
+                                                {totalFilesCount > 0 && <Check className="w-2.5 h-2.5 text-emerald-400" />}
+                                            </div>
+                                            <span className="group-hover/item:translate-x-0.5 transition-transform">Launch Cloud IDE</span>
+                                            <ChevronRight className="w-3 h-3 ml-auto opacity-0 group-hover/item:opacity-100 transition-opacity" />
+                                        </Link>
+                                        <div className="flex items-center gap-2 text-xs text-violet-300/60">
+                                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${totalFilesCount > 0 ? 'border-emerald-500 bg-emerald-500/20' : 'border-white/20'}`}>
+                                                {totalFilesCount > 0 && <Check className="w-2.5 h-2.5 text-emerald-400" />}
+                                            </div>
+                                            <span>Upload or import code</span>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-xs text-violet-300/60">
+                                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${verifiedDocsCount > 0 ? 'border-emerald-500 bg-emerald-500/20' : 'border-white/20'}`}>
+                                                {verifiedDocsCount > 0 && <Check className="w-2.5 h-2.5 text-emerald-400" />}
+                                            </div>
+                                            <span>Generate AI documentation</span>
+                                        </div>
                                     </div>
                                 </CardContent>
                             </Card>
@@ -270,7 +288,7 @@ export default async function DashboardPage(props: {
                                         <FileUpload teamId={teamId} isPro={subscription.isPro || subscription.isTeam} />
                                         <GitHubImport />
                                     </div>
-                                    
+
                                     {/* AI Priority Queue */}
                                     <div className="p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 space-y-3">
                                         <div className="flex items-center justify-between">

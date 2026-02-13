@@ -149,14 +149,24 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
 
     const handleMouseUp = () => setIsDragging(false);
 
-    const handleWheel = (e: React.WheelEvent) => {
-        e.preventDefault();
-        const delta = e.deltaY > 0 ? 0.9 : 1.1;
-        setTransform(prev => ({
-            ...prev,
-            k: Math.max(0.2, Math.min(5, prev.k * delta))
-        }));
-    };
+
+
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        const onWheel = (e: WheelEvent) => {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? 0.9 : 1.1;
+            setTransform(prev => ({
+                ...prev,
+                k: Math.max(0.2, Math.min(5, prev.k * delta))
+            }));
+        };
+
+        container.addEventListener('wheel', onWheel, { passive: false });
+        return () => container.removeEventListener('wheel', onWheel);
+    }, []);
 
     if (error) {
         return (
@@ -201,7 +211,6 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
-                onWheel={handleWheel}
             >
                 {svg ? (
                     <div

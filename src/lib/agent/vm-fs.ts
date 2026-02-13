@@ -55,8 +55,8 @@ function normalizeVfsPath(filePath: string): string {
 /**
  * Write a file to the user's workspace (Supabase)
  */
-export async function writeFile(userId: string, filePath: string, content: string): Promise<boolean> {
-    if (!supabase) return false;
+export async function writeFile(userId: string, filePath: string, content: string): Promise<{ success: boolean; error?: string }> {
+    if (!supabase) return { success: false, error: "Supabase client not initialized" };
     await ensureBucket();
 
     // Clean path to avoid traversal
@@ -71,9 +71,9 @@ export async function writeFile(userId: string, filePath: string, content: strin
 
     if (error) {
         console.error(`VFS Write Error [${storagePath}]:`, error);
-        return false;
+        return { success: false, error: error.message };
     }
-    return true;
+    return { success: true };
 }
 
 /**

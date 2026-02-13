@@ -605,6 +605,14 @@ export function AIChatPanel({
     const [showSlashMenu, setShowSlashMenu] = useState(false);
     const [slashMenuIndex, setSlashMenuIndex] = useState(0);
 
+    // File Mention State
+    const [showFileMenu, setShowFileMenu] = useState(false);
+    const [fileMenuIndex, setFileMenuIndex] = useState(0);
+    const [fileSearchTerm, setFileSearchTerm] = useState("");
+    const filteredFiles = allFiles?.filter(f =>
+        f.name.toLowerCase().includes(fileSearchTerm.toLowerCase())
+    ).slice(0, 10) || [];
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (showSlashMenu) {
             if (e.key === "ArrowDown") {
@@ -619,9 +627,28 @@ export function AIChatPanel({
             } else if (e.key === "Escape") {
                 setShowSlashMenu(false);
             }
+            return;
         }
 
-        if (e.key === "Enter" && !e.shiftKey && !showSlashMenu) {
+        if (showFileMenu) {
+            if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setFileMenuIndex(prev => (prev + 1) % filteredFiles.length);
+            } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setFileMenuIndex(prev => (prev - 1 + filteredFiles.length) % filteredFiles.length);
+            } else if (e.key === "Enter" || e.key === "Tab") {
+                e.preventDefault();
+                if (filteredFiles.length > 0) {
+                    selectFileMention(filteredFiles[fileMenuIndex].name);
+                }
+            } else if (e.key === "Escape") {
+                setShowFileMenu(false);
+            }
+            return;
+        }
+
+        if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             handleSend();
         }
@@ -629,19 +656,58 @@ export function AIChatPanel({
 
     const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         const val = e.target.value;
+        const cursorPos = e.target.selectionStart;
         setInput(val);
+
+        // Slash commands logic
         if (val === "/") {
             setShowSlashMenu(true);
             setSlashMenuIndex(0);
+            setShowFileMenu(false);
+            return;
         } else if (!val.startsWith("/")) {
             setShowSlashMenu(false);
         }
+
+        // File mention logic
+        const lastAtPos = val.lastIndexOf("@", cursorPos - 1);
+        if (lastAtPos !== -1) {
+            const textAfterAt = val.substring(lastAtPos + 1, cursorPos);
+            if (!textAfterAt.includes(" ") && !textAfterAt.includes("\n")) {
+                setShowFileMenu(true);
+                setFileSearchTerm(textAfterAt);
+                setFileMenuIndex(0);
+                return;
+            }
+        }
+        setShowFileMenu(false);
     };
 
     const selectSlashCommand = (cmd: typeof SLASH_COMMANDS[0]) => {
         setInput(cmd.prompt);
         setShowSlashMenu(false);
         inputRef.current?.focus();
+    };
+
+    const selectFileMention = (fileName: string) => {
+        const cursorPos = inputRef.current?.selectionStart || input.length;
+        const lastAtPos = input.lastIndexOf("@", cursorPos - 1);
+        if (lastAtPos !== -1) {
+            const before = input.substring(0, lastAtPos);
+            const after = input.substring(cursorPos);
+            const newVal = `${before}@${fileName} ${after}`;
+            setInput(newVal);
+            setShowFileMenu(false);
+
+            setTimeout(() => {
+                if (inputRef.current) {
+                    const newCursorPos = lastAtPos + fileName.length + 2;
+                    inputRef.current.selectionStart = newCursorPos;
+                    inputRef.current.selectionEnd = newCursorPos;
+                    inputRef.current.focus();
+                }
+            }, 0);
+        }
     };
 
     // Rendering Helper
@@ -747,7 +813,8 @@ export function AIChatPanel({
 
         const userMsg = messageToSend.trim();
         setInput("");
-        setShowSlashMenu(false); // Close slash menu if open
+        setShowSlashMenu(false);
+        setShowFileMenu(false);
 
         // Add user message
         const userMessage: Message = {
@@ -768,12 +835,22 @@ export function AIChatPanel({
 
         try {
             // Prepare context
+            // If user specifically mentioned files, prioritize their content
+            const mentionedFiles = userMsg.match(/@([a-zA-Z0-9_.-]+)/g)?.map(m => m.substring(1)) || [];
+
             const additionalContext = allFileContents
                 ? Object.entries(allFileContents)
                     .filter(([id]) => id !== activeFileId)
                     .map(([id, content]) => {
                         const file = allFiles?.find(f => f.id === id);
-                        return file ? `// FILE: ${file.name}\n${content.substring(0, 1000)}...` : "";
+                        if (!file) return "";
+
+                        // If mentioned, include MORE context
+                        const isMentioned = mentionedFiles.includes(file.name);
+                        const maxLength = isMentioned ? 10000 : 1000;
+                        const prefix = isMentioned ? "--> MENTIONED FILE: " : "// FILE: ";
+
+                        return `${prefix}${file.name}\n${content.substring(0, maxLength)}${content.length > maxLength ? "..." : ""}`;
                     })
                     .join("\n\n")
                 : "";
@@ -1006,6 +1083,40 @@ export function AIChatPanel({
                                         <div className="text-[10px] text-white/30 truncate">{cmd.desc}</div>
                                     </div>
                                     {i === slashMenuIndex && <Check className="w-3 h-3" />}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* File Mention Menu */}
+                {showFileMenu && filteredFiles.length > 0 && (
+                    <div className="absolute bottom-full left-4 mb-2 w-64 bg-[#1e1e1e] border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-2 z-50">
+                        <div className="p-2 border-b border-white/5 text-[10px] font-medium text-white/40 bg-white/5 flex justify-between items-center">
+                            <span>FILES</span>
+                            <span className="text-[9px] bg-white/10 px-1 rounded">{filteredFiles.length} result{filteredFiles.length !== 1 ? 's' : ''}</span>
+                        </div>
+                        <div className="p-1 max-h-48 overflow-y-auto custom-scrollbar">
+                            {filteredFiles.map((file, i) => (
+                                <button
+                                    key={file.id}
+                                    onClick={() => selectFileMention(file.name)}
+                                    className={cn(
+                                        "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors",
+                                        i === fileMenuIndex ? "bg-emerald-500/20 text-emerald-300" : "text-white/70 hover:bg-white/5"
+                                    )}
+                                >
+                                    <div className={cn(
+                                        "w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold",
+                                        i === fileMenuIndex ? "bg-emerald-500 text-white" : "bg-white/10 text-white/50"
+                                    )}>
+                                        <FileCode className="w-3 h-3" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-xs font-medium truncate">{file.name}</div>
+                                        <div className="text-[10px] text-white/30 truncate">{file.language}</div>
+                                    </div>
+                                    {i === fileMenuIndex && <Check className="w-3 h-3" />}
                                 </button>
                             ))}
                         </div>

@@ -136,6 +136,27 @@ const isDestructiveCommand = (cmd: string): boolean => {
     );
 };
 
+// Helper to sanitize content from the LLM (remove accidental JSON stringification)
+const sanitizeContent = (content: string): string => {
+    if (!content) return "";
+
+    let clean = content.trim();
+
+    // Check for double-escaping (common with LLMs thinking they need to JSON.stringify)
+    // e.g. "import React..." (with quotes)
+    if (clean.startsWith('"') && clean.endsWith('"') && clean.includes('\\n')) {
+        try {
+            const parsed = JSON.parse(clean);
+            if (typeof parsed === 'string') return parsed;
+        } catch (e) {
+            // Fallback: manual unescape
+            return clean.slice(1, -1).replace(/\\n/g, '\n').replace(/\\"/g, '"');
+        }
+    }
+
+    return content;
+};
+
 /**
  * A Senior AI Software Engineer Agent inspired by Cline (Roo Code).
  * Features real file system access and streaming steps.
@@ -176,60 +197,52 @@ export async function* runAgent(
     }
 
     const CORE_SYSTEM_PROMPT = `
-You are **DocuMint AI Architect**, a world-class Senior Full-Stack Engineer (like Cursor AI).
-You run inside the DocuMint Cloud IDE with REAL file system access via Supabase VFS.
+You are **DocuMint AI Architect**, an elite Senior Full-Stack Engineer embedded in a Cloud IDE.
+You have REAL file system access via Supabase VFS. You behave exactly like Cursor AI.
+
+## RESPONSE FORMAT — CRITICAL
+- Lead with CODE, not explanation. Show the complete code in a fenced markdown block first.
+- After the code block, add ONE short sentence describing what you did.
+- NEVER include raw tool calls, XML tags, or internal markers in your response text.
+- NEVER say "I'll now use write_to_file" or describe your tool usage in prose.
+- Tool calls are INVISIBLE to the user — just use them silently after your code.
+- Keep responses SHORT. No essays, no line-by-line explanations, no preambles.
 
 ## PRIME DIRECTIVE
-You write **COMPLETE, PRODUCTION-READY code**. Never generate skeleton code, placeholders, or TODOs.
-Every file you create must be fully functional and styled. You are an expert in React, TypeScript, Next.js, Tailwind CSS, and modern web development.
+Write **COMPLETE, PRODUCTION-READY code**. Never generate skeleton code, placeholders, or TODOs.
+Every file must be fully functional and beautifully styled out of the box.
 
-## OUTPUT RULES
-1. **ALWAYS show full code** in a markdown code block BEFORE using tools to write it.
-2. **Complete implementations only** — no "replace with actual image", no "add your API key here", no placeholder comments.
-3. **Include all styling** — use Tailwind CSS classes or inline styles. Output must look premium out of the box.
-4. **Minimize narration** — don't explain line by line. Write the code, briefly describe what it does, then apply it.
-5. **Fail fast** — if a tool fails twice, stop and ask the user.
+## CODE QUALITY
+- React functional components with hooks, TypeScript types (no \`any\`)
+- Tailwind CSS for all styling — responsive, mobile-first
+- Premium UI: gradients, shadows, hover states, transitions, spacing
+- Real content — no "Lorem ipsum", no "add your API key here"
+- Complete files: imports, component, exports — everything included
 
-## CODE QUALITY STANDARDS
-- Modern React patterns (functional components, hooks)
-- Semantic HTML5 elements
-- Responsive design (mobile-first with Tailwind breakpoints)
-- Proper TypeScript types (no \`any\` unless unavoidable)
-- Beautiful UI: gradients, shadows, hover states, transitions, proper spacing
-- Real content — use realistic placeholder text, not "Lorem ipsum"
-
-## WHEN CREATING NEW FILES
-- Write the COMPLETE file content — imports, component, exports, everything.
-- Use descriptive file names that match Next.js conventions (e.g. \`page.tsx\`, \`layout.tsx\`).
-- Include all CSS/Tailwind classes inline — don't reference external stylesheets that don't exist.
-
-## WHEN MODIFYING FILES
-- Use \`apply_patch\` for small targeted edits.
-- Use \`write_to_file\` only for new files or complete rewrites.
-- Always \`read_file\` first to understand the current state.
+## FILE OPERATIONS
+- \`apply_patch\` for small targeted edits (read_file first)
+- \`write_to_file\` for new files or full rewrites (pass RAW content, NOT JSON stringified)
+- Always \`read_file\` before modifying existing files
 
 ## TOOLS
 1. **list_files(dir)** — List files in a directory.
 2. **read_file(path)** — Read a file's content.
-3. **read_file_chunk(path, startLine, endLine)** — Read specific lines from a large file.
+3. **read_file_chunk(path, startLine, endLine)** — Read specific lines.
 4. **apply_patch(path, snippet)** — Surgically edit a file.
 5. **write_to_file(path, content)** — Create or overwrite a file.
 6. **execute_command(cmd)** — Run a shell command.
 7. **search_files(pattern)** — Search for files matching a pattern.
-8. **grep_search(query)** — Search for content within files.
+8. **grep_search(query)** — Search inside files.
 
-## TOOL CALL FORMAT
+## TOOL CALL FORMAT (INTERNAL ONLY — never show this to user)
 <tool_code>call:tool_name(arg1, arg2, ...)</tool_code>
-
-Example:
-<tool_code>call:read_file("src/app/page.tsx")</tool_code>
 
 ## PROJECT CONTEXT
 CWD: ${cwd}
-Relevant Files:
+Files:
 ${fileListSnippet}
 
-## Project Topology
+## Topology
 ${graphSummary}
 
 ${activeCtx}
@@ -304,10 +317,35 @@ ${activeCtx}
             }
         }
 
-        // Strip tool_code blocks from user-visible response
-        const cleanedResponse = finalResponse.replace(/<tool_code>[\s\S]*?<\/tool_code>/gi, '').trim();
+        // ====== Multi-layer response sanitization ======
+        let cleanedResponse = finalResponse;
 
-        yield { type: "response", content: cleanedResponse || finalResponse };
+        // 1. Strip <tool_code>...</tool_code> blocks (including malformed/multiline)
+        cleanedResponse = cleanedResponse.replace(/<tool_code>[\s\S]*?<\/tool_code>/gi, '');
+
+        // 2. Strip partial/unclosed tool_code tags
+        cleanedResponse = cleanedResponse.replace(/<\/?tool_code>/gi, '');
+
+        // 3. Strip <thinking>...</thinking> blocks
+        cleanedResponse = cleanedResponse.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
+        cleanedResponse = cleanedResponse.replace(/<\/?thinking>/gi, '');
+
+        // 4. Strip stray "call:tool_name(...)" patterns that leaked outside tags
+        cleanedResponse = cleanedResponse.replace(/call:(read_file|write_to_file|apply_patch|list_files|execute_command|search_files|grep_search|read_file_chunk)\([^)]*\)/gi, '');
+
+        // 5. Strip "I'll now use..." / "Let me use..." tool narration
+        cleanedResponse = cleanedResponse.replace(/(?:I'll|Let me|I will|Now I'll)\s+(?:now\s+)?(?:use|call|invoke|run)\s+(?:the\s+)?(?:`?\w+`?\s+)?tool[^.]*\.?/gi, '');
+
+        // 6. Strip [TOOL_OUTPUT] markers that sometimes leak
+        cleanedResponse = cleanedResponse.replace(/\[TOOL_OUTPUT\]:[^\n]*/gi, '');
+
+        // 7. Clean up excessive whitespace left by stripping
+        cleanedResponse = cleanedResponse.replace(/\n{3,}/g, '\n\n').trim();
+
+        // Only emit if there's actual content after cleaning
+        if (cleanedResponse) {
+            yield { type: "response", content: cleanedResponse };
+        }
 
         const toolCallRegex = /<tool_code>(?:call:)?(\w+)\(([\s\S]*?)\)<\/tool_code>/gi;
         let match;
@@ -370,11 +408,11 @@ ${activeCtx}
 
                         if (patchResult.success && patchResult.patchedCode) {
                             // Write patched content to VFS (Supabase)
-                            const saved = await vfs.writeFile(userId, filePath, patchResult.patchedCode);
-                            if (saved) {
+                            const saveResult = await vfs.writeFile(userId, filePath, patchResult.patchedCode);
+                            if (saveResult.success) {
                                 toolResult = `[SUCCESS]: Patched ${filePath} using ${patchResult.method} method and saved to workspace.`;
                             } else {
-                                toolResult = `[ERROR]: Failed to save patched file to storage.`;
+                                toolResult = `[ERROR]: Failed to save patched file: ${saveResult.error || "Unknown error"}`;
                             }
                         } else {
                             toolResult = `[ERROR]: Patch failed. Ensure snippet matches original code exactly.`;
@@ -384,17 +422,18 @@ ${activeCtx}
 
                     case "write_to_file": {
                         const filePath = args[0];
-                        const content = args[1];
+                        const rawContent = args[1];
+                        const content = sanitizeContent(rawContent);
 
                         // Write to VFS (Supabase)
-                        const saved = await vfs.writeFile(userId, filePath, content);
+                        const writeResult = await vfs.writeFile(userId, filePath, content);
 
-                        if (saved) {
+                        if (writeResult.success) {
                             toolResult = `[SUCCESS]: Wrote ${content.length} characters to ${filePath} (Workspace Storage)`;
                             // Emit file_created event so the IDE can auto-refresh and auto-open
                             yield { type: "file_created", fileName: filePath, content: content };
                         } else {
-                            toolResult = `[ERROR]: Failed to write file to storage. Check logs.`;
+                            toolResult = `[ERROR]: Failed to write file: ${writeResult.error || "Unknown error"}`;
                         }
                         break;
                     }

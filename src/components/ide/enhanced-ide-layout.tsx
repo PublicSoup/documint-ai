@@ -25,6 +25,7 @@ import { ContextualHeader } from "./contextual-header";
 import { DiagramViewer } from "../diagram-viewer";
 import { getProjectGraphMermaid } from "@/app/dashboard/actions";
 import { CommandPalette } from "../command-palette";
+import { DiffModal } from "./diff-modal";
 import { useIDESettings } from "@/hooks/use-ide-settings";
 
 // Auto-detect Monaco language from file name
@@ -75,6 +76,10 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
     const [isInstalling, setIsInstalling] = useState(false);
+
+    // Diff Modal State
+    const [diffModalOpen, setDiffModalOpen] = useState(false);
+    const [diffContent, setDiffContent] = useState({ original: "", modified: "", language: "typescript" });
 
     // Layout State (synced)
     const { settings, updateSetting, loading: settingsLoading } = useIDESettings();
@@ -132,6 +137,19 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
             });
         }
     }, [showLocalTopology, activeFileId]);
+
+    const handleReviewDiff = useCallback((original: string, modified: string) => {
+        // Find language for active file
+        const file = files.find(f => f.id === activeFileId);
+        const language = file ? file.language : "typescript";
+
+        setDiffContent({
+            original,
+            modified,
+            language
+        });
+        setDiffModalOpen(true);
+    }, [activeFileId, files]);
 
     const handleFileSelect = async (fileId: string) => {
         if (!openFiles.includes(fileId)) {
@@ -1100,9 +1118,23 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                             }
                         }}
                         onSelectFile={setActiveFileId}
+                        onReviewDiff={handleReviewDiff}
                     />
                 </div>
             )}
+
+            <DiffModal
+                open={diffModalOpen}
+                onOpenChange={setDiffModalOpen}
+                original={diffContent.original}
+                modified={diffContent.modified}
+                language={diffContent.language}
+                fileName={activeFile?.name}
+                onApply={() => {
+                    setDiffModalOpen(false);
+                    toast("Please click 'Apply' in the chat to confirm changes.");
+                }}
+            />
 
             <CommandPalette open={isCommandPaletteOpen} onOpenChange={setIsCommandPaletteOpen} />
         </div>
