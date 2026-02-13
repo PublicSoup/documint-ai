@@ -102,6 +102,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     const [localMermaid, setLocalMermaid] = useState<string>("");
     const editorRef = useRef<SimpleEnhancedEditorRef>(null);
     const [clickTimeout, setClickTimeout] = useState<NodeJS.Timeout | null>(null);
+    const [cursorLine, setCursorLine] = useState(1);
+    const [cursorColumn, setCursorColumn] = useState(1);
 
     // Handle query parameter for auto-opening files
     useEffect(() => {
@@ -411,9 +413,15 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     };
 
     return (
-        <div className="flex h-screen w-screen overflow-hidden bg-[#1e1e1e] text-white fixed inset-0 z-[100] selection:bg-primary/30">
+        <div className="flex h-screen w-screen overflow-hidden bg-[#0d0d11] text-white fixed inset-0 z-[100] selection:bg-purple-500/30">
             {/* Activity Bar */}
-            <div className="w-12 flex-none flex flex-col items-center py-4 gap-4 border-r border-white/5 bg-[#18181b] z-40 h-full overflow-hidden">
+            {/* Activity Bar — Premium with gradient and glow */}
+            <div className="w-12 flex-none flex flex-col items-center py-3 gap-1 border-r border-white/[0.04] bg-gradient-to-b from-[#0a0a0f] via-[#0e0e14] to-[#0a0a0f] z-40 h-full overflow-hidden">
+                {/* Brand Mark */}
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-600/20 to-violet-500/10 flex items-center justify-center mb-3 border border-purple-500/10">
+                    <Sparkles className="w-4 h-4 text-purple-400/70" />
+                </div>
+
                 <button
                     onClick={() => {
                         if (activeSidebarTab === "explorer" && showSidebar) {
@@ -424,11 +432,14 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         }
                     }}
                     className={cn(
-                        "p-2 rounded-lg transition-all",
-                        showSidebar && activeSidebarTab === "explorer" ? "bg-primary/20 text-primary shadow-glow" : "text-white/40 hover:text-white/70"
+                        "p-2 rounded-lg transition-all duration-200 relative group",
+                        showSidebar && activeSidebarTab === "explorer"
+                            ? "bg-purple-500/15 text-purple-400 shadow-[0_0_12px_rgba(168,85,247,0.15)]"
+                            : "text-white/25 hover:text-white/50 hover:bg-white/[0.04]"
                     )}
-                    title="Explorer"
+                    title="Explorer (⌘B)"
                 >
+                    {showSidebar && activeSidebarTab === "explorer" && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-4 bg-purple-400 rounded-r" />}
                     <Files className="w-5 h-5" />
                 </button>
                 <button
@@ -441,11 +452,14 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         }
                     }}
                     className={cn(
-                        "p-2 rounded-lg transition-all",
-                        showSidebar && activeSidebarTab === "search" ? "bg-primary/20 text-primary shadow-glow" : "text-white/40 hover:text-white/70"
+                        "p-2 rounded-lg transition-all duration-200 relative group",
+                        showSidebar && activeSidebarTab === "search"
+                            ? "bg-purple-500/15 text-purple-400 shadow-[0_0_12px_rgba(168,85,247,0.15)]"
+                            : "text-white/25 hover:text-white/50 hover:bg-white/[0.04]"
                     )}
-                    title="Search"
+                    title="Search (⌘F)"
                 >
+                    {showSidebar && activeSidebarTab === "search" && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-4 bg-purple-400 rounded-r" />}
                     <SearchIcon className="w-5 h-5" />
                 </button>
                 <button
@@ -458,15 +472,35 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         }
                     }}
                     className={cn(
-                        "p-2 rounded-lg transition-all",
-                        showSidebar && activeSidebarTab === "git" ? "bg-primary/20 text-primary shadow-glow" : "text-white/40 hover:text-white/70"
+                        "p-2 rounded-lg transition-all duration-200 relative group",
+                        showSidebar && activeSidebarTab === "git"
+                            ? "bg-purple-500/15 text-purple-400 shadow-[0_0_12px_rgba(168,85,247,0.15)]"
+                            : "text-white/25 hover:text-white/50 hover:bg-white/[0.04]"
                     )}
-                    title="Source Control"
+                    title="Source Control (⌘G)"
                 >
+                    {showSidebar && activeSidebarTab === "git" && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-4 bg-purple-400 rounded-r" />}
                     <GitBranch className="w-5 h-5" />
                 </button>
-                <div className="mt-auto flex flex-col gap-4">
-                    <button className="p-2 text-white/40 hover:text-white/70 transition-colors" title="Settings">
+
+                <div className="flex-1" />
+
+                <div className="flex flex-col gap-1">
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setShowTerminal(!showTerminal);
+                        }}
+                        className={cn(
+                            "p-2 rounded-lg transition-all duration-200",
+                            showTerminal
+                                ? "bg-emerald-500/15 text-emerald-400"
+                                : "text-white/25 hover:text-white/50 hover:bg-white/[0.04]"
+                        )}
+                        title="Terminal (⌘`)">
+                        <TerminalIcon className="w-5 h-5" />
+                    </button>
+                    <button className="p-2 text-white/25 hover:text-white/50 hover:bg-white/[0.04] rounded-lg transition-all duration-200" title="Settings">
                         <Settings className="w-5 h-5" />
                     </button>
                 </div>
@@ -480,7 +514,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         className="md:hidden fixed inset-0 z-20 bg-black/50 backdrop-blur-sm"
                         onClick={() => setShowSidebar(false)}
                     />
-                    <div className="absolute md:relative w-56 md:w-64 flex-none flex flex-col border-r border-white/5 bg-[#1e1e1e] h-full overflow-hidden animate-in slide-in-from-left-1 duration-200 z-30 shadow-2xl md:shadow-none">
+                    <div className="absolute md:relative w-56 md:w-64 flex-none flex flex-col border-r border-white/[0.04] bg-[#0d0d11] h-full overflow-hidden animate-in slide-in-from-left-1 duration-200 z-30 shadow-2xl md:shadow-none">
                         {activeSidebarTab === "explorer" && (
                             <EnhancedFileTree
                                 files={files}
@@ -492,13 +526,13 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         )}
                         {activeSidebarTab === "search" && (
                             <div className="flex flex-col h-full">
-                                <div className="p-4 border-b border-white/5">
-                                    <h2 className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-3">Search</h2>
+                                <div className="p-4 border-b border-white/[0.04]">
+                                    <h2 className="text-[10px] font-black uppercase tracking-widest text-white/20 mb-3">Search</h2>
                                     <div className="relative">
                                         <SearchIcon className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
                                         <input
                                             placeholder="Search in project..."
-                                            className="w-full bg-black/20 border border-white/5 rounded-md pl-9 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-primary/50"
+                                            className="w-full bg-black/20 border border-white/[0.06] rounded-md pl-9 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-purple-500/50 focus:bg-black/30 transition-all"
                                         />
                                     </div>
                                 </div>
@@ -543,16 +577,15 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
             )}
 
             {/* Main Area */}
-            <div className="flex-1 flex flex-col min-w-0 max-w-full bg-[#1e1e1e] relative z-10 h-full overflow-hidden">
+            <div className="flex-1 flex flex-col min-w-0 max-w-full bg-[#0d0d11] relative z-10 h-full overflow-hidden">
                 {/* Enterprise Header */}
                 <ContextualHeader
                     filePath={activeFile?.name || "No file selected"}
-                    riskScore={activeFile?.id ? 45 : 0} // Would ideally come from a computed state
                     isSaving={isSaving}
                 />
 
                 {/* Tabs & Toolbar */}
-                <div className="flex-none flex items-center justify-between h-10 bg-[#1e1e1e] border-b border-white/5 select-none overflow-hidden">
+                <div className="flex-none flex items-center justify-between h-10 bg-[#0d0d11] border-b border-white/[0.04] select-none overflow-hidden">
                     <div className="flex items-center h-full overflow-x-auto custom-scrollbar">
                         {openFiles.map(fileId => {
                             // Use dynamic state to find file
@@ -566,12 +599,13 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                     key={fileId}
                                     onClick={() => setActiveFileId(fileId)}
                                     className={cn(
-                                        "h-full px-3 flex items-center gap-2 text-xs border-r border-white/5 cursor-pointer transition-colors min-w-[100px] max-w-[200px] group",
-                                        isActive ? "bg-[#1e1e1e] text-white border-t-2 border-t-primary" : "bg-[#2d2d2d] text-muted-foreground hover:bg-[#252525] border-t-2 border-t-transparent"
+                                        "h-full px-3 flex items-center gap-2 text-xs border-r border-white/[0.04] cursor-pointer transition-all duration-200 min-w-[100px] max-w-[200px] group relative",
+                                        isActive ? "bg-[#0d0d11] text-white" : "bg-[#0a0a0e] text-white/40 hover:bg-[#0d0d11]/80 hover:text-white/60"
                                     )}
                                 >
+                                    {isActive && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-purple-500 to-violet-400" />}
                                     <span className="truncate">{file.name}</span>
-                                    {isUnsaved && <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />}
+                                    {isUnsaved && <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 animate-pulse" />}
                                     <button
                                         onClick={(e) => handleCloseFile(e, fileId)}
                                         className={cn("opacity-0 group-hover:opacity-100 p-0.5 rounded-sm hover:bg-white/10", isActive && "opacity-100")}
@@ -583,14 +617,14 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         })}
                     </div>
 
-                    <div className="flex items-center gap-1 px-2 h-full bg-[#1e1e1e]">
+                    <div className="flex items-center gap-1 px-2 h-full bg-[#0d0d11]">
                         <button onClick={(e) => {
                             e.stopPropagation();
                             if (clickTimeout) return;
                             const timeout = setTimeout(() => setClickTimeout(null), 300);
                             setClickTimeout(timeout);
                             setShowSidebar(!showSidebar);
-                        }} className="p-1.5 rounded hover:bg-white/10 text-muted-foreground" title="Toggle Sidebar">
+                        }} className="p-1.5 rounded hover:bg-white/[0.06] text-white/30 hover:text-white/50 transition-all" title="Toggle Sidebar (⌘B)">
                             <Columns className="w-4 h-4" />
                         </button>
                         <button onClick={(e) => {
@@ -599,7 +633,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                             const timeout = setTimeout(() => setClickTimeout(null), 300);
                             setClickTimeout(timeout);
                             setShowAIChat(!showAIChat);
-                        }} className="p-1.5 rounded hover:bg-white/10 text-muted-foreground" title="Toggle AI Chat">
+                        }} className="p-1.5 rounded hover:bg-white/[0.06] text-white/30 hover:text-white/50 transition-all" title="Toggle AI Chat (⌘I)">
                             <Bot className="w-4 h-4" />
                         </button>
                         <button onClick={(e) => {
@@ -608,7 +642,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                             const timeout = setTimeout(() => setClickTimeout(null), 300);
                             setClickTimeout(timeout);
                             setShowTerminal(!showTerminal);
-                        }} className="p-1.5 rounded hover:bg-white/10 text-muted-foreground" title="Toggle Terminal">
+                        }} className="p-1.5 rounded hover:bg-white/[0.06] text-white/30 hover:text-white/50 transition-all" title="Toggle Terminal (⌘`)">
                             <TerminalIcon className="w-4 h-4" />
                         </button>
                         <button
@@ -619,7 +653,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 setClickTimeout(timeout);
                                 setShowAIEditor(!showAIEditor);
                             }}
-                            className={cn("p-1.5 rounded transition-colors", showAIEditor ? "bg-purple-500/20 text-purple-400" : "text-purple-500 hover:bg-purple-500/10")}
+                            className={cn("p-1.5 rounded transition-all", showAIEditor ? "bg-purple-500/15 text-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.2)]" : "text-purple-400/40 hover:bg-purple-500/10 hover:text-purple-400")}
                             title="Toggle AI Editor"
                         >
                             <Bot className="w-4 h-4" />
@@ -633,7 +667,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 setClickTimeout(timeout);
                                 setShowDocPreview(!showDocPreview);
                             }}
-                            className={cn("p-1.5 rounded transition-colors", showDocPreview ? "bg-blue-500/20 text-blue-400" : "text-blue-500 hover:bg-blue-500/10")}
+                            className={cn("p-1.5 rounded transition-all", showDocPreview ? "bg-blue-500/15 text-blue-400 shadow-[0_0_8px_rgba(59,130,246,0.2)]" : "text-blue-400/40 hover:bg-blue-500/10 hover:text-blue-400")}
                             title="Toggle Doc Preview"
                         >
                             <FileText className="w-4 h-4" />
@@ -641,7 +675,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
                         <button
                             onClick={() => setShowLocalTopology(!showLocalTopology)}
-                            className={cn("p-1.5 rounded transition-colors", showLocalTopology ? "bg-emerald-500/20 text-emerald-400" : "text-emerald-500 hover:bg-emerald-500/10")}
+                            className={cn("p-1.5 rounded transition-all", showLocalTopology ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.2)]" : "text-emerald-400/40 hover:bg-emerald-500/10 hover:text-emerald-400")}
                             title="Toggle Local Topology"
                         >
                             <LayoutIcon className="w-4 h-4" />
@@ -697,11 +731,11 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 <Sparkles className="w-4 h-4" />
                             </button>
                         )}
-                        <div className="w-px h-4 bg-white/10 mx-1" />
+                        <div className="w-px h-4 bg-white/[0.06] mx-1" />
                         <button
                             onClick={handleSave}
                             disabled={!activeFileId || !unsavedChanges[activeFileId]}
-                            className={cn("p-1.5 rounded transition-colors flex items-center gap-1.5 text-xs font-medium", unsavedChanges[activeFileId || ""] ? "text-primary hover:bg-primary/10" : "text-muted-foreground opacity-50")}
+                            className={cn("p-1.5 rounded transition-all flex items-center gap-1.5 text-xs font-medium", unsavedChanges[activeFileId || ""] ? "text-emerald-400 hover:bg-emerald-500/10 shadow-[0_0_6px_rgba(16,185,129,0.15)]" : "text-white/20 opacity-50")}
                         >
                             <Save className="w-4 h-4" />
                         </button>
@@ -746,7 +780,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                     setIsInstalling(false);
                                 }
                             }}
-                            className="p-1.5 rounded hover:bg-green-500/20 text-green-500 hover:text-green-400 disabled:opacity-50"
+                            className="p-1.5 rounded hover:bg-emerald-500/15 text-emerald-400/70 hover:text-emerald-400 disabled:opacity-30 transition-all"
                             title="Run (Preview)"
                             disabled={isInstalling || !webContainerBooted}
                         >
@@ -757,7 +791,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
                 {/* Editor Area */}
                 <div className="flex-1 relative min-h-0 overflow-hidden flex">
-                    <div className={cn("flex-1 min-w-0 relative h-full transition-all duration-300 ease-in-out", (showDocPreview || showLocalTopology) && "border-r border-white/10")}>
+                    <div className={cn("flex-1 min-w-0 relative h-full transition-all duration-300 ease-in-out", (showDocPreview || showLocalTopology) && "border-r border-white/[0.06]")}>
                         {/* Editor content area - no overlaying HUD */}
 
                         {activeFileId && activeFile ? (
@@ -769,22 +803,48 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 onChange={handleContentChange}
                                 onSave={handleSave}
                                 onRun={() => toast("Run functionality not implemented yet", "success")}
+                                onCursorChange={(line, col) => {
+                                    setCursorLine(line);
+                                    setCursorColumn(col);
+                                }}
                             />
                         ) : (
-                            <div className="h-full flex flex-col items-center justify-center text-muted-foreground space-y-4 bg-zinc-900/20">
-                                <div className="relative">
-                                    <Layout className="w-16 h-16 opacity-10" />
-                                    <Sparkles className="w-6 h-6 absolute -top-2 -right-2 text-primary opacity-20 animate-pulse" />
+                            <div className="h-full flex flex-col items-center justify-center space-y-6 bg-[#0a0a0e] relative overflow-hidden">
+                                {/* Animated background mesh */}
+                                <div className="absolute inset-0 opacity-[0.03]">
+                                    <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500 rounded-full blur-[120px] animate-pulse" style={{ animationDuration: '4s' }} />
+                                    <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-violet-600 rounded-full blur-[120px] animate-pulse" style={{ animationDuration: '6s', animationDelay: '2s' }} />
                                 </div>
-                                <p className="text-xs font-medium tracking-widest uppercase opacity-30">DocuMint Agentic IDE</p>
-                                <div className="flex flex-col gap-2 items-center">
-                                    <div className="flex gap-2 text-[10px] font-mono text-white/20">
-                                        <kbd className="bg-white/5 px-1.5 py-0.5 rounded border border-white/10">⌘ P</kbd>
-                                        <span>Quick Open</span>
+
+                                <div className="relative z-10 flex flex-col items-center gap-5">
+                                    <div className="relative">
+                                        <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-600/10 to-violet-500/5 flex items-center justify-center border border-purple-500/10 shadow-[0_0_40px_rgba(168,85,247,0.08)]">
+                                            <Sparkles className="w-8 h-8 text-purple-400/30" />
+                                        </div>
                                     </div>
-                                    <div className="flex gap-2 text-[10px] font-mono text-white/20">
-                                        <kbd className="bg-white/5 px-1.5 py-0.5 rounded border border-white/10">⌘ /</kbd>
-                                        <span>AI Assistant</span>
+
+                                    <div className="text-center space-y-1">
+                                        <p className="text-sm font-semibold tracking-wide text-white/15">DocuMint IDE</p>
+                                        <p className="text-[10px] text-white/10 font-mono">Select a file to begin editing</p>
+                                    </div>
+
+                                    <div className="flex flex-col gap-2 items-center mt-2">
+                                        <div className="flex gap-2 text-[10px] font-mono text-white/15 items-center">
+                                            <kbd className="bg-white/[0.04] px-2 py-0.5 rounded border border-white/[0.06] text-white/25">⌘ B</kbd>
+                                            <span>Toggle Explorer</span>
+                                        </div>
+                                        <div className="flex gap-2 text-[10px] font-mono text-white/15 items-center">
+                                            <kbd className="bg-white/[0.04] px-2 py-0.5 rounded border border-white/[0.06] text-white/25">⌘ I</kbd>
+                                            <span>AI Assistant</span>
+                                        </div>
+                                        <div className="flex gap-2 text-[10px] font-mono text-white/15 items-center">
+                                            <kbd className="bg-white/[0.04] px-2 py-0.5 rounded border border-white/[0.06] text-white/25">⌘ K</kbd>
+                                            <span>Command Palette</span>
+                                        </div>
+                                        <div className="flex gap-2 text-[10px] font-mono text-white/15 items-center">
+                                            <kbd className="bg-white/[0.04] px-2 py-0.5 rounded border border-white/[0.06] text-white/25">⌘ `</kbd>
+                                            <span>Terminal</span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -855,45 +915,48 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                     plan={subscription?.plan || "Free"}
                     isSaving={isSaving}
                     activeFile={activeFile?.name}
+                    cursorLine={cursorLine}
+                    cursorColumn={cursorColumn}
                 />
 
 
 
                 {/* Terminal Panel (Enterprise) */}
                 {showTerminal && (
-                    <div className="flex-none h-32 border-t border-white/5 bg-[#18181b] flex flex-col shadow-[0_-4px_20px_rgba(0,0,0,0.4)] z-20">
+                    <div className="flex-none h-32 border-t border-white/[0.06] bg-[#0a0a0e] flex flex-col shadow-[0_-4px_30px_rgba(0,0,0,0.5)] z-20">
                         {/* Terminal Header */}
-                        <div className="flex-none h-8 flex items-center justify-between px-3 border-b border-white/5 select-none bg-[#1e1e1e]">
+                        <div className="flex-none h-8 flex items-center justify-between px-3 border-b border-white/[0.04] select-none bg-[#0d0d11]">
                             <div className="flex items-center gap-4 h-full">
-                                <button className="h-full border-b border-primary text-[11px] font-medium text-white flex items-center gap-1.5 px-1">
-                                    <TerminalIcon className="w-3.5 h-3.5" />
+                                <button className="h-full text-[11px] font-medium text-white/80 flex items-center gap-1.5 px-2 relative">
+                                    <TerminalIcon className="w-3.5 h-3.5 text-purple-400/60" />
                                     Terminal
+                                    <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-purple-500 to-violet-400" />
                                 </button>
-                                <button className="h-full border-b border-transparent text-[11px] font-medium text-white/40 hover:text-white/70 flex items-center gap-1.5 px-1 transition-colors">
+                                <button className="h-full text-[11px] font-medium text-white/25 hover:text-white/50 flex items-center gap-1.5 px-2 transition-colors">
                                     Output
                                 </button>
-                                <button className="h-full border-b border-transparent text-[11px] font-medium text-white/40 hover:text-white/70 flex items-center gap-1.5 px-1 transition-colors">
+                                <button className="h-full text-[11px] font-medium text-white/25 hover:text-white/50 flex items-center gap-1.5 px-2 transition-colors">
                                     Problems
-                                    <span className="bg-primary/20 text-primary px-1 rounded-full text-[9px] font-bold">0</span>
+                                    <span className="bg-purple-500/15 text-purple-300/60 px-1 rounded-full text-[9px] font-bold">0</span>
                                 </button>
-                                <button className="h-full border-b border-transparent text-[11px] font-medium text-white/40 hover:text-white/70 flex items-center gap-1.5 px-1 transition-colors">
+                                <button className="h-full text-[11px] font-medium text-white/25 hover:text-white/50 flex items-center gap-1.5 px-2 transition-colors">
                                     Debug Console
                                 </button>
                             </div>
                             <div className="flex items-center gap-1.5">
-                                <button className="p-1 rounded hover:bg-white/5 text-white/40 hover:text-white transition-colors" title="Split">
+                                <button className="p-1 rounded hover:bg-white/[0.06] text-white/25 hover:text-white/60 transition-colors" title="Split">
                                     <SplitSquareHorizontal className="w-3.5 h-3.5" />
                                 </button>
-                                <button className="p-1 rounded hover:bg-white/5 text-white/40 hover:text-white transition-colors" title="Clear">
+                                <button className="p-1 rounded hover:bg-white/[0.06] text-white/25 hover:text-white/60 transition-colors" title="Clear">
                                     <Trash2 className="w-3.5 h-3.5" />
                                 </button>
-                                <div className="w-px h-3 bg-white/10 mx-1" />
-                                <button className="p-1 rounded hover:bg-white/5 text-white/40 hover:text-white transition-colors" title="Maximize">
+                                <div className="w-px h-3 bg-white/[0.06] mx-1" />
+                                <button className="p-1 rounded hover:bg-white/[0.06] text-white/25 hover:text-white/60 transition-colors" title="Maximize">
                                     <ChevronUp className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                     onClick={() => setShowTerminal(false)}
-                                    className="p-1 rounded hover:bg-red-500/10 text-white/40 hover:text-red-400 transition-colors"
+                                    className="p-1 rounded hover:bg-red-500/10 text-white/25 hover:text-red-400 transition-colors"
                                     title="Close"
                                 >
                                     <X className="w-3.5 h-3.5" />
@@ -902,7 +965,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         </div>
 
                         {/* Terminal Content */}
-                        <div className="flex-1 min-h-0 bg-[#000000] p-1 pl-3 overflow-hidden">
+                        <div className="flex-1 min-h-0 bg-[#070709] p-1 pl-3 overflow-hidden">
                             <Terminal
                                 onTerminalReady={async (term) => {
                                     setTerminalInstance(term);
@@ -962,7 +1025,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
             {/* Right Sidebar (AI) */}
             {showAIChat && (
-                <div className="w-[300px] md:w-[350px] flex-none border-l border-white/5 bg-[#1a1a1a] flex flex-col h-full min-h-0 overflow-hidden z-30 relative">
+                <div className="w-[300px] md:w-[350px] flex-none border-l border-white/[0.04] bg-[#0a0a0e] flex flex-col h-full min-h-0 overflow-hidden z-30 relative">
                     <AIChatPanel
                         activeFileId={activeFileId}
                         activeFileContent={activeFileId ? fileContents[activeFileId] : undefined}

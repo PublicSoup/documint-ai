@@ -2,9 +2,7 @@
 
 import React from "react";
 import { cn } from "@/lib/utils";
-import { Zap, Database, CheckCircle2, AlertTriangle, ShieldCheck, GitBranch, Cpu, HardDrive } from "lucide-react";
-import { Progress } from "@/components/ui/progress";
-import { ProBadge } from "@/components/ui/pro-badge";
+import { Zap, Database, CheckCircle2, ShieldCheck, GitBranch } from "lucide-react";
 
 interface IDEStatusBarProps {
     fileCount: number;
@@ -14,6 +12,8 @@ interface IDEStatusBarProps {
     plan: string;
     isSaving?: boolean;
     activeFile?: string;
+    cursorLine?: number;
+    cursorColumn?: number;
 }
 
 export function IDEStatusBar({
@@ -23,7 +23,9 @@ export function IDEStatusBar({
     maxTokens,
     plan,
     isSaving,
-    activeFile
+    activeFile,
+    cursorLine = 1,
+    cursorColumn = 1
 }: IDEStatusBarProps) {
     const filePercentage = maxFiles === -1 ? 0 : (fileCount / maxFiles) * 100;
     const tokenPercentage = maxTokens === -1 ? 0 : (tokensUsed / maxTokens) * 100;
@@ -32,91 +34,103 @@ export function IDEStatusBar({
     const isTokenLimitNear = tokenPercentage > 80;
 
     return (
-        <div className="h-6 flex-none bg-[#007acc] flex items-center justify-between px-3 text-[11px] text-white/90 select-none border-t border-white/10 z-50">
-            <div className="flex items-center gap-4 h-full">
+        <div className="h-7 flex-none bg-gradient-to-r from-[#0c0c10] via-[#12121a] to-[#0c0c10] flex items-center justify-between px-3 text-[11px] text-white/70 select-none border-t border-white/[0.06] z-50 backdrop-blur-md">
+            <div className="flex items-center gap-3 h-full">
                 {/* Save Status */}
-                <div className="flex items-center gap-1.5 min-w-[80px]">
+                <div className="flex items-center gap-1.5 min-w-[70px]">
                     {isSaving ? (
                         <>
-                            <div className="w-2 h-2 rounded-full bg-white/50 animate-pulse" />
-                            <span>Saving...</span>
+                            <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse shadow-[0_0_6px_rgba(168,85,247,0.4)]" />
+                            <span className="text-purple-300 font-medium">Saving...</span>
                         </>
                     ) : (
                         <>
-                            <CheckCircle2 className="w-3 h-3 text-emerald-300" />
-                            <span>Ready</span>
+                            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                            <span className="text-white/50">Ready</span>
                         </>
                     )}
                 </div>
 
-                <div className="w-px h-3 bg-white/20" />
+                <div className="w-px h-3 bg-white/[0.06]" />
 
-                {/* Plan Info */}
+                {/* Plan Badge */}
                 <div className="flex items-center gap-1.5">
-                    <ShieldCheck className="w-3 h-3" />
-                    <span className="font-bold uppercase tracking-tighter">{plan} Plan</span>
+                    <ShieldCheck className="w-3 h-3 text-purple-400/60" />
+                    <span className="font-bold uppercase tracking-wider text-[10px] text-purple-300/80">{plan}</span>
                 </div>
 
-                <div className="w-px h-3 bg-white/20" />
+                <div className="w-px h-3 bg-white/[0.06]" />
 
                 {/* Workspace Files Usage */}
                 <div className="flex items-center gap-2 group cursor-help" title={`${fileCount} / ${maxFiles === -1 ? 'Unlimited' : maxFiles} files used`}>
-                    <Database className={cn("w-3 h-3", isFileLimitNear ? "text-amber-300" : "text-white/60")} />
-                    <span>Workspace:</span>
+                    <Database className={cn("w-3 h-3", isFileLimitNear ? "text-amber-400" : "text-white/25")} />
+                    <span className="text-white/35 hidden sm:inline">Files</span>
                     {maxFiles !== -1 && (
-                        <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden inline-block align-middle">
+                        <div className="w-14 h-1 bg-white/[0.06] rounded-full overflow-hidden">
                             <div
-                                className={cn("h-full transition-all duration-500", isFileLimitNear ? "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]" : "bg-emerald-400")}
+                                className={cn(
+                                    "h-full rounded-full transition-all duration-700",
+                                    isFileLimitNear
+                                        ? "bg-gradient-to-r from-amber-500 to-orange-500 shadow-[0_0_8px_rgba(251,191,36,0.4)]"
+                                        : "bg-gradient-to-r from-emerald-500/80 to-emerald-400/60"
+                                )}
                                 style={{ width: `${Math.min(filePercentage, 100)}%` }}
                             />
                         </div>
                     )}
-                    <span className={cn(isFileLimitNear && "text-amber-200 font-bold")}>
+                    <span className={cn("tabular-nums text-[10px]", isFileLimitNear ? "text-amber-300 font-bold" : "text-white/30")}>
                         {fileCount}{maxFiles !== -1 ? `/${maxFiles}` : ''}
                     </span>
                 </div>
 
-                <div className="w-px h-3 bg-white/20" />
+                <div className="w-px h-3 bg-white/[0.06]" />
 
                 {/* AI Tokens Usage */}
                 <div className="flex items-center gap-2 group cursor-help" title={`${tokensUsed} / ${maxTokens === -1 ? 'Unlimited' : maxTokens} AI tokens used`}>
-                    <Zap className={cn("w-3 h-3", isTokenLimitNear ? "text-amber-300" : "text-white/60")} />
-                    <span>AI Engine:</span>
+                    <Zap className={cn("w-3 h-3", isTokenLimitNear ? "text-amber-400" : "text-purple-400/40")} />
+                    <span className="text-white/35 hidden sm:inline">AI</span>
                     {maxTokens !== -1 && (
-                        <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden inline-block align-middle">
+                        <div className="w-14 h-1 bg-white/[0.06] rounded-full overflow-hidden">
                             <div
-                                className={cn("h-full transition-all duration-500", isTokenLimitNear ? "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]" : "bg-purple-400")}
+                                className={cn(
+                                    "h-full rounded-full transition-all duration-700",
+                                    isTokenLimitNear
+                                        ? "bg-gradient-to-r from-amber-500 to-orange-500 shadow-[0_0_8px_rgba(251,191,36,0.4)]"
+                                        : "bg-gradient-to-r from-purple-500/80 to-violet-400/60"
+                                )}
                                 style={{ width: `${Math.min(tokenPercentage, 100)}%` }}
                             />
                         </div>
                     )}
-                    <span className={cn(isTokenLimitNear && "text-amber-200 font-bold")}>
+                    <span className={cn("tabular-nums text-[10px]", isTokenLimitNear ? "text-amber-300 font-bold" : "text-white/30")}>
                         {tokensUsed.toLocaleString()}{maxTokens !== -1 ? `/${maxTokens.toLocaleString()}` : ''}
                     </span>
                 </div>
             </div>
 
-            <div className="flex items-center gap-4 h-full">
-                {/* File Meta */}
+            <div className="flex items-center gap-3 h-full">
+                {/* Cursor Position — now uses real data */}
                 {activeFile && (
-                    <div className="hidden md:flex items-center gap-3 text-white/40 border-r border-white/10 pr-4">
-                        <span>Ln {Math.floor(Math.random() * 50) + 1}, Col 1</span>
-                        <span>Spaces: 4</span>
+                    <div className="hidden md:flex items-center gap-3 text-white/30 text-[10px] tabular-nums">
+                        <span>Ln {cursorLine}, Col {cursorColumn}</span>
+                        <span>Spaces: 2</span>
                         <span>UTF-8</span>
                     </div>
                 )}
 
+                <div className="w-px h-3 bg-white/[0.06]" />
+
                 {/* Branch */}
-                <div className="flex items-center gap-1.5 hover:bg-white/10 px-2 h-full transition-colors cursor-pointer">
-                    <GitBranch className="w-3 h-3 text-white/60" />
-                    <span>main</span>
+                <div className="flex items-center gap-1.5 hover:bg-white/[0.04] px-2 h-full transition-colors cursor-pointer rounded">
+                    <GitBranch className="w-3 h-3 text-white/25" />
+                    <span className="text-white/40">main</span>
                 </div>
 
                 {/* Upgrade Nudge */}
                 {(isFileLimitNear || isTokenLimitNear || plan.toLowerCase() === "free") && (
                     <button
                         onClick={() => window.location.href = '/checkout'}
-                        className="bg-amber-500 hover:bg-amber-400 text-black px-2 py-0.5 rounded font-bold text-[9px] uppercase tracking-wider flex items-center gap-1 transition-colors ml-2"
+                        className="bg-gradient-to-r from-purple-600 to-violet-500 hover:from-purple-500 hover:to-violet-400 text-white px-2.5 py-0.5 rounded-md font-bold text-[9px] uppercase tracking-wider flex items-center gap-1 transition-all ml-1 shadow-[0_0_12px_rgba(139,92,246,0.3)] hover:shadow-[0_0_16px_rgba(139,92,246,0.5)]"
                     >
                         <Zap className="w-2.5 h-2.5 fill-current" />
                         Upgrade
