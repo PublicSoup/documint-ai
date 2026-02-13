@@ -119,7 +119,7 @@ export async function getAICompletionWithDetailedError(
             systemInstruction: messages.find(m => m.role === "system")?.content,
             generationConfig: {
                 temperature: options.temperature ?? 0.4,
-                maxOutputTokens: options.maxTokens ?? 16384,
+                maxOutputTokens: options.maxTokens ?? 8192,
             }
         });
 

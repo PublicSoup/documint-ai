@@ -505,6 +505,7 @@ export function AIChatPanel({
             if (fileName && onCreateFile) {
                 onCreateFile(fileName, code);
                 setAppliedBlocks(prev => new Set(prev).add(blockId));
+                toast(`Created ${fileName}`, "success");
                 return;
             }
             toast("Target file not found", "error");
@@ -512,6 +513,7 @@ export function AIChatPanel({
         }
 
         try {
+            // Try smart patch first
             const patchResult = applyPatch(targetFileContent, code);
             if (patchResult && patchResult.success && patchResult.patchedCode) {
                 // Push to undo stack
@@ -526,16 +528,50 @@ export function AIChatPanel({
                 }]);
 
                 if (onReplaceFileContent) {
-                    await onReplaceFileContent(patchResult.patchedCode, false); // Using false to indicate it's not a full replace if it was a patch, but here we treat result as full content
+                    await onReplaceFileContent(patchResult.patchedCode, false);
                     setAppliedBlocks(prev => new Set(prev).add(blockId));
                     toast("Code applied successfully", "success");
                 }
             } else {
-                toast("Failed to apply patch", "error");
+                // Patch failed — this is likely full file content, not a patch.
+                // Fall back to direct replace.
+                setUndoStack(prev => [...prev, {
+                    id: blockId,
+                    fileId: targetFileId,
+                    originalContent: targetFileContent,
+                    newContent: code,
+                    applied: true,
+                    canUndo: true,
+                    timestamp: Date.now()
+                }]);
+
+                if (onReplaceFileContent) {
+                    await onReplaceFileContent(code, true);
+                    setAppliedBlocks(prev => new Set(prev).add(blockId));
+                    toast("Code replaced successfully", "success");
+                }
             }
         } catch (e) {
             console.error("Apply code error:", e);
-            toast("Error applying code", "error");
+            // Last resort: try direct replace on error too
+            try {
+                if (onReplaceFileContent) {
+                    setUndoStack(prev => [...prev, {
+                        id: blockId,
+                        fileId: targetFileId,
+                        originalContent: targetFileContent,
+                        newContent: code,
+                        applied: true,
+                        canUndo: true,
+                        timestamp: Date.now()
+                    }]);
+                    await onReplaceFileContent(code, true);
+                    setAppliedBlocks(prev => new Set(prev).add(blockId));
+                    toast("Code replaced successfully", "success");
+                }
+            } catch (e2) {
+                toast("Error applying code", "error");
+            }
         }
     };
 

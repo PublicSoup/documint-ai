@@ -20,9 +20,27 @@ export function extractCodeBlocks(text: string): CodeBlock[] {
   let match;
 
   while ((match = codeBlockRegex.exec(text)) !== null) {
+    let filename = match[2]?.trim();
+
+    // Sanitize filename: strip comment prefixes (// or /* or #) that LLMs sometimes include
+    if (filename) {
+      filename = filename
+        .replace(/^\/\/\s*/, '')    // Strip leading // 
+        .replace(/^\/\*\s*/, '')    // Strip leading /*
+        .replace(/\*\/\s*$/, '')    // Strip trailing */
+        .replace(/^#\s*/, '')       // Strip leading #
+        .replace(/^["'`]+|["'`]+$/g, '') // Strip quotes
+        .trim();
+
+      // Only keep filename if it looks like a valid file path
+      if (filename && !/^[a-zA-Z0-9@._\-\/]+\.[a-zA-Z0-9]+$/.test(filename)) {
+        filename = ''; // Discard garbage filenames
+      }
+    }
+
     blocks.push({
       language: match[1] || 'text',
-      filename: match[2]?.trim(),
+      filename: filename || '',
       code: match[3].trim(),
     });
   }
