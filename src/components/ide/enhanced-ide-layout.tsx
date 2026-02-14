@@ -254,27 +254,43 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                 const fileMounts: Record<string, { file: { contents: string } }> = {};
 
                 // Process files
+                // Helper to ensure directory structure exists
+                const ensureDir = (root: any, pathParts: string[]) => {
+                    let current = root;
+                    for (const part of pathParts) {
+                        if (!current[part]) {
+                            current[part] = { directory: {} };
+                        }
+                        current = current[part].directory;
+                    }
+                    return current;
+                };
+
+                // Process files
                 files.forEach(f => {
                     let name = f.name;
                     if (!name) return;
-
-                    // 1. Trim whitespace
+                    
                     name = name.trim();
 
-                    // 2. Blacklist check (comments, etc)
-                    if (name.startsWith('//') || name.startsWith('#') || name.includes('\n')) {
-                        console.warn("Skipping invalid file mount (blacklist):", name);
+                    // Sanitize
+                    if (name.startsWith('//') || name.startsWith('#') || name.includes('\n') || !name.match(/^[a-zA-Z0-9@._\-\/]+$/)) {
+                        console.warn("Skipping invalid file mount:", name);
                         return;
                     }
 
-                    // 3. Whitelist check (alphanumeric, /, ., -, _, @)
-                    // If it contains characters outside this set, it's likely garbage
-                    if (!name.match(/^[a-zA-Z0-9@._\-\/]+$/)) {
-                        console.warn("Skipping invalid file mount (whitelist):", name);
-                        return;
+                    // Handle nested paths (e.g. src/components/button.tsx)
+                    if (name.includes('/')) {
+                        const parts = name.split('/');
+                        const fileName = parts.pop()!;
+                        const dirParts = parts;
+                        
+                        const dir = ensureDir(fileMounts, dirParts);
+                        dir[fileName] = { file: { contents: f.content || "" } };
+                    } else {
+                        // Flat file
+                        fileMounts[name] = { file: { contents: f.content || "" } };
                     }
-
-                    fileMounts[name] = { file: { contents: f.content || "" } };
                 });
 
                 // Add package.json if missing (for React/Next support)
