@@ -255,18 +255,26 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
                 // Process files
                 files.forEach(f => {
-                    // Sanitize: Skip files with invalid names (e.g. starting with comment slashes from AI hallucinations)
-                    if (!f.name || f.name.trim().startsWith('//') || f.name.trim().startsWith('#')) {
-                        console.warn("Skipping invalid file mount:", f.name);
+                    let name = f.name;
+                    if (!name) return;
+
+                    // 1. Trim whitespace
+                    name = name.trim();
+
+                    // 2. Blacklist check (comments, etc)
+                    if (name.startsWith('//') || name.startsWith('#') || name.includes('\n')) {
+                        console.warn("Skipping invalid file mount (blacklist):", name);
                         return;
                     }
 
-                    // Simple validation for safe paths
-                    if (f.name.match(/^[a-zA-Z0-9@._\-\/]+$/)) {
-                        fileMounts[f.name] = { file: { contents: f.content || "" } };
-                    } else {
-                        console.warn("Skipping potentially unsafe filename:", f.name);
+                    // 3. Whitelist check (alphanumeric, /, ., -, _, @)
+                    // If it contains characters outside this set, it's likely garbage
+                    if (!name.match(/^[a-zA-Z0-9@._\-\/]+$/)) {
+                        console.warn("Skipping invalid file mount (whitelist):", name);
+                        return;
                     }
+
+                    fileMounts[name] = { file: { contents: f.content || "" } };
                 });
 
                 // Add package.json if missing (for React/Next support)
