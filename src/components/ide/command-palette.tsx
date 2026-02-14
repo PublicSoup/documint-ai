@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Search, File as FileIcon, CornerDownLeft } from "lucide-react";
+import { Search, File as FileIcon, CornerDownLeft, Terminal, Keyboard, Settings, Columns, Map, Eye, Sparkles } from "lucide-react";
 import { File } from "@prisma/client";
 import { cn } from "@/lib/utils";
 
@@ -10,19 +10,58 @@ interface CommandPaletteProps {
     onClose: () => void;
     files: File[];
     onSelectFile: (fileId: string) => void;
+    onRunCommand?: (commandId: string) => void;
 }
 
-export function CommandPalette({ isOpen, onClose, files, onSelectFile }: CommandPaletteProps) {
+interface Command {
+    id: string;
+    label: string;
+    category: string;
+    icon: React.ReactNode;
+    shortcut?: string;
+}
+
+const COMMANDS: Command[] = [
+    { id: "toggle-terminal", label: "Toggle Terminal", category: "View", icon: <Terminal className="w-4 h-4" />, shortcut: "Ctrl+`" },
+    { id: "toggle-minimap", label: "Toggle Minimap", category: "View", icon: <Map className="w-4 h-4" /> },
+    { id: "toggle-sidebar", label: "Toggle Sidebar", category: "View", icon: <Columns className="w-4 h-4" />, shortcut: "Ctrl+B" },
+    { id: "format-document", label: "Format Document", category: "Edit", icon: <Sparkles className="w-4 h-4" />, shortcut: "Shift+Alt+F" },
+    { id: "go-to-settings", label: "Open Settings", category: "Preferences", icon: <Settings className="w-4 h-4" />, shortcut: "Ctrl+," },
+    { id: "toggle-wordwrap", label: "Toggle Word Wrap", category: "View", icon: <Eye className="w-4 h-4" />, shortcut: "Alt+Z" },
+    { id: "keyboard-shortcuts", label: "Keyboard Shortcuts Reference", category: "Help", icon: <Keyboard className="w-4 h-4" />, shortcut: "Ctrl+K Ctrl+S" },
+];
+
+export function CommandPalette({ isOpen, onClose, files, onSelectFile, onRunCommand }: CommandPaletteProps) {
     const [query, setQuery] = useState("");
     const [selectedIndex, setSelectedIndex] = useState(0);
 
+    const isCommandMode = query.startsWith(">");
+    const searchQuery = isCommandMode ? query.slice(1).trim() : query;
+
     const filteredFiles = useMemo(() => {
-        if (!query) return files.slice(0, 10);
-        return files.filter(f => f.name.toLowerCase().includes(query.toLowerCase())).slice(0, 10);
-    }, [files, query]);
+        if (isCommandMode) return [];
+        if (!searchQuery) return files.slice(0, 10);
+        return files.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 10);
+    }, [files, searchQuery, isCommandMode]);
+
+    const filteredCommands = useMemo(() => {
+        if (!isCommandMode) return [];
+        if (!searchQuery) return COMMANDS;
+        return COMMANDS.filter(cmd =>
+            cmd.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            cmd.category.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+    }, [searchQuery, isCommandMode]);
+
+    const totalItems = isCommandMode ? filteredCommands.length : filteredFiles.length;
 
     // Reset selection when query changes
     useEffect(() => setSelectedIndex(0), [query]);
+
+    // Reset query when palette opens
+    useEffect(() => {
+        if (isOpen) setQuery("");
+    }, [isOpen]);
 
     // Keyboard navigation
     useEffect(() => {
@@ -31,15 +70,23 @@ export function CommandPalette({ isOpen, onClose, files, onSelectFile }: Command
 
             if (e.key === "ArrowDown") {
                 e.preventDefault();
-                setSelectedIndex(prev => Math.min(prev + 1, filteredFiles.length - 1));
+                setSelectedIndex(prev => Math.min(prev + 1, totalItems - 1));
             } else if (e.key === "ArrowUp") {
                 e.preventDefault();
                 setSelectedIndex(prev => Math.max(prev - 1, 0));
             } else if (e.key === "Enter") {
                 e.preventDefault();
-                if (filteredFiles[selectedIndex]) {
-                    onSelectFile(filteredFiles[selectedIndex].id);
-                    onClose();
+                if (isCommandMode) {
+                    const cmd = filteredCommands[selectedIndex];
+                    if (cmd) {
+                        onRunCommand?.(cmd.id);
+                        onClose();
+                    }
+                } else {
+                    if (filteredFiles[selectedIndex]) {
+                        onSelectFile(filteredFiles[selectedIndex].id);
+                        onClose();
+                    }
                 }
             } else if (e.key === "Escape") {
                 onClose();
@@ -48,7 +95,7 @@ export function CommandPalette({ isOpen, onClose, files, onSelectFile }: Command
 
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [isOpen, filteredFiles, selectedIndex, onSelectFile, onClose]);
+    }, [isOpen, filteredFiles, filteredCommands, selectedIndex, onSelectFile, onRunCommand, onClose, isCommandMode, totalItems]);
 
     if (!isOpen) return null;
 
@@ -64,37 +111,71 @@ export function CommandPalette({ isOpen, onClose, files, onSelectFile }: Command
                         autoFocus
                         value={query}
                         onChange={e => setQuery(e.target.value)}
-                        placeholder="Search files..."
+                        placeholder={isCommandMode ? "Type a command..." : "Search files... (type > for commands)"}
                         className="flex-1 bg-transparent text-lg text-white placeholder:text-muted-foreground focus:outline-none"
                     />
                     <div className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-muted-foreground">ESC</div>
                 </div>
 
                 <div className="max-h-[300px] overflow-y-auto py-2">
-                    {filteredFiles.length === 0 ? (
-                        <div className="px-4 py-8 text-center text-muted-foreground text-sm">
-                            No files found.
-                        </div>
-                    ) : (
-                        filteredFiles.map((file, i) => (
-                            <div
-                                key={file.id}
-                                onClick={() => {
-                                    onSelectFile(file.id);
-                                    onClose();
-                                }}
-                                className={cn(
-                                    "px-4 py-2 flex items-center gap-3 cursor-pointer text-sm",
-                                    i === selectedIndex ? "bg-primary/20 text-white" : "text-muted-foreground hover:bg-white/5"
-                                )}
-                            >
-                                <FileIcon className="w-4 h-4" />
-                                <span className="flex-1 truncate">{file.name}</span>
-                                {i === selectedIndex && (
-                                    <CornerDownLeft className="w-3.5 h-3.5 opacity-50" />
-                                )}
+                    {isCommandMode ? (
+                        /* Command list mode */
+                        filteredCommands.length === 0 ? (
+                            <div className="px-4 py-8 text-center text-muted-foreground text-sm">
+                                No commands found.
                             </div>
-                        ))
+                        ) : (
+                            filteredCommands.map((cmd, i) => (
+                                <div
+                                    key={cmd.id}
+                                    onClick={() => {
+                                        onRunCommand?.(cmd.id);
+                                        onClose();
+                                    }}
+                                    className={cn(
+                                        "px-4 py-2 flex items-center gap-3 cursor-pointer text-sm",
+                                        i === selectedIndex ? "bg-primary/20 text-white" : "text-muted-foreground hover:bg-white/5"
+                                    )}
+                                >
+                                    <span className="text-white/40">{cmd.icon}</span>
+                                    <span className="flex-1 truncate">{cmd.label}</span>
+                                    <span className="text-[10px] text-white/20">{cmd.category}</span>
+                                    {cmd.shortcut && (
+                                        <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-white/40 font-mono">{cmd.shortcut}</span>
+                                    )}
+                                    {i === selectedIndex && (
+                                        <CornerDownLeft className="w-3.5 h-3.5 opacity-50" />
+                                    )}
+                                </div>
+                            ))
+                        )
+                    ) : (
+                        /* File search mode */
+                        filteredFiles.length === 0 ? (
+                            <div className="px-4 py-8 text-center text-muted-foreground text-sm">
+                                No files found.
+                            </div>
+                        ) : (
+                            filteredFiles.map((file, i) => (
+                                <div
+                                    key={file.id}
+                                    onClick={() => {
+                                        onSelectFile(file.id);
+                                        onClose();
+                                    }}
+                                    className={cn(
+                                        "px-4 py-2 flex items-center gap-3 cursor-pointer text-sm",
+                                        i === selectedIndex ? "bg-primary/20 text-white" : "text-muted-foreground hover:bg-white/5"
+                                    )}
+                                >
+                                    <FileIcon className="w-4 h-4" />
+                                    <span className="flex-1 truncate">{file.name}</span>
+                                    {i === selectedIndex && (
+                                        <CornerDownLeft className="w-3.5 h-3.5 opacity-50" />
+                                    )}
+                                </div>
+                            ))
+                        )
                     )}
                 </div>
 
@@ -102,8 +183,15 @@ export function CommandPalette({ isOpen, onClose, files, onSelectFile }: Command
                     <div>
                         <span className="text-white">↑↓</span> to navigate
                     </div>
-                    <div>
-                        <span className="text-white">↵</span> to select
+                    <div className="flex gap-4">
+                        <div>
+                            <span className="text-white">↵</span> to select
+                        </div>
+                        {!isCommandMode && (
+                            <div>
+                                <span className="text-white">&gt;</span> for commands
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

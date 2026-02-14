@@ -12,6 +12,7 @@ interface SimpleEnhancedEditorProps {
     onSave?: () => void;
     onRun?: () => void;
     onCursorChange?: (line: number, column: number) => void;
+    onMonacoMount?: (monaco: Monaco) => void;
     readOnly?: boolean;
     theme?: "vs-dark" | "light" | "hc-black";
 }
@@ -32,6 +33,7 @@ const SimpleEnhancedEditorComponent = ({
     onSave,
     onRun,
     onCursorChange,
+    onMonacoMount,
     readOnly = false,
     theme = "vs-dark"
 }: SimpleEnhancedEditorProps, ref: React.Ref<SimpleEnhancedEditorRef>) => {
@@ -112,26 +114,44 @@ const SimpleEnhancedEditorComponent = ({
         editorRef.current = editor;
         monacoRef.current = monaco;
 
-        // Configure strict/loose validation
-        // Disable semantic validation (no "cannot find name 'React'")
-        monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-            noSemanticValidation: true,
-            noSyntaxValidation: false,
-        });
-        monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-            noSemanticValidation: true,
-            noSyntaxValidation: false,
-        });
+        // Notify parent so layout can use Monaco instance for type loading
+        onMonacoMount?.(monaco);
 
-        // Set compiler options for JSX support
-        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-            jsx: monaco.languages.typescript.JsxEmit.React,
+        // Configure strict/loose validation for ALL TypeScript variants
+        // Disable semantic validation — browser IDE has no node_modules, so all imports would error
+        const tsDefaults = monaco.languages.typescript.typescriptDefaults;
+        const jsDefaults = monaco.languages.typescript.javascriptDefaults;
+
+        // Suppress type-checking red underlines (no type definitions available in browser)
+        const diagnosticsOptions = {
+            noSemanticValidation: true,   // Suppresses "Cannot find module", "Cannot find name" etc.
+            noSyntaxValidation: false,    // Keep syntax validation — catches real typos
+            noSuggestionDiagnostics: true, // Suppresses suggestion-level warnings
+        };
+        tsDefaults.setDiagnosticsOptions(diagnosticsOptions);
+        jsDefaults.setDiagnosticsOptions(diagnosticsOptions);
+
+        // Set comprehensive compiler options for both TS and JS
+        const compilerOptions: any = {
+            jsx: monaco.languages.typescript.JsxEmit.ReactJSX,  // Modern JSX transform
             target: monaco.languages.typescript.ScriptTarget.ESNext,
             allowNonTsExtensions: true,
             moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
-            module: monaco.languages.typescript.ModuleKind.CommonJS,
+            module: monaco.languages.typescript.ModuleKind.ESNext,
             noEmit: true,
-        });
+            allowJs: true,
+            allowSyntheticDefaultImports: true,
+            esModuleInterop: true,
+            forceConsistentCasingInFileNames: false,
+            isolatedModules: true,
+            resolveJsonModule: true,
+            skipLibCheck: true,
+            strict: false,           // Don't enforce strict mode in browser IDE
+            noImplicitAny: false,    // Allow implicit any — no type defs available
+            baseUrl: ".",
+        };
+        tsDefaults.setCompilerOptions(compilerOptions);
+        jsDefaults.setCompilerOptions(compilerOptions);
 
         // Track cursor position and report to parent
         editor.onDidChangeCursorPosition((e: any) => {
@@ -196,7 +216,7 @@ const SimpleEnhancedEditorComponent = ({
             <div className="flex-1 relative">
                 <Editor
                     height="100%"
-                    defaultLanguage={language}
+                    language={language}
                     value={code}
                     theme="documint-dark"
                     onChange={onChange}

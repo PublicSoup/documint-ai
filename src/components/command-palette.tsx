@@ -33,6 +33,15 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 { icon: Terminal, label: "Toggle Terminal", action: () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: '`', ctrlKey: true })) } },
                 { icon: Sidebar, label: "Toggle Sidebar", action: () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', ctrlKey: true })) } },
             ]
+        },
+        {
+            category: "Editor",
+            items: [
+                { icon: Search, label: "Find & Replace", action: () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', ctrlKey: true })) } },
+                { icon: Settings, label: "Toggle Minimap", action: () => { window.dispatchEvent(new CustomEvent('ide-command', { detail: 'toggle-minimap' })) } },
+                { icon: File, label: "Toggle Word Wrap", action: () => { window.dispatchEvent(new CustomEvent('ide-command', { detail: 'toggle-wordwrap' })) } },
+                { icon: Settings, label: "Format Document", action: () => { window.dispatchEvent(new CustomEvent('ide-command', { detail: 'format-document' })) } },
+            ]
         }
     ];
 
