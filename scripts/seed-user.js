@@ -14,6 +14,7 @@ async function main() {
         create: {
             email,
             name: 'Admin User',
+            role: 'ADMIN',
             password,
         },
     });

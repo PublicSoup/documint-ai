@@ -21,6 +21,7 @@ export function DashboardHeader() {
         { name: "Analytics", href: "/dashboard/analytics" },
         { name: "Billing Hub", href: "/dashboard/billing" },
         { name: "Settings", href: "/dashboard/settings" },
+        { name: "Admin Panel", href: "/admin" },
     ];
 
     return (
