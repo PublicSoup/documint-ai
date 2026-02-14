@@ -112,6 +112,27 @@ const SimpleEnhancedEditorComponent = ({
         editorRef.current = editor;
         monacoRef.current = monaco;
 
+        // Configure strict/loose validation
+        // Disable semantic validation (no "cannot find name 'React'")
+        monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+            noSemanticValidation: true,
+            noSyntaxValidation: false,
+        });
+        monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+            noSemanticValidation: true,
+            noSyntaxValidation: false,
+        });
+
+        // Set compiler options for JSX support
+        monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+            jsx: monaco.languages.typescript.JsxEmit.React,
+            target: monaco.languages.typescript.ScriptTarget.ESNext,
+            allowNonTsExtensions: true,
+            moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+            module: monaco.languages.typescript.ModuleKind.CommonJS,
+            noEmit: true,
+        });
+
         // Track cursor position and report to parent
         editor.onDidChangeCursorPosition((e: any) => {
             onCursorChange?.(e.position.lineNumber, e.position.column);
@@ -132,11 +153,11 @@ const SimpleEnhancedEditorComponent = ({
                 { token: "operator", foreground: "89DDFF" },
             ],
             colors: {
-                "editor.background": "#0d0d11",
-                "editor.foreground": "#CBD5E1",
-                "editor.lineHighlightBackground": "#ffffff06",
-                "editor.selectionBackground": "#7C3AED30",
-                "editorCursor.foreground": "#7C3AED",
+                "editor.background": "#030014",
+                "editor.foreground": "#e2e8f0",
+                "editor.lineHighlightBackground": "#ffffff0a",
+                "editor.selectionBackground": "#8b5cf640",
+                "editorCursor.foreground": "#8b5cf6",
                 "editor.selectionHighlightBackground": "#7C3AED15",
                 "editorLineNumber.foreground": "#334155",
                 "editorLineNumber.activeForeground": "#7C3AED",
@@ -146,9 +167,9 @@ const SimpleEnhancedEditorComponent = ({
                 "editorBracketMatch.border": "#7C3AED50",
                 "editor.findMatchBackground": "#FFCB6B30",
                 "editor.findMatchHighlightBackground": "#FFCB6B15",
-                "editorWidget.background": "#0d0d11",
+                "editorWidget.background": "#030014",
                 "editorWidget.border": "#ffffff10",
-                "minimap.background": "#0a0a0e",
+                "minimap.background": "#020010",
             }
         });
 
@@ -161,10 +182,10 @@ const SimpleEnhancedEditorComponent = ({
     };
 
     return (
-        <div className="h-full w-full bg-[#0d0d11] overflow-hidden flex flex-col border-0 rounded-none shadow-none">
+        <div className="h-full w-full bg-[#030014] overflow-hidden flex flex-col border-0 rounded-none shadow-none">
             {/* Minimal file breadcrumb label */}
             {fileName && (
-                <div className="flex items-center gap-2 h-8 px-4 border-b border-white/[0.04] bg-[#0d0d11]/80 backdrop-blur-sm shrink-0">
+                <div className="flex items-center gap-2 h-8 px-4 border-b border-white/[0.04] bg-[#030014]/80 backdrop-blur-sm shrink-0">
                     <FileCode className="w-3.5 h-3.5 text-purple-400/40" />
                     <span className="text-[11px] text-white/40 font-medium tracking-tight">{fileName}</span>
                     <span className="text-[10px] text-white/15 ml-auto font-mono">{language}</span>

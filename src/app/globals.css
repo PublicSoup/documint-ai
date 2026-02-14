@@ -37,6 +37,13 @@
     --ring: 265 85% 65%;
 
     --radius: 0.75rem;
+
+    /* IDE Surfaces - Premium Indigo/Black */
+    --ide-bg: #030014;
+    --ide-bg-elevated: #04001a;
+    --ide-bg-recessed: #020010;
+    --ide-bg-surface: #06001f;
+    --ide-bg-overlay: #08002a;
   }
 }
 

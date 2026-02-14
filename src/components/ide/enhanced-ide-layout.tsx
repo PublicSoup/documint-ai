@@ -255,7 +255,18 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
                 // Process files
                 files.forEach(f => {
-                    fileMounts[f.name] = { file: { contents: f.content || "" } };
+                    // Sanitize: Skip files with invalid names (e.g. starting with comment slashes from AI hallucinations)
+                    if (!f.name || f.name.trim().startsWith('//') || f.name.trim().startsWith('#')) {
+                        console.warn("Skipping invalid file mount:", f.name);
+                        return;
+                    }
+
+                    // Simple validation for safe paths
+                    if (f.name.match(/^[a-zA-Z0-9@._\-\/]+$/)) {
+                        fileMounts[f.name] = { file: { contents: f.content || "" } };
+                    } else {
+                        console.warn("Skipping potentially unsafe filename:", f.name);
+                    }
                 });
 
                 // Add package.json if missing (for React/Next support)
@@ -431,10 +442,10 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     };
 
     return (
-        <div className="flex h-screen w-screen overflow-hidden bg-[#0d0d11] text-white fixed inset-0 z-[100] selection:bg-purple-500/30">
+        <div className="flex h-screen w-screen overflow-hidden bg-[#030014] text-white fixed inset-0 z-[100] selection:bg-purple-500/30">
             {/* Activity Bar */}
             {/* Activity Bar — Premium with gradient and glow */}
-            <div className="w-12 flex-none flex flex-col items-center py-3 gap-1 border-r border-white/[0.04] bg-gradient-to-b from-[#0a0a0f] via-[#0e0e14] to-[#0a0a0f] z-40 h-full overflow-hidden">
+            <div className="w-12 flex-none flex flex-col items-center py-3 gap-1 border-r border-white/[0.04] bg-gradient-to-b from-[#04001a] via-[#06001f] to-[#04001a] z-40 h-full overflow-hidden">
                 {/* Brand Mark */}
                 <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-600/20 to-violet-500/10 flex items-center justify-center mb-3 border border-purple-500/10">
                     <Sparkles className="w-4 h-4 text-purple-400/70" />
@@ -532,7 +543,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         className="md:hidden fixed inset-0 z-20 bg-black/50 backdrop-blur-sm"
                         onClick={() => setShowSidebar(false)}
                     />
-                    <div className="absolute md:relative w-56 md:w-64 flex-none flex flex-col border-r border-white/[0.04] bg-[#0d0d11] h-full overflow-hidden animate-in slide-in-from-left-1 duration-200 z-30 shadow-2xl md:shadow-none">
+                    <div className="absolute md:relative w-56 md:w-64 flex-none flex flex-col border-r border-white/[0.04] bg-[#030014] h-full overflow-hidden animate-in slide-in-from-left-1 duration-200 z-30 shadow-2xl md:shadow-none">
                         {activeSidebarTab === "explorer" && (
                             <EnhancedFileTree
                                 files={files}
@@ -595,7 +606,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
             )}
 
             {/* Main Area */}
-            <div className="flex-1 flex flex-col min-w-0 max-w-full bg-[#0d0d11] relative z-10 h-full overflow-hidden">
+            <div className="flex-1 flex flex-col min-w-0 max-w-full bg-[#030014] relative z-10 h-full overflow-hidden">
                 {/* Enterprise Header */}
                 <ContextualHeader
                     filePath={activeFile?.name || "No file selected"}
@@ -603,7 +614,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                 />
 
                 {/* Tabs & Toolbar */}
-                <div className="flex-none flex items-center justify-between h-10 bg-[#0d0d11] border-b border-white/[0.04] select-none overflow-hidden">
+                <div className="flex-none flex items-center justify-between h-10 bg-[#030014] border-b border-white/[0.04] select-none overflow-hidden">
                     <div className="flex items-center h-full overflow-x-auto custom-scrollbar">
                         {openFiles.map(fileId => {
                             // Use dynamic state to find file
@@ -618,7 +629,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                     onClick={() => setActiveFileId(fileId)}
                                     className={cn(
                                         "h-full px-3 flex items-center gap-2 text-xs border-r border-white/[0.04] cursor-pointer transition-all duration-200 min-w-[100px] max-w-[200px] group relative",
-                                        isActive ? "bg-[#0d0d11] text-white" : "bg-[#0a0a0e] text-white/40 hover:bg-[#0d0d11]/80 hover:text-white/60"
+                                        isActive ? "bg-[#030014] text-white" : "bg-[#020010] text-white/40 hover:bg-[#030014]/80 hover:text-white/60"
                                     )}
                                 >
                                     {isActive && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-purple-500 to-violet-400" />}
@@ -635,7 +646,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         })}
                     </div>
 
-                    <div className="flex items-center gap-1 px-2 h-full bg-[#0d0d11]">
+                    <div className="flex items-center gap-1 px-2 h-full bg-[#030014]">
                         <button onClick={(e) => {
                             e.stopPropagation();
                             if (clickTimeout) return;
@@ -813,21 +824,28 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         {/* Editor content area - no overlaying HUD */}
 
                         {activeFileId && activeFile ? (
-                            <SimpleEnhancedEditor
-                                ref={editorRef}
-                                code={fileContents[activeFileId] ?? ""}
-                                language={getLanguageFromFileName(activeFile.name)}
-                                fileName={activeFile.name}
-                                onChange={handleContentChange}
-                                onSave={handleSave}
-                                onRun={() => toast("Run functionality not implemented yet", "success")}
-                                onCursorChange={(line, col) => {
-                                    setCursorLine(line);
-                                    setCursorColumn(col);
-                                }}
-                            />
+                            fileContents[activeFileId] === undefined ? (
+                                <div className="h-full flex items-center justify-center bg-[#0d0d11]">
+                                    <Loader2 className="w-6 h-6 animate-spin text-purple-500/50" />
+                                </div>
+                            ) : (
+                                <SimpleEnhancedEditor
+                                    key={activeFileId} // Force remount on file change
+                                    ref={editorRef}
+                                    code={fileContents[activeFileId] ?? ""}
+                                    language={getLanguageFromFileName(activeFile.name)}
+                                    fileName={activeFile.name}
+                                    onChange={handleContentChange}
+                                    onSave={handleSave}
+                                    onRun={() => toast("Run functionality not implemented yet", "success")}
+                                    onCursorChange={(line, col) => {
+                                        setCursorLine(line);
+                                        setCursorColumn(col);
+                                    }}
+                                />
+                            )
                         ) : (
-                            <div className="h-full flex flex-col items-center justify-center space-y-6 bg-[#0a0a0e] relative overflow-hidden">
+                            <div className="h-full flex flex-col items-center justify-center space-y-6 bg-[#020010] relative overflow-hidden">
                                 {/* Animated background mesh */}
                                 <div className="absolute inset-0 opacity-[0.03]">
                                     <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500 rounded-full blur-[120px] animate-pulse" style={{ animationDuration: '4s' }} />
@@ -870,8 +888,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                     </div>
 
                     {showDocPreview && activeFile && (
-                        <div className="w-[40%] max-w-[800px] min-w-[350px] bg-[#0c0c0e] overflow-y-auto custom-scrollbar animate-in slide-in-from-right duration-500 border-l border-white/5 shadow-2xl z-20">
-                            <div className="p-3 border-b border-white/10 bg-[#161618] flex items-center justify-between sticky top-0 z-20 backdrop-blur-md">
+                        <div className="w-[40%] max-w-[800px] min-w-[350px] bg-[#020010] overflow-y-auto custom-scrollbar animate-in slide-in-from-right duration-500 border-l border-white/5 shadow-2xl z-20">
+                            <div className="p-3 border-b border-white/10 bg-[#08002a] flex items-center justify-between sticky top-0 z-20 backdrop-blur-md">
                                 <div className="flex items-center gap-3">
                                     <div className="w-6 h-6 rounded bg-blue-500/10 flex items-center justify-center">
                                         <FileText className="w-3.5 h-3.5 text-blue-400" />
@@ -899,8 +917,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                     )}
 
                     {showLocalTopology && activeFile && (
-                        <div className="w-[40%] max-w-[800px] min-w-[350px] bg-[#0c0c0e] overflow-hidden flex flex-col animate-in slide-in-from-right duration-500 border-l border-white/5 shadow-2xl z-20">
-                            <div className="p-3 border-b border-white/10 bg-[#161618] flex items-center justify-between sticky top-0 z-20 backdrop-blur-md">
+                        <div className="w-[40%] max-w-[800px] min-w-[350px] bg-[#020010] overflow-hidden flex flex-col animate-in slide-in-from-right duration-500 border-l border-white/5 shadow-2xl z-20">
+                            <div className="p-3 border-b border-white/10 bg-[#08002a] flex items-center justify-between sticky top-0 z-20 backdrop-blur-md">
                                 <div className="flex items-center gap-3">
                                     <div className="w-6 h-6 rounded bg-emerald-500/10 flex items-center justify-center">
                                         <LayoutIcon className="w-3.5 h-3.5 text-emerald-400" />
@@ -949,9 +967,9 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
                 {/* Terminal Panel (Enterprise) */}
                 {showTerminal && (
-                    <div className="flex-none h-32 border-t border-white/[0.06] bg-[#0a0a0e] flex flex-col shadow-[0_-4px_30px_rgba(0,0,0,0.5)] z-20">
+                    <div className="flex-none h-32 border-t border-white/[0.06] bg-[#020010] flex flex-col shadow-[0_-4px_30px_rgba(0,0,0,0.5)] z-20">
                         {/* Terminal Header */}
-                        <div className="flex-none h-8 flex items-center justify-between px-3 border-b border-white/[0.04] select-none bg-[#0d0d11]">
+                        <div className="flex-none h-8 flex items-center justify-between px-3 border-b border-white/[0.04] select-none bg-[#030014]">
                             <div className="flex items-center gap-4 h-full">
                                 <button className="h-full text-[11px] font-medium text-white/80 flex items-center gap-1.5 px-2 relative">
                                     <TerminalIcon className="w-3.5 h-3.5 text-purple-400/60" />
@@ -991,7 +1009,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         </div>
 
                         {/* Terminal Content */}
-                        <div className="flex-1 min-h-0 bg-[#070709] p-1 pl-3 overflow-hidden">
+                        <div className="flex-1 min-h-0 bg-[#020010] p-1 pl-3 overflow-hidden">
                             <Terminal
                                 onTerminalReady={async (term) => {
                                     setTerminalInstance(term);
@@ -1051,7 +1069,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
             {/* Right Sidebar (AI) */}
             {showAIChat && (
-                <div className="w-[300px] md:w-[350px] flex-none border-l border-white/[0.04] bg-[#0a0a0e] flex flex-col h-full min-h-0 overflow-hidden z-30 relative">
+                <div className="w-[300px] md:w-[350px] flex-none border-l border-white/[0.04] bg-[#020010] flex flex-col h-full min-h-0 overflow-hidden z-30 relative">
                     <AIChatPanel
                         activeFileId={activeFileId}
                         activeFileContent={activeFileId ? fileContents[activeFileId] : undefined}

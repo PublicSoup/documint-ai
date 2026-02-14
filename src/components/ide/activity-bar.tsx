@@ -11,7 +11,7 @@ interface ActivityBarProps {
 
 export function ActivityBar({ activeTab, showSidebar, onTabClick }: ActivityBarProps) {
     return (
-        <div className="w-12 flex-none flex flex-col items-center py-4 gap-4 border-r border-white/5 bg-[#18181b] z-40 h-full overflow-hidden">
+        <div className="w-12 flex-none flex flex-col items-center py-4 gap-4 border-r border-white/5 bg-[#04001a] z-40 h-full overflow-hidden">
             <button
                 onClick={() => onTabClick("explorer")}
                 className={cn(

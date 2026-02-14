@@ -34,7 +34,7 @@ export function IDEStatusBar({
     const isTokenLimitNear = tokenPercentage > 80;
 
     return (
-        <div className="h-7 flex-none bg-gradient-to-r from-[#0c0c10] via-[#12121a] to-[#0c0c10] flex items-center justify-between px-3 text-[11px] text-white/70 select-none border-t border-white/[0.06] z-50 backdrop-blur-md">
+        <div className="h-7 flex-none bg-gradient-to-r from-[#04001a] via-[#08002a] to-[#04001a] flex items-center justify-between px-3 text-[11px] text-white/70 select-none border-t border-white/[0.06] z-50 backdrop-blur-md">
             <div className="flex items-center gap-3 h-full">
                 {/* Save Status */}
                 <div className="flex items-center gap-1.5 min-w-[70px]">

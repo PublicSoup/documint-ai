@@ -348,10 +348,10 @@ function CodeBlockRenderer({
             {/* Code Content */}
             {isExpanded && (
                 <div className="relative overflow-hidden w-full">
-                    <pre className="bg-[#0d1117] p-3 text-[10px] md:text-xs overflow-x-auto custom-scrollbar max-h-[250px] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                    <pre className="bg-[#04001a] p-3 text-[10px] md:text-xs overflow-x-auto custom-scrollbar max-h-[250px] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
                         <code className="font-mono text-gray-300 whitespace-pre">{block.code}</code>
                     </pre>
-                    <div className="absolute left-0 top-0 bottom-0 w-4 bg-gradient-to-r from-[#0d1117] to-transparent pointer-events-none" />
+                    <div className="absolute left-0 top-0 bottom-0 w-4 bg-gradient-to-r from-[#04001a] to-transparent pointer-events-none" />
                 </div>
             )}
 

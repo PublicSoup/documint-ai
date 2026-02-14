@@ -16,7 +16,7 @@ interface SidebarProps {
 
 export function Sidebar({ activeTab, files, activeFileId, onFileSelect, onAction, onRefresh }: SidebarProps) {
     return (
-        <div className="w-56 md:w-64 flex-none flex flex-col border-r border-white/5 bg-[#1e1e1e] h-full overflow-hidden animate-in slide-in-from-left-1 duration-200 z-30">
+        <div className="w-56 md:w-64 flex-none flex flex-col border-r border-white/5 bg-[#030014] h-full overflow-hidden animate-in slide-in-from-left-1 duration-200 z-30">
             {activeTab === "explorer" && (
                 <EnhancedFileTree
                     files={files}

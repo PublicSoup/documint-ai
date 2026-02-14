@@ -19,7 +19,7 @@ export const Terminal = ({ onTerminalReady }: TerminalProps) => {
         const term = new XTerm({
             cursorBlink: true,
             theme: {
-                background: '#000000',
+                background: '#020010',
                 foreground: '#ffffff',
             },
             fontFamily: "'JetBrains Mono', 'Fira Code', monospace",

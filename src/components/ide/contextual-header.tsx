@@ -26,7 +26,7 @@ export function ContextualHeader({
     const folderPath = pathParts.join(' / ');
 
     return (
-        <div className="h-11 flex-none border-b border-white/[0.04] bg-gradient-to-r from-[#0d0d11]/90 via-[#111118]/90 to-[#0d0d11]/90 backdrop-blur-xl flex items-center justify-between px-4 z-40">
+        <div className="h-11 flex-none border-b border-white/[0.04] bg-gradient-to-r from-[#030014]/90 via-[#08002a]/90 to-[#030014]/90 backdrop-blur-xl flex items-center justify-between px-4 z-40">
             <div className="flex items-center gap-4 overflow-hidden">
                 {/* File Identity Breadcrumb */}
                 <div className="flex items-center gap-2 text-white/35">

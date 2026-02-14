@@ -312,7 +312,7 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
     }, [treeStructure, search]);
 
     return (
-        <div className="flex flex-col h-full bg-[#0d0d11] border-r border-white/[0.04] overflow-hidden">
+        <div className="flex flex-col h-full bg-[#030014] border-r border-white/[0.04] overflow-hidden">
             <div className="p-4 border-b border-white/[0.04] space-y-3 shrink-0">
                 <div className="flex items-center justify-between">
                     <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">Explorer</span>
@@ -433,7 +433,7 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
 
             {newItem && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-[#0d0d11] border border-white/[0.06] rounded-lg p-4 w-80 shadow-2xl">
+                    <div className="bg-[#030014] border border-white/[0.06] rounded-lg p-4 w-80 shadow-2xl">
                         <h3 className="text-sm font-medium mb-3">
                             Create New {newItem.type === "file" ? "File" : "Folder"}
                         </h3>

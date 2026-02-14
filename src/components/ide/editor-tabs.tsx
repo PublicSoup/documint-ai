@@ -28,7 +28,7 @@ export function EditorTabs({ openFiles, files, activeFileId, unsavedChanges, onF
                         onClick={() => onFileSelect(fileId)}
                         className={cn(
                             "h-full px-3 flex items-center gap-2 text-xs border-r border-white/5 cursor-pointer transition-colors min-w-[100px] max-w-[200px] group",
-                            isActive ? "bg-[#1e1e1e] text-white border-t-2 border-t-primary" : "bg-[#2d2d2d] text-muted-foreground hover:bg-[#252525] border-t-2 border-t-transparent"
+                            isActive ? "bg-[#030014] text-white border-t-2 border-t-primary" : "bg-[#020010] text-muted-foreground hover:bg-[#06001f] border-t-2 border-t-transparent"
                         )}
                     >
                         <span className="truncate">{file.name}</span>
