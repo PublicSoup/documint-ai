@@ -1,6 +1,7 @@
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { NextResponse } from "next/server";
+import { headers as nextHeaders } from "next/headers";
 import { env } from "./env";
 import { ApiErrors } from "./api-utils";
 
@@ -175,9 +176,8 @@ export function getClientIP(req?: Request): string {
     } else {
         try {
             // Try to use next/headers if called in a request context
-            const { headers } = require("next/headers");
-            headersList = headers();
-        } catch (e) {
+            headersList = nextHeaders();
+        } catch {
             // Not in a request context or headers() failed
             return "127.0.0.1";
         }
@@ -203,9 +203,8 @@ export function getUserAgent(req?: Request): string {
         headersList = req.headers as Headers;
     } else {
         try {
-            const { headers } = require("next/headers");
-            headersList = headers();
-        } catch (e) {
+            headersList = nextHeaders();
+        } catch {
             return "unknown";
         }
     }
