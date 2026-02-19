@@ -54,14 +54,7 @@ export function CommandPalette({ isOpen, onClose, files, onSelectFile, onRunComm
     }, [searchQuery, isCommandMode]);
 
     const totalItems = isCommandMode ? filteredCommands.length : filteredFiles.length;
-
-    // Reset selection when query changes
-    useEffect(() => setSelectedIndex(0), [query]);
-
-    // Reset query when palette opens
-    useEffect(() => {
-        if (isOpen) setQuery("");
-    }, [isOpen]);
+    const activeIndex = Math.min(selectedIndex, Math.max(0, totalItems - 1));
 
     // Keyboard navigation
     useEffect(() => {
@@ -70,21 +63,21 @@ export function CommandPalette({ isOpen, onClose, files, onSelectFile, onRunComm
 
             if (e.key === "ArrowDown") {
                 e.preventDefault();
-                setSelectedIndex(prev => Math.min(prev + 1, totalItems - 1));
+                setSelectedIndex(prev => Math.min(prev + 1, Math.max(0, totalItems - 1)));
             } else if (e.key === "ArrowUp") {
                 e.preventDefault();
                 setSelectedIndex(prev => Math.max(prev - 1, 0));
             } else if (e.key === "Enter") {
                 e.preventDefault();
                 if (isCommandMode) {
-                    const cmd = filteredCommands[selectedIndex];
+                    const cmd = filteredCommands[activeIndex];
                     if (cmd) {
                         onRunCommand?.(cmd.id);
                         onClose();
                     }
                 } else {
-                    if (filteredFiles[selectedIndex]) {
-                        onSelectFile(filteredFiles[selectedIndex].id);
+                    if (filteredFiles[activeIndex]) {
+                        onSelectFile(filteredFiles[activeIndex].id);
                         onClose();
                     }
                 }
@@ -95,7 +88,7 @@ export function CommandPalette({ isOpen, onClose, files, onSelectFile, onRunComm
 
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [isOpen, filteredFiles, filteredCommands, selectedIndex, onSelectFile, onRunCommand, onClose, isCommandMode, totalItems]);
+    }, [isOpen, filteredFiles, filteredCommands, activeIndex, onSelectFile, onRunCommand, onClose, isCommandMode, totalItems]);
 
     if (!isOpen) return null;
 
@@ -110,7 +103,10 @@ export function CommandPalette({ isOpen, onClose, files, onSelectFile, onRunComm
                     <input
                         autoFocus
                         value={query}
-                        onChange={e => setQuery(e.target.value)}
+                        onChange={e => {
+                            setQuery(e.target.value);
+                            setSelectedIndex(0);
+                        }}
                         placeholder={isCommandMode ? "Type a command..." : "Search files... (type > for commands)"}
                         className="flex-1 bg-transparent text-lg text-white placeholder:text-muted-foreground focus:outline-none"
                     />
@@ -134,7 +130,7 @@ export function CommandPalette({ isOpen, onClose, files, onSelectFile, onRunComm
                                     }}
                                     className={cn(
                                         "px-4 py-2 flex items-center gap-3 cursor-pointer text-sm",
-                                        i === selectedIndex ? "bg-primary/20 text-white" : "text-muted-foreground hover:bg-white/5"
+                                        i === activeIndex ? "bg-primary/20 text-white" : "text-muted-foreground hover:bg-white/5"
                                     )}
                                 >
                                     <span className="text-white/40">{cmd.icon}</span>
@@ -143,7 +139,7 @@ export function CommandPalette({ isOpen, onClose, files, onSelectFile, onRunComm
                                     {cmd.shortcut && (
                                         <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-white/40 font-mono">{cmd.shortcut}</span>
                                     )}
-                                    {i === selectedIndex && (
+                                    {i === activeIndex && (
                                         <CornerDownLeft className="w-3.5 h-3.5 opacity-50" />
                                     )}
                                 </div>
@@ -165,12 +161,12 @@ export function CommandPalette({ isOpen, onClose, files, onSelectFile, onRunComm
                                     }}
                                     className={cn(
                                         "px-4 py-2 flex items-center gap-3 cursor-pointer text-sm",
-                                        i === selectedIndex ? "bg-primary/20 text-white" : "text-muted-foreground hover:bg-white/5"
+                                        i === activeIndex ? "bg-primary/20 text-white" : "text-muted-foreground hover:bg-white/5"
                                     )}
                                 >
                                     <FileIcon className="w-4 h-4" />
                                     <span className="flex-1 truncate">{file.name}</span>
-                                    {i === selectedIndex && (
+                                    {i === activeIndex && (
                                         <CornerDownLeft className="w-3.5 h-3.5 opacity-50" />
                                     )}
                                 </div>

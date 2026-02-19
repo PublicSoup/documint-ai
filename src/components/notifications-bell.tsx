@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Bell, Check, Info, MessageSquare, UserPlus } from "lucide-react";
-import Link from "next/link";
+import { Bell, Info, MessageSquare, UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 interface Notification {
@@ -18,7 +17,6 @@ export default function NotificationsBell() {
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [unreadCount, setUnreadCount] = useState(0);
     const [isOpen, setIsOpen] = useState(false);
-    const [loading, setLoading] = useState(false);
     const router = useRouter();
 
     const fetchNotifications = async () => {
@@ -35,9 +33,9 @@ export default function NotificationsBell() {
     };
 
     useEffect(() => {
-        fetchNotifications();
-        // Poll every minute
-        const interval = setInterval(fetchNotifications, 60000);
+        const interval = setInterval(() => {
+            void fetchNotifications();
+        }, 60000);
         return () => clearInterval(interval);
     }, []);
 
@@ -48,8 +46,10 @@ export default function NotificationsBell() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ notificationIds: ids }),
             });
-            fetchNotifications();
-        } catch (e) { console.error(e); }
+            await fetchNotifications();
+        } catch (error) {
+            console.error(error);
+        }
     };
 
     const handleNotificationClick = async (n: Notification) => {
@@ -60,10 +60,18 @@ export default function NotificationsBell() {
         if (n.link) router.push(n.link);
     };
 
+    const toggleOpen = () => {
+        const nextOpen = !isOpen;
+        setIsOpen(nextOpen);
+        if (nextOpen) {
+            void fetchNotifications();
+        }
+    };
+
     return (
         <div className="relative">
             <button
-                onClick={() => setIsOpen(!isOpen)}
+                onClick={toggleOpen}
                 className="relative p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors"
                 title="Notifications"
             >
@@ -84,7 +92,9 @@ export default function NotificationsBell() {
                             <h3 className="font-semibold text-zinc-100 text-sm">Notifications</h3>
                             {unreadCount > 0 && (
                                 <button
-                                    onClick={() => markRead("all")}
+                                    onClick={() => {
+                                        void markRead("all");
+                                    }}
                                     className="text-xs text-blue-600 hover:text-blue-700 font-medium"
                                 >
                                     Mark all read
@@ -101,7 +111,9 @@ export default function NotificationsBell() {
                                     {notifications.map(n => (
                                         <div
                                             key={n.id}
-                                            onClick={() => handleNotificationClick(n)}
+                                            onClick={() => {
+                                                void handleNotificationClick(n);
+                                            }}
                                             className={`p-4 border-b last:border-0 cursor-pointer hover:bg-gray-50 transition-colors flex gap-3 ${!n.read ? 'bg-blue-50/50' : ''}`}
                                         >
                                             <div className={`mt-1 flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${n.type === 'MENTION' ? 'bg-purple-100 text-purple-600' :
