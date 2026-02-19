@@ -1,30 +1,24 @@
-
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { hash } from "bcryptjs";
+import { validateAdmin } from "@/lib/admin-auth";
 
 // UPDATE USER
 export async function PUT(
     req: Request,
-    { params }: { params: Promise<{ id: string }> } // Fix for Next.js 15+ param handling
+    { params }: { params: Promise<{ id: string }> }
 ) {
+    const adminCheck = await validateAdmin();
+    if (!adminCheck.authorized) return adminCheck.response;
+
     try {
-        const session = await getServerSession(authOptions);
-        const adminEmail = process.env.ADMIN_EMAIL || "admin@documintai.dev";
-        const isEnvAdmin = session?.user?.email === adminEmail;
-        const isDbAdmin = session?.user?.role === "ADMIN";
-
-        if (!session || (!isEnvAdmin && !isDbAdmin)) {
-            return new NextResponse("Unauthorized", { status: 401 });
-        }
-
         const { id } = await params;
         const body = await req.json();
         const { name, email, password } = body;
 
-        const dataToUpdate: any = { name, email };
+        const dataToUpdate: any = {};
+        if (name) dataToUpdate.name = name;
+        if (email) dataToUpdate.email = email;
         if (password) {
             dataToUpdate.password = await hash(password, 12);
         }
@@ -34,42 +28,63 @@ export async function PUT(
             data: dataToUpdate
         });
 
+        // Audit Logging
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: adminCheck.session?.user?.id,
+                action: "ADMIN_UPDATE_USER_DETAILS",
+                entity: "User",
+                entityId: id,
+                details: { 
+                    updatedFields: Object.keys(dataToUpdate).filter(f => f !== 'password'),
+                    passwordChanged: !!password
+                }
+            });
+        } catch (e) {}
+
         return NextResponse.json(updatedUser);
     } catch (error) {
         console.error("Admin User UPDATE Error:", error);
-        return new NextResponse("Internal Error", { status: 500 });
+        return NextResponse.json({ error: "Internal Error" }, { status: 500 });
     }
 }
 
 // DELETE USER
 export async function DELETE(
     req: Request,
-    { params }: { params: Promise<{ id: string }> } // Fix for Next.js 15+ param handling
+    { params }: { params: Promise<{ id: string }> }
 ) {
+    const adminCheck = await validateAdmin();
+    if (!adminCheck.authorized) return adminCheck.response;
+
     try {
-        const session = await getServerSession(authOptions);
-        const adminEmail = process.env.ADMIN_EMAIL || "admin@documintai.dev";
-        const isEnvAdmin = session?.user?.email === adminEmail;
-        const isDbAdmin = session?.user?.role === "ADMIN";
-
-        if (!session || (!isEnvAdmin && !isDbAdmin)) {
-            return new NextResponse("Unauthorized", { status: 401 });
-        }
-
         const { id } = await params;
 
         // Prevent deleting self
-        if (session.user.id === id) {
-            return new NextResponse("Cannot delete yourself", { status: 400 });
+        if (adminCheck.session?.user?.id === id) {
+            return NextResponse.json({ error: "Cannot delete yourself" }, { status: 400 });
         }
 
         await db.user.delete({
             where: { id }
         });
 
-        return new NextResponse("User Deleted", { status: 200 });
+        // Audit Logging
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: adminCheck.session?.user?.id,
+                action: "ADMIN_DELETE_USER",
+                entity: "User",
+                entityId: id,
+                details: { targetUserId: id }
+            });
+        } catch (e) {}
+
+        return NextResponse.json({ message: "User Deleted" });
     } catch (error) {
         console.error("Admin User DELETE Error:", error);
-        return new NextResponse("Internal Error", { status: 500 });
+        return NextResponse.json({ error: "Internal Error" }, { status: 500 });
     }
 }

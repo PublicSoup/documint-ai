@@ -1,22 +1,17 @@
-
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { hash } from 'bcryptjs';
 import { randomBytes } from 'crypto';
+import { validateAdmin } from "@/lib/admin-auth";
 
 export async function POST(
     request: Request,
     context: { params: Promise<{ id: string }> }
 ) {
+    const adminCheck = await validateAdmin();
+    if (!adminCheck.authorized) return adminCheck.response;
+
     try {
-        const session = await getServerSession(authOptions);
-
-        if (!session || session.user?.email !== 'admin@documintai.dev') {
-            return new NextResponse('Unauthorized', { status: 401 });
-        }
-
         const { id: userId } = await context.params;
 
         // Generate a random 12-character password
@@ -31,19 +26,22 @@ export async function POST(
         });
 
         // Log the action
-        await db.auditLog.create({
-            data: {
-                action: 'PASSWORD_RESET',
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                action: 'ADMIN_RESET_PASSWORD',
                 entityId: userId,
                 entity: 'User',
-                userId: session.user.id,
+                userId: adminCheck.session?.user?.id,
                 details: { targetUser: userId },
-            },
-        });
+            });
+        } catch (e) {
+            console.error("Failed to log audit for admin password reset", e);
+        }
 
         return NextResponse.json({ password: cleanPassword });
     } catch (error) {
         console.error('Password reset error:', error);
-        return new NextResponse('Internal Error', { status: 500 });
+        return NextResponse.json({ error: 'Internal Error' }, { status: 500 });
     }
 }

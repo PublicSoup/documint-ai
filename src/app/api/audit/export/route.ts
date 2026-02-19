@@ -1,11 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { requireFeature } from "@/lib/feature-gate";
+import { validateAdmin } from "@/lib/admin-auth";
 
 // GET: Export audit logs as CSV or JSON
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
@@ -16,16 +17,24 @@ export async function GET(req: Request) {
         const gate = await requireFeature("auditLog");
         if (gate) return gate;
 
+        const adminCheck = await validateAdmin();
+        const isAdmin = adminCheck.authorized;
+
         const { searchParams } = new URL(req.url);
         const format = searchParams.get("format") || "json"; // json, csv
         const startDate = searchParams.get("start");
         const endDate = searchParams.get("end");
-        const action = searchParams.get("action"); // CREATE, UPDATE, DELETE, etc.
+        const action = searchParams.get("action");
+        const targetUserId = searchParams.get("userId");
 
-        // Build query filters
-        const where: any = {
-            userId: session.user.id
-        };
+        // Build query filters with strict ownership enforcement
+        const where: any = {};
+        
+        if (!isAdmin) {
+            where.userId = session.user.id;
+        } else if (targetUserId) {
+            where.userId = targetUserId;
+        }
 
         if (startDate) {
             where.createdAt = { ...where.createdAt, gte: new Date(startDate) };
@@ -40,12 +49,12 @@ export async function GET(req: Request) {
         const logs = await db.auditLog.findMany({
             where,
             orderBy: { createdAt: 'desc' },
-            take: 1000 // Limit for performance
+            take: 5000 // Performance ceiling for synchronous export
         });
 
         if (format === "csv") {
             // Generate CSV
-            const headers = ["ID", "Action", "Entity", "EntityID", "Details", "IP", "Timestamp"];
+            const headers = ["ID", "Action", "Entity", "EntityID", "Details", "IP", "User", "Timestamp"];
             const rows = logs.map(log => [
                 log.id,
                 log.action,
@@ -53,6 +62,7 @@ export async function GET(req: Request) {
                 log.entityId,
                 JSON.stringify(log.details || {}),
                 log.ip || "",
+                log.userId || "SYSTEM",
                 log.createdAt.toISOString()
             ]);
 
@@ -64,7 +74,7 @@ export async function GET(req: Request) {
             return new NextResponse(csv, {
                 headers: {
                     "Content-Type": "text/csv",
-                    "Content-Disposition": `attachment; filename="audit-log-${new Date().toISOString().split('T')[0]}.csv"`
+                    "Content-Disposition": `attachment; filename="audit-export-${new Date().toISOString().split('T')[0]}.csv"`
                 }
             });
         }
@@ -75,12 +85,12 @@ export async function GET(req: Request) {
             meta: {
                 total: logs.length,
                 exportedAt: new Date().toISOString(),
-                filters: { startDate, endDate, action }
+                filters: { startDate, endDate, action, targetUserId }
             }
         });
 
     } catch (error) {
-        console.error("Audit Export Error:", error);
+        console.error("[AuditExport_Admin_API] Error:", error);
         return NextResponse.json({ error: "Export failed" }, { status: 500 });
     }
 }

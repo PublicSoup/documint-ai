@@ -1,25 +1,10 @@
-
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { validateAdmin } from "@/lib/admin-auth";
 
 export async function GET(req: NextRequest) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.email) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    // Admin Check
-    const isEnvAdmin = process.env.ADMIN_EMAIL === session.user.email;
-    const userFn = await db.user.findUnique({
-        where: { email: session.user.email },
-        select: { role: true }
-    });
-
-    if (!isEnvAdmin && userFn?.role !== "ADMIN") {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const adminCheck = await validateAdmin();
+    if (!adminCheck.authorized) return adminCheck.response;
 
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get("page") || "1");
@@ -77,20 +62,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.email) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const isEnvAdmin = process.env.ADMIN_EMAIL === session.user.email;
-    const admin = await db.user.findUnique({
-        where: { email: session.user.email },
-        select: { role: true }
-    });
-
-    if (!isEnvAdmin && admin?.role !== "ADMIN") {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const adminCheck = await validateAdmin();
+    if (!adminCheck.authorized) return adminCheck.response;
 
     try {
         const { userId, role } = await req.json();
@@ -105,6 +78,18 @@ export async function PATCH(req: NextRequest) {
             data: updateData,
             select: { id: true, email: true, role: true }
         });
+
+        // Audit Logging
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: adminCheck.session?.user?.id,
+                action: "ADMIN_UPDATE_USER_ROLE",
+                entity: "User",
+                entityId: userId,
+                details: { newRole: role }
+            });
+        } catch (e) {}
 
         return NextResponse.json({ user: updatedUser });
 
