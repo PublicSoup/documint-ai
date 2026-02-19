@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { requireFeature } from "@/lib/feature-gate";
@@ -28,7 +29,7 @@ export async function GET(req: NextRequest) {
         const targetUserId = searchParams.get("userId");
 
         // Build query filters with strict ownership enforcement
-        const where: any = {};
+        const where: Prisma.AuditLogWhereInput = {};
         
         if (!isAdmin) {
             where.userId = session.user.id;

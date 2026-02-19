@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { validateAdmin } from "@/lib/admin-auth";
 
@@ -12,7 +13,7 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get("search") || "";
 
     try {
-        const where: any = {};
+        const where: Prisma.UserWhereInput = {};
         if (search) {
             where.OR = [
                 { name: { contains: search, mode: "insensitive" } },
@@ -70,7 +71,7 @@ export async function PATCH(req: NextRequest) {
 
         if (!userId) return NextResponse.json({ error: "User ID required" }, { status: 400 });
 
-        const updateData: any = {};
+        const updateData: Prisma.UserUpdateInput = {};
         if (role) updateData.role = role;
 
         const updatedUser = await db.user.update({
@@ -89,7 +90,7 @@ export async function PATCH(req: NextRequest) {
                 entityId: userId,
                 details: { newRole: role }
             });
-        } catch (e) {}
+        } catch {}
 
         return NextResponse.json({ user: updatedUser });
 

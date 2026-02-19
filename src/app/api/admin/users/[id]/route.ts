@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { hash } from "bcryptjs";
 import { validateAdmin } from "@/lib/admin-auth";
@@ -16,7 +17,7 @@ export async function PUT(
         const body = await req.json();
         const { name, email, password } = body;
 
-        const dataToUpdate: any = {};
+        const dataToUpdate: Prisma.UserUpdateInput = {};
         if (name) dataToUpdate.name = name;
         if (email) dataToUpdate.email = email;
         if (password) {
@@ -41,7 +42,7 @@ export async function PUT(
                     passwordChanged: !!password
                 }
             });
-        } catch (e) {}
+        } catch {}
 
         return NextResponse.json(updatedUser);
     } catch (error) {
@@ -80,7 +81,7 @@ export async function DELETE(
                 entityId: id,
                 details: { targetUserId: id }
             });
-        } catch (e) {}
+        } catch {}
 
         return NextResponse.json({ message: "User Deleted" });
     } catch (error) {

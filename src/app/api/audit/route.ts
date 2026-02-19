@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { requireFeature } from "@/lib/feature-gate";
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest) {
         const isAdmin = adminCheck.authorized;
 
         // 4. Build access-controlled query
-        const where: any = {};
+        const where: Prisma.AuditLogWhereInput = {};
 
         if (!isAdmin) {
             // Non-admins can strictly only see their own logs
@@ -95,7 +96,7 @@ export async function POST(request: NextRequest) {
         const { format = "csv", startDate, endDate, userId: targetUserId } = body;
 
         // Build where clause
-        const where: any = {};
+        const where: Prisma.AuditLogWhereInput = {};
         if (!isAdmin) {
             where.userId = session.user.id;
         } else if (targetUserId) {
