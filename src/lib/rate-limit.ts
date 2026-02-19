@@ -35,6 +35,13 @@ const limiters = {
         prefix: "rl:pro"
     }) : null,
 
+    // High security: 5 attempts per hour (for specific users/emails)
+    security: redis ? new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(5, "1 h"),
+        prefix: "rl:sec"
+    }) : null,
+
     // General API: 300 requests per minute
     api: redis ? new Ratelimit({
         redis,
@@ -50,19 +57,74 @@ const limiters = {
     }) : null
 };
 
+type RateLimitTier = "auth" | "free" | "pro" | "api" | "upload" | "security";
+
+const fallbackLimits: Record<RateLimitTier, { requests: number; windowMs: number }> = {
+    auth: { requests: 5, windowMs: 15 * 60 * 1000 },
+    free: { requests: 100, windowMs: 60 * 1000 },
+    pro: { requests: 500, windowMs: 60 * 1000 },
+    security: { requests: 5, windowMs: 60 * 60 * 1000 },
+    api: { requests: 300, windowMs: 60 * 1000 },
+    upload: { requests: 10, windowMs: 60 * 1000 }
+};
+
+const memoryFallbackStore = new Map<string, { count: number; windowStart: number }>();
+
+function fallbackRateLimit(identifier: string, tier: RateLimitTier): { success: boolean; remaining: number; reset: number } {
+    const now = Date.now();
+    const { requests, windowMs } = fallbackLimits[tier];
+    const key = `${tier}:${identifier}`;
+
+    const current = memoryFallbackStore.get(key);
+    const withinWindow = current && now - current.windowStart < windowMs;
+
+    if (!withinWindow) {
+        memoryFallbackStore.set(key, { count: 1, windowStart: now });
+        return {
+            success: true,
+            remaining: requests - 1,
+            reset: Math.ceil((now + windowMs) / 1000)
+        };
+    }
+
+    const nextCount = current.count + 1;
+    current.count = nextCount;
+
+    // Opportunistic cleanup to prevent unbounded growth
+    if (memoryFallbackStore.size > 10_000) {
+        for (const [storeKey, value] of memoryFallbackStore.entries()) {
+            const [storedTier] = storeKey.split(":") as [RateLimitTier, string];
+            const ttlMs = fallbackLimits[storedTier]?.windowMs ?? 60 * 1000;
+            if (now - value.windowStart >= ttlMs) {
+                memoryFallbackStore.delete(storeKey);
+            }
+        }
+    }
+
+    return {
+        success: nextCount <= requests,
+        remaining: Math.max(requests - nextCount, 0),
+        reset: Math.ceil((current.windowStart + windowMs) / 1000)
+    };
+}
+
 export async function rateLimit(
     identifier: string,
-    tier: "auth" | "free" | "pro" | "api" | "upload" = "api"
+    tier: RateLimitTier = "api"
 ): Promise<{ success: boolean; remaining: number; reset: number } | null> {
-    // Development mode or no Redis - bypass limits
-    if (env.NODE_ENV === "development" || !redis) {
+    if (env.NODE_ENV === "development") {
         console.log(`[RateLimit] Dev mode - bypassing ${tier} limit for ${identifier}`);
         return { success: true, remaining: 9999, reset: 0 };
     }
 
+    if (!redis) {
+        console.warn(`[RateLimit] Redis unavailable in ${env.NODE_ENV}; using in-memory fallback for ${tier}`);
+        return fallbackRateLimit(identifier, tier);
+    }
+
     const limiter = limiters[tier];
     if (!limiter) {
-        return { success: true, remaining: 9999, reset: 0 };
+        return fallbackRateLimit(identifier, tier);
     }
 
     const result = await limiter.limit(identifier);
@@ -78,7 +140,7 @@ export async function rateLimit(
  */
 export async function enforceRateLimit(
     identifier: string,
-    tier: "auth" | "free" | "pro" | "api" | "upload" = "api"
+    tier: RateLimitTier = "api"
 ): Promise<void> {
     const result = await rateLimit(identifier, tier);
 
@@ -105,16 +167,50 @@ export function rateLimitResponse(remaining: number, reset: number) {
 }
 
 // Helpers for API routes
-export function getClientIP(req: Request): string {
-    const xForwardedFor = req.headers.get("x-forwarded-for");
-    const xRealIp = req.headers.get("x-real-ip");
-    const cfConnectingIp = req.headers.get("cf-connecting-ip"); // Cloudflare
+export function getClientIP(req?: Request): string {
+    let headersList: Headers | undefined;
+
+    if (req) {
+        headersList = req.headers as Headers;
+    } else {
+        try {
+            // Try to use next/headers if called in a request context
+            const { headers } = require("next/headers");
+            headersList = headers();
+        } catch (e) {
+            // Not in a request context or headers() failed
+            return "127.0.0.1";
+        }
+    }
+
+    if (!headersList) return "127.0.0.1";
+
+    const xForwardedFor = headersList.get("x-forwarded-for");
+    const xRealIp = headersList.get("x-real-ip");
+    const cfConnectingIp = headersList.get("cf-connecting-ip"); // Cloudflare
 
     if (cfConnectingIp) return cfConnectingIp;
     if (xRealIp) return xRealIp;
     if (xForwardedFor) return xForwardedFor.split(",")[0].trim();
 
     return "127.0.0.1";
+}
+
+export function getUserAgent(req?: Request): string {
+    let headersList: Headers | undefined;
+
+    if (req) {
+        headersList = req.headers as Headers;
+    } else {
+        try {
+            const { headers } = require("next/headers");
+            headersList = headers();
+        } catch (e) {
+            return "unknown";
+        }
+    }
+
+    return headersList?.get("user-agent") || "unknown";
 }
 
 export async function validateApiKey(apiKey: string): Promise<string | null> {
