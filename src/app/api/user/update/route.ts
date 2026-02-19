@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { hash, compare } from "bcryptjs";
+
+const userUpdateSchema = z.object({
+    name: z.string().trim().min(1).max(100).optional(),
+    currentPassword: z.string().min(1).max(256).optional(),
+    newPassword: z.string().min(8).max(256).optional(),
+    settings: z.record(z.string(), z.unknown()).optional(),
+}).strict();
 
 export async function PATCH(request: NextRequest) {
     const session = await getServerSession(authOptions);
@@ -11,10 +19,18 @@ export async function PATCH(request: NextRequest) {
     }
 
     try {
-        const body = await request.json();
-        const { name, currentPassword, newPassword, settings } = body;
+        const parsed = userUpdateSchema.safeParse(await request.json());
+        if (!parsed.success) {
+            return NextResponse.json({ error: "Invalid request payload" }, { status: 400 });
+        }
 
-        const updateData: any = {};
+        const { name, currentPassword, newPassword, settings } = parsed.data;
+
+        const updateData: {
+            name?: string;
+            settings?: Record<string, unknown>;
+            password?: string;
+        } = {};
 
         // Update display name
         if (name !== undefined) {
@@ -55,13 +71,6 @@ export async function PATCH(request: NextRequest) {
                 );
             }
 
-            if (newPassword.length < 8) {
-                return NextResponse.json(
-                    { error: "New password must be at least 8 characters" },
-                    { status: 400 }
-                );
-            }
-
             updateData.password = await hash(newPassword, 12);
         }
 
@@ -74,6 +83,29 @@ export async function PATCH(request: NextRequest) {
             data: updateData,
             select: { id: true, name: true, email: true },
         });
+
+        // Audit Logging
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            if (updateData.password) {
+                await logAudit({
+                    userId: session.user.id,
+                    action: "CHANGE_PASSWORD",
+                    entity: "User",
+                    entityId: session.user.id,
+                    details: { method: "profile-update" }
+                });
+            }
+            if (name !== undefined) {
+                await logAudit({
+                    userId: session.user.id,
+                    action: "UPDATE_PROFILE",
+                    entity: "User",
+                    entityId: session.user.id,
+                    details: { field: "name" }
+                });
+            }
+        } catch {}
 
         return NextResponse.json({ success: true, user: updatedUser });
     } catch (error) {
