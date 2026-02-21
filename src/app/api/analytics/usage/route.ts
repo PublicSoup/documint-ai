@@ -2,8 +2,19 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { hasFeatureAccess } from "@/lib/subscription";
+import { requireFeature } from "@/lib/feature-gate";
+import { z } from "zod";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse, validateQuery } from "@/lib/api-utils";
 
+const querySchema = z.object({
+    period: z.enum(["7d", "30d", "90d"]).default("7d"),
+});
+
+/**
+ * GET /api/analytics/usage
+ * Returns daily API usage stats for the current user.
+ */
 export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
@@ -12,27 +23,20 @@ export async function GET(req: Request) {
         }
 
         // Check feature access
-        const hasAccess = await hasFeatureAccess(session.user.id, "analytics");
-        if (!hasAccess) {
-            return NextResponse.json({ error: "Pro required" }, { status: 403 });
-        }
+        const gateError = await requireFeature("analytics");
+        if (gateError) return gateError;
+
+        // Rate limiting
+        await enforceRateLimit(session.user.id, "api");
 
         const { searchParams } = new URL(req.url);
-        const period = searchParams.get("period") || "7d"; // 7d, 30d, 90d
+        const { period } = validateQuery(searchParams, querySchema);
 
         // Calculate date range
         const endDate = new Date();
         const startDate = new Date();
-        switch (period) {
-            case "30d":
-                startDate.setDate(startDate.getDate() - 30);
-                break;
-            case "90d":
-                startDate.setDate(startDate.getDate() - 90);
-                break;
-            default:
-                startDate.setDate(startDate.getDate() - 7);
-        }
+        const days = period === "30d" ? 30 : period === "90d" ? 90 : 7;
+        startDate.setDate(startDate.getDate() - days);
 
         // Get audit logs grouped by day for API usage
         const logs = await db.auditLog.findMany({
@@ -100,7 +104,6 @@ export async function GET(req: Request) {
         });
 
     } catch (error) {
-        console.error("API Usage Error:", error);
-        return NextResponse.json({ error: "Failed to fetch usage data" }, { status: 500 });
+        return errorResponse(error);
     }
 }
