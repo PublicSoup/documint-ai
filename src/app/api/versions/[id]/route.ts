@@ -1,109 +1,152 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { checkFilePermission } from "@/lib/permissions";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
-// POST: Rollback to a specific version
+const paramsSchema = z.object({
+    id: z.string().min(1),
+}).strict();
+
+// POST: rollback to a specific version
 export async function POST(
-    req: Request,
+    _req: NextRequest,
     props: { params: Promise<{ id: string }> }
 ) {
-    const params = await props.params;
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const versionId = params.id;
+        await enforceRateLimit(session.user.id, "api");
 
-        // Get the version
+        const parsedParams = paramsSchema.safeParse(await props.params);
+        if (!parsedParams.success) {
+            return NextResponse.json({ error: "Invalid version id" }, { status: 400 });
+        }
+
+        const { id: versionId } = parsedParams.data;
+
         const version = await db.docVersion.findUnique({
             where: { id: versionId },
             include: {
                 documentation: {
-                    include: { file: true }
-                }
-            }
+                    include: { file: true },
+                },
+            },
         });
 
         if (!version) {
             return NextResponse.json({ error: "Version not found" }, { status: 404 });
         }
 
-        // Verify access
-        if (version.documentation.file.userId !== session.user.id) {
+        const canEdit = await checkFilePermission(session.user.id, version.documentation.fileId, "edit");
+        if (!canEdit) {
             return NextResponse.json({ error: "Access denied" }, { status: 403 });
         }
 
-        // Save current state as a new version before rollback
-        const latestVersion = await db.docVersion.findFirst({
-            where: { documentationId: version.documentationId },
-            orderBy: { version: 'desc' }
+        await db.$transaction(async (tx) => {
+            const latestVersion = await tx.docVersion.findFirst({
+                where: { documentationId: version.documentationId },
+                orderBy: { version: "desc" },
+            });
+
+            await tx.docVersion.create({
+                data: {
+                    documentationId: version.documentationId,
+                    content: version.documentation.content,
+                    version: (latestVersion?.version || 0) + 1,
+                    message: `Auto-saved before rollback to v${version.version}`,
+                    createdById: session.user.id,
+                },
+            });
+
+            await tx.documentation.update({
+                where: { id: version.documentationId },
+                data: {
+                    content: version.content,
+                    status: "DRAFT",
+                    verifiedAt: null,
+                    verifiedById: null,
+                },
+            });
         });
 
-        await db.docVersion.create({
-            data: {
-                documentationId: version.documentationId,
-                content: version.documentation.content,
-                version: (latestVersion?.version || 0) + 1,
-                message: `Auto-saved before rollback to v${version.version}`,
-                createdById: session.user.id
-            }
-        });
-
-        // Rollback: Update documentation with version content
-        await db.documentation.update({
-            where: { id: version.documentationId },
-            data: {
-                content: version.content,
-                status: "DRAFT" // Reset to draft after rollback
-            }
-        });
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                action: "ROLLBACK",
+                entity: "Documentation",
+                entityId: version.documentationId,
+                userId: session.user.id,
+                details: {
+                    versionId,
+                    versionNumber: version.version,
+                    fileName: version.documentation.file.name,
+                },
+            });
+        } catch {
+            // Non-blocking
+        }
 
         return NextResponse.json({
             success: true,
             message: `Rolled back to version ${version.version}`,
-            rolledBackVersion: version.version
+            rolledBackVersion: version.version,
         });
-
     } catch (error) {
-        console.error("Rollback Error:", error);
+        console.error("Rollback error:", error);
         return NextResponse.json({ error: "Rollback failed" }, { status: 500 });
     }
 }
 
-// GET: Get specific version content
+// GET: fetch one version with permissions
 export async function GET(
-    req: Request,
+    _req: NextRequest,
     props: { params: Promise<{ id: string }> }
 ) {
-    const params = await props.params;
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
+        await enforceRateLimit(session.user.id, "api");
+
+        const parsedParams = paramsSchema.safeParse(await props.params);
+        if (!parsedParams.success) {
+            return NextResponse.json({ error: "Invalid version id" }, { status: 400 });
+        }
+
+        const { id } = parsedParams.data;
+
         const version = await db.docVersion.findUnique({
-            where: { id: params.id },
+            where: { id },
             include: {
                 documentation: {
-                    include: { file: { select: { userId: true, name: true } } }
-                }
-            }
+                    include: { file: true },
+                },
+            },
         });
 
-        if (!version || version.documentation.file.userId !== session.user.id) {
+        if (!version) {
             return NextResponse.json({ error: "Version not found" }, { status: 404 });
+        }
+
+        const canView = await checkFilePermission(session.user.id, version.documentation.fileId, "view");
+        if (!canView) {
+            return NextResponse.json({ error: "Access denied" }, { status: 403 });
         }
 
         return NextResponse.json({
             version,
-            fileName: version.documentation.file.name
+            fileName: version.documentation.file.name,
         });
-
     } catch (error) {
+        console.error("Version fetch error:", error);
         return NextResponse.json({ error: "Failed to fetch version" }, { status: 500 });
     }
 }
