@@ -4,26 +4,28 @@ import { authOptions } from "@/lib/auth";
 import { getUserSubscription } from "@/lib/subscription";
 import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
 
+/**
+ * GET /api/user/subscription
+ * Returns the current subscription plan for the authenticated user.
+ */
 export async function GET(req: NextRequest) {
-    const session = await getServerSession(authOptions);
+    try {
+        const session = await getServerSession(authOptions);
 
-    if (!session?.user?.id) {
-        try {
+        if (!session?.user?.id) {
+            // Rate limit unauthenticated checks by IP to prevent abuse
             const ip = await getClientIP(req);
             await enforceRateLimit(ip, "api");
-        } catch {
-            // Keep unauthenticated plan check resilient.
+
+            return NextResponse.json({
+                plan: "free",
+                isPro: false,
+                isTeam: false,
+                isActive: false,
+            });
         }
 
-        return NextResponse.json({
-            plan: "free",
-            isPro: false,
-            isTeam: false,
-            isActive: false,
-        });
-    }
-
-    try {
+        // Rate limit authenticated checks by User ID
         await enforceRateLimit(session.user.id, "api");
 
         const sub = await getUserSubscription(session.user.id);
@@ -34,12 +36,14 @@ export async function GET(req: NextRequest) {
             isActive: sub.isActive,
         });
     } catch (error) {
-        console.error("Failed to fetch subscription:", error);
+        // Log error but return a safe fallback for UI resilience
+        console.error("Subscription API Error:", error);
         return NextResponse.json({
             plan: "free",
             isPro: false,
             isTeam: false,
             isActive: false,
+            error: "Failed to load subscription data"
         });
     }
 }
