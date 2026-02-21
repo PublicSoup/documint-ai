@@ -6,10 +6,51 @@ import { sendEmail, emailTemplates } from "@/lib/email";
 import { stripe } from "@/lib/stripe";
 import { env } from "@/lib/env";
 import { logAudit } from "@/lib/audit-logger";
+import { sendNotification } from "@/lib/notifications";
+import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
 
 const webhookSecret = env.STRIPE_WEBHOOK_SECRET;
 
+function getSubscriptionPriceId(subscription: Stripe.Subscription): string {
+    return subscription.items.data[0]?.price?.id || "";
+}
+
+function asSubscriptionId(value: string | { id: string } | null): string | null {
+    if (!value) return null;
+    return typeof value === "string" ? value : value.id;
+}
+
+function getInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
+    const withSubscription = invoice as Stripe.Invoice & {
+        subscription?: string | { id: string } | null;
+    };
+
+    return asSubscriptionId(withSubscription.subscription || null);
+}
+
+function extractPeriodDates(subscription: Stripe.Subscription): {
+    currentPeriodStart: Date | null;
+    currentPeriodEnd: Date | null;
+} {
+    const legacyShape = subscription as Stripe.Subscription & {
+        current_period_start?: number;
+        current_period_end?: number;
+    };
+
+    const startTimestamp = legacyShape.current_period_start ?? subscription.billing_cycle_anchor;
+    const endTimestamp = legacyShape.current_period_end ?? subscription.cancel_at ?? null;
+
+    return {
+        currentPeriodStart: startTimestamp ? new Date(startTimestamp * 1000) : null,
+        currentPeriodEnd: endTimestamp ? new Date(endTimestamp * 1000) : null,
+    };
+}
+
 export async function POST(request: NextRequest) {
+    if (!webhookSecret) {
+        return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 });
+    }
+
     const body = await request.text();
     const signature = request.headers.get("stripe-signature");
 
@@ -17,16 +58,21 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "No signature" }, { status: 400 });
     }
 
+    try {
+        const clientIp = await getClientIP(request);
+        await enforceRateLimit(clientIp, "security");
+    } catch {
+        return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+    }
+
     let event: Stripe.Event;
 
     try {
         event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
-    } catch (err) {
-        console.error("Webhook signature verification failed:", err);
+    } catch (error) {
+        console.error("Webhook signature verification failed:", error);
         return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
     }
-
-    console.log(`Stripe webhook received: ${event.type}`);
 
     try {
         switch (event.type) {
@@ -62,7 +108,7 @@ export async function POST(request: NextRequest) {
             }
 
             default:
-                console.log(`Unhandled event type: ${event.type}`);
+                break;
         }
 
         return NextResponse.json({ received: true });
@@ -74,20 +120,18 @@ export async function POST(request: NextRequest) {
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     const userId = session.metadata?.userId;
-    const customerId = session.customer as string;
-    const subscriptionId = session.subscription as string;
+    const customerId = typeof session.customer === "string" ? session.customer : null;
+    const subscriptionId = asSubscriptionId(session.subscription);
 
-    if (!userId) {
-        console.error("No userId in checkout session metadata");
+    if (!userId || !customerId || !subscriptionId) {
+        console.error("Missing checkout metadata for subscription creation");
         return;
     }
 
-    // Get the subscription details
-    const subscriptionResponse = await stripe.subscriptions.retrieve(subscriptionId);
-    // Cast to any to access properties that may differ between Stripe versions
-    const subscription = subscriptionResponse as any;
-    const priceId = subscription.items.data[0]?.price.id;
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    const priceId = getSubscriptionPriceId(subscription);
     const plan = getPlanFromPriceId(priceId);
+    const period = extractPeriodDates(subscription);
 
     await upsertSubscription({
         userId,
@@ -96,32 +140,42 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
         stripePriceId: priceId,
         status: subscription.status,
         plan,
-        currentPeriodStart: new Date((subscription.current_period_start || 0) * 1000),
-        currentPeriodEnd: new Date((subscription.current_period_end || 0) * 1000),
-        cancelAtPeriodEnd: subscription.cancel_at_period_end || false,
+        currentPeriodStart: period.currentPeriodStart,
+        currentPeriodEnd: period.currentPeriodEnd,
+        cancelAtPeriodEnd: subscription.cancel_at_period_end,
         trialEnd: subscription.trial_end ? new Date(subscription.trial_end * 1000) : null,
     });
 
-    console.log(`Created subscription for user ${userId}: ${plan}`);
+    try {
+        await logAudit({
+            userId,
+            action: "SUBSCRIPTION_CREATED",
+            entity: "Subscription",
+            entityId: subscriptionId,
+            details: { plan, status: subscription.status },
+        });
+    } catch {
+        // Non-blocking
+    }
 }
 
-async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subscription) {
-    // Cast to any to access properties that may differ between Stripe versions
-    const subscription = stripeSubscription as any;
-    const customerId = subscription.customer as string;
+async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
+    const customerId = typeof subscription.customer === "string" ? subscription.customer : null;
+    if (!customerId) {
+        return;
+    }
 
-    // Find user by Stripe customer ID
     const existingSub = await db.subscription.findFirst({
         where: { stripeCustomerId: customerId },
     });
 
     if (!existingSub) {
-        console.log("No existing subscription found for customer:", customerId);
         return;
     }
 
-    const priceId = subscription.items.data[0]?.price.id;
+    const priceId = getSubscriptionPriceId(subscription);
     const plan = getPlanFromPriceId(priceId);
+    const period = extractPeriodDates(subscription);
 
     await db.subscription.update({
         where: { id: existingSub.id },
@@ -130,104 +184,131 @@ async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subscription
             stripePriceId: priceId,
             status: subscription.status,
             plan,
-            currentPeriodStart: new Date((subscription.current_period_start || 0) * 1000),
-            currentPeriodEnd: new Date((subscription.current_period_end || 0) * 1000),
-            cancelAtPeriodEnd: subscription.cancel_at_period_end || false,
+            currentPeriodStart: period.currentPeriodStart,
+            currentPeriodEnd: period.currentPeriodEnd,
+            cancelAtPeriodEnd: subscription.cancel_at_period_end,
             trialEnd: subscription.trial_end ? new Date(subscription.trial_end * 1000) : null,
         },
     });
 
-    console.log(`Updated subscription ${subscription.id}: ${plan} (${subscription.status})`);
+    try {
+        await logAudit({
+            userId: existingSub.userId,
+            action: "SUBSCRIPTION_UPDATED",
+            entity: "Subscription",
+            entityId: subscription.id,
+            details: {
+                previousPlan: existingSub.plan,
+                newPlan: plan,
+                status: subscription.status,
+            },
+        });
+    } catch {
+        // Non-blocking
+    }
 }
 
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+    const existing = await db.subscription.findUnique({
+        where: { stripeSubscriptionId: subscription.id },
+        select: { userId: true, plan: true },
+    });
+
     await cancelSubscription(subscription.id);
-    console.log(`Canceled subscription: ${subscription.id}`);
+
+    try {
+        await logAudit({
+            userId: existing?.userId,
+            action: "SUBSCRIPTION_DELETED",
+            entity: "Subscription",
+            entityId: subscription.id,
+            details: {
+                plan: existing?.plan || "unknown",
+                status: "canceled",
+            },
+        });
+    } catch {
+        // Non-blocking
+    }
 }
 
-async function handlePaymentSucceeded(stripeInvoice: Stripe.Invoice) {
-    const invoice = stripeInvoice as any;
-    const customerId = invoice.customer as string;
+async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
+    const customerId = typeof invoice.customer === "string" ? invoice.customer : null;
+    const subscriptionId = getInvoiceSubscriptionId(invoice);
 
-    // Log the payment 
     await logAudit({
         action: "PAYMENT_SUCCESS",
         entity: "Subscription",
-        entityId: (invoice.subscription as string) || customerId,
+        entityId: subscriptionId || customerId || invoice.id,
         details: {
-            amount: (invoice.amount_paid || 0) / 100,
+            amount: invoice.amount_paid / 100,
             currency: invoice.currency,
             invoiceId: invoice.id,
         },
     });
 
-    // Send payment confirmation email
+    if (!customerId) return;
+
     const subscription = await db.subscription.findFirst({
         where: { stripeCustomerId: customerId },
         include: { user: true },
     });
 
-    if (subscription?.user?.email) {
-        const amount = (invoice.amount_paid || 0) / 100;
-        const invoiceUrl = `https://dashboard.stripe.com/invoices/${invoice.id}`;
-        const planName = subscription.plan.charAt(0).toUpperCase() + subscription.plan.slice(1);
+    if (!subscription?.user?.email) return;
 
-        await sendEmail({
-            to: subscription.user.email,
-            subject: `Payment Confirmed - DocuMint AI ${planName} Plan`,
-            html: emailTemplates.paymentSuccess(
-                subscription.user.name || 'Customer',
-                invoiceUrl,
-                planName,
-                `$${amount}`
-            ),
-        });
+    const amount = invoice.amount_paid / 100;
+    const invoiceUrl = `https://dashboard.stripe.com/invoices/${invoice.id}`;
+    const planName = subscription.plan.charAt(0).toUpperCase() + subscription.plan.slice(1);
 
-        console.log(`Sent payment confirmation email to ${subscription.user.email}`);
-    }
-
-    console.log(`Payment succeeded for customer ${customerId}: $${(invoice.amount_paid || 0) / 100}`);
+    await sendEmail({
+        to: subscription.user.email,
+        subject: `Payment Confirmed - DocuMint AI ${planName} Plan`,
+        html: emailTemplates.paymentSuccess(
+            subscription.user.name || "Customer",
+            invoiceUrl,
+            planName,
+            `$${amount}`
+        ),
+    });
 }
 
-async function handlePaymentFailed(stripeInvoice: Stripe.Invoice) {
-    const invoice = stripeInvoice as any;
-    const customerId = invoice.customer as string;
+async function handlePaymentFailed(invoice: Stripe.Invoice) {
+    const customerId = typeof invoice.customer === "string" ? invoice.customer : null;
+    const subscriptionId = getInvoiceSubscriptionId(invoice);
 
-    // Mark subscription as past_due
+    if (!customerId) {
+        return;
+    }
+
     await db.subscription.updateMany({
         where: { stripeCustomerId: customerId },
         data: { status: "past_due" },
     });
 
-    // Create notification for user
     const subscription = await db.subscription.findFirst({
         where: { stripeCustomerId: customerId },
         include: { user: true },
     });
 
     if (subscription?.userId) {
-        await db.notification.create({
-            data: {
-                userId: subscription.userId,
-                type: "SYSTEM",
-                message: "Your payment failed. Please update your payment method to keep your subscription active.",
-                link: "/dashboard/billing",
-            },
+        await sendNotification({
+            userId: subscription.userId,
+            type: "SYSTEM",
+            title: "Payment Failed ⚠️",
+            message: "Your payment failed. Please update your payment method to keep your subscription active.",
+            link: "/dashboard/billing",
         });
     }
 
-    // Log the failure
     await logAudit({
         userId: subscription?.userId,
         action: "PAYMENT_FAILED",
         entity: "Subscription",
-        entityId: (invoice.subscription as string) || customerId,
+        entityId: subscriptionId || customerId,
         details: {
-            amount: (invoice.amount_due || 0) / 100,
+            amount: invoice.amount_due / 100,
             currency: invoice.currency,
             invoiceId: invoice.id,
         },
     });
-
-    console.log(`Payment failed for customer ${customerId}`);
 }

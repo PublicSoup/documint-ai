@@ -28,6 +28,8 @@ export interface PlanLimits {
         prioritySupport: boolean;
         diagramGenerator: boolean;
         rulesetGenerator: boolean;
+        aiArchitect: boolean;
+        codeExplain: boolean;
     };
 }
 
@@ -45,6 +47,8 @@ const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
             prioritySupport: false,
             diagramGenerator: false,
             rulesetGenerator: false,
+            aiArchitect: false,
+            codeExplain: false,
         },
     },
     starter: {
@@ -60,6 +64,8 @@ const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
             prioritySupport: false,
             diagramGenerator: false,
             rulesetGenerator: true,
+            aiArchitect: true,
+            codeExplain: true,
         },
     },
     pro: {
@@ -75,6 +81,8 @@ const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
             prioritySupport: true,
             diagramGenerator: true,
             rulesetGenerator: true,
+            aiArchitect: true,
+            codeExplain: true,
         },
     },
     team: {
@@ -90,6 +98,8 @@ const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
             prioritySupport: true,
             diagramGenerator: true,
             rulesetGenerator: true,
+            aiArchitect: true,
+            codeExplain: true,
         },
     },
 };
@@ -190,8 +200,8 @@ export async function upsertSubscription(data: {
     stripePriceId: string;
     status: string;
     plan: PlanType;
-    currentPeriodStart: Date;
-    currentPeriodEnd: Date;
+    currentPeriodStart: Date | null;
+    currentPeriodEnd: Date | null;
     cancelAtPeriodEnd: boolean;
     trialEnd?: Date | null;
 }) {
