@@ -318,7 +318,7 @@ export default function AuditLogViewer() {
                                             <td className="px-4 py-3 text-sm text-gray-500 font-mono">
                                                 <div className="flex flex-col">
                                                     <span>{log.ip || "-"}</span>
-                                                    <span className="text-[10px] opacity-50">{parseUA(log.details?.ua) || "unknown"}</span>
+                                                    <span className="text-[10px] opacity-50">{parseUA(typeof log.details?.ua === "string" ? log.details.ua : undefined) || "unknown"}</span>
                                                 </div>
                                             </td>
                                             <td className="px-4 py-3">
