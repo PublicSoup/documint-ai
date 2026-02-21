@@ -1,115 +1,131 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
-export async function GET(req: Request) {
+const searchQuerySchema = z.object({
+    q: z.string().trim().min(2).max(200),
+    type: z.enum(["all", "code", "docs", "files"]).default("all"),
+}).strict();
+
+interface SearchResult {
+    type: "file" | "code" | "doc";
+    id: string;
+    title: string;
+    subtitle: string;
+    match: "filename" | "code" | "documentation";
+    snippet?: string;
+}
+
+export async function GET(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const { searchParams } = new URL(req.url);
-        const query = searchParams.get("q");
-        const type = searchParams.get("type") || "all"; // all, code, docs, files
+        await enforceRateLimit(session.user.id, "api");
 
-        if (!query || query.length < 2) {
-            return NextResponse.json({ error: "Query too short" }, { status: 400 });
+        const params = new URL(req.url).searchParams;
+        const parsed = searchQuerySchema.safeParse({
+            q: params.get("q") ?? "",
+            type: params.get("type") ?? "all",
+        });
+
+        if (!parsed.success) {
+            return NextResponse.json({ error: "Invalid search query" }, { status: 400 });
         }
 
-        const results: any[] = [];
+        const { q: query, type } = parsed.data;
+        const queryLower = query.toLowerCase();
 
-        // Search in file names
+        const results: SearchResult[] = [];
+
         if (type === "all" || type === "files") {
             const files = await db.file.findMany({
                 where: {
                     userId: session.user.id,
-                    name: { contains: query, mode: 'insensitive' }
+                    name: { contains: query, mode: "insensitive" },
                 },
                 select: { id: true, name: true, language: true },
-                take: 10
+                take: 10,
             });
 
-            files.forEach(f => {
+            files.forEach((file) => {
                 results.push({
                     type: "file",
-                    id: f.id,
-                    title: f.name,
-                    subtitle: `File (${f.language})`,
-                    match: "filename"
+                    id: file.id,
+                    title: file.name,
+                    subtitle: `File (${file.language || "unknown"})`,
+                    match: "filename",
                 });
             });
         }
 
-        // Search in code content
         if (type === "all" || type === "code") {
             const codeMatches = await db.file.findMany({
                 where: {
                     userId: session.user.id,
-                    content: { contains: query, mode: 'insensitive' }
+                    content: { contains: query, mode: "insensitive" },
                 },
-                select: { id: true, name: true, content: true, language: true },
-                take: 10
+                select: { id: true, name: true, content: true },
+                take: 10,
             });
 
-            codeMatches.forEach((f: any) => {
-                // Find the line with the match
-                if (!f.content) return;
-                const lines = f.content.split('\n');
-                const matchLine = lines.findIndex((l: string) => l.toLowerCase().includes(query.toLowerCase()));
-                const snippet = matchLine >= 0 ? lines.slice(Math.max(0, matchLine - 1), matchLine + 2).join('\n') : "";
+            codeMatches.forEach((file) => {
+                if (!file.content) return;
+                const lines = file.content.split("\n");
+                const matchLine = lines.findIndex((line) => line.toLowerCase().includes(queryLower));
+                const snippet = matchLine >= 0 ? lines.slice(Math.max(0, matchLine - 1), matchLine + 2).join("\n") : "";
 
                 results.push({
                     type: "code",
-                    id: f.id,
-                    title: f.name,
-                    subtitle: `Line ${matchLine + 1}`,
-                    snippet: snippet.substring(0, 200),
-                    match: "code"
+                    id: file.id,
+                    title: file.name,
+                    subtitle: `Line ${Math.max(matchLine + 1, 1)}`,
+                    snippet: snippet.slice(0, 200),
+                    match: "code",
                 });
             });
         }
 
-        // Search in documentation
         if (type === "all" || type === "docs") {
             const docs = await db.documentation.findMany({
                 where: {
-                    content: { contains: query, mode: 'insensitive' },
-                    file: { userId: session.user.id }
+                    content: { contains: query, mode: "insensitive" },
+                    file: { userId: session.user.id },
                 },
                 select: {
                     fileId: true,
                     content: true,
-                    file: { select: { name: true } }
+                    file: { select: { name: true } },
                 },
-                take: 10
+                take: 10,
             });
 
-            docs.forEach(d => {
+            docs.forEach((doc) => {
                 try {
-                    const parsed = JSON.parse(d.content);
-                    const summary = parsed.summary || "";
-                    if (summary.toLowerCase().includes(query.toLowerCase())) {
-                        results.push({
-                            type: "doc",
-                            id: d.fileId,
-                            title: d.file.name,
-                            subtitle: "Documentation",
-                            snippet: summary.substring(0, 200),
-                            match: "documentation"
-                        });
-                    }
-                } catch { }
+                    const parsedDoc = JSON.parse(doc.content) as { summary?: string };
+                    const summary = typeof parsedDoc.summary === "string" ? parsedDoc.summary : "";
+                    if (!summary.toLowerCase().includes(queryLower)) return;
+
+                    results.push({
+                        type: "doc",
+                        id: doc.fileId,
+                        title: doc.file.name,
+                        subtitle: "Documentation",
+                        snippet: summary.slice(0, 200),
+                        match: "documentation",
+                    });
+                } catch {
+                    // Ignore malformed documentation payloads.
+                }
             });
         }
 
-        return NextResponse.json({
-            query,
-            results,
-            total: results.length
-        });
-
+        return NextResponse.json({ query, results, total: results.length });
     } catch (error) {
         console.error("Search Error:", error);
         return NextResponse.json({ error: "Search failed" }, { status: 500 });
