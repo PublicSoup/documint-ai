@@ -15,6 +15,7 @@ interface FileWithDocs {
         content: string;
         verifiedAt?: Date | null;
         verifiedById?: string | null;
+        status: string;
     } | null;
 }
 
@@ -33,7 +34,7 @@ export function DashboardFileTree({ files, selectedFileId, teamId }: DashboardFi
         return files.filter(f => f.name.toLowerCase().includes(search.toLowerCase()));
     }, [files, search]);
 
-    // Group files by extension for mock folder structure
+    // Group files by language for tree sections
     const groupedFiles = useMemo(() => {
         const groups: Record<string, FileWithDocs[]> = {};
         filteredFiles.forEach(file => {
@@ -111,6 +112,16 @@ export function DashboardFileTree({ files, selectedFileId, teamId }: DashboardFi
                                                 isSelected ? "text-primary" : "text-zinc-400 group-hover:text-white/70"
                                             )} />
                                             <span className="truncate select-none flex-1">{file.name}</span>
+
+                                            {/* Status Badge */}
+                                            {file.documentation && (
+                                                <div className={cn(
+                                                    "w-1.5 h-1.5 rounded-full shrink-0",
+                                                    file.documentation.status === "APPROVED" ? "bg-emerald-500" :
+                                                    file.documentation.status === "REVIEW" ? "bg-blue-500 animate-pulse" :
+                                                    "bg-amber-500"
+                                                )} title={file.documentation.status} />
+                                            )}
 
                                             {/* Open in IDE hint */}
                                             <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-50 transition-opacity" />

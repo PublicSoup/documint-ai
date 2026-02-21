@@ -17,37 +17,74 @@ interface RecentActivity {
     time: string;
 }
 
+interface AnalyticsApiResponse {
+    overview: {
+        totalFiles: number;
+        velocity: { score: number };
+    };
+    coverage: {
+        percentage: number;
+    };
+    topDocs: { id: string; name: string; views: number }[];
+    recentActivity: { date: string; views: number; creations: number }[];
+}
+
+function timeAgo(dateStr: string): string {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+    const days = Math.floor(hours / 24);
+    return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
 export default function ActivityFeed() {
     const [stats, setStats] = useState<StatsData | null>(null);
     const [activity, setActivity] = useState<RecentActivity[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchData = async () => {
             try {
-                // In a real app, this would fetch from an API
-                // For now, we'll use mock data
+                setError(null);
+                const res = await fetch("/api/analytics/docs?days=14", { cache: "no-store" });
+                if (!res.ok) {
+                    throw new Error(`Analytics request failed (${res.status})`);
+                }
+
+                const data = (await res.json()) as AnalyticsApiResponse;
+
+                const recentViews = data.recentActivity.reduce((sum, d) => sum + d.views, 0);
+
                 setStats({
-                    filesAnalyzed: 42,
-                    avgQualityScore: 78,
-                    aiGenerations: 156,
-                    weeklyTrend: 12
+                    filesAnalyzed: data.overview.totalFiles,
+                    avgQualityScore: data.coverage.percentage,
+                    aiGenerations: recentViews,
+                    weeklyTrend: data.overview.velocity.score,
                 });
 
-                setActivity([
-                    { id: "1", action: "Analyzed", file: "api/users.py", time: "2 minutes ago" },
-                    { id: "2", action: "Generated docs for", file: "auth.ts", time: "15 minutes ago" },
-                    { id: "3", action: "Commented on", file: "utils/helpers.js", time: "1 hour ago" },
-                    { id: "4", action: "Analyzed", file: "models/user.go", time: "3 hours ago" },
-                ]);
-            } catch (error) {
-                console.error(error);
+                const nextActivity: RecentActivity[] = data.topDocs.slice(0, 4).map((doc, idx) => ({
+                    id: doc.id,
+                    action: `Viewed ${doc.views} time${doc.views === 1 ? "" : "s"}`,
+                    file: doc.name,
+                    time: timeAgo(data.recentActivity[Math.min(idx, data.recentActivity.length - 1)]?.date || new Date().toISOString()),
+                }));
+
+                setActivity(nextActivity);
+            } catch (err) {
+                console.error(err);
+                setError("Failed to load activity");
             } finally {
                 setLoading(false);
             }
         };
 
-        fetchData();
+        void fetchData();
     }, []);
 
     if (loading) {
@@ -63,37 +100,23 @@ export default function ActivityFeed() {
         );
     }
 
+    if (error) {
+        return (
+            <div className="bg-white/5 border-white/10 rounded-xl border p-6 text-sm text-red-300">
+                {error}
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-6">
-            {/* Stats Grid */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard
-                    icon={<FileText className="w-5 h-5" />}
-                    label="Files Analyzed"
-                    value={stats?.filesAnalyzed || 0}
-                    color="blue"
-                />
-                <StatCard
-                    icon={<TrendingUp className="w-5 h-5" />}
-                    label="Avg. Quality"
-                    value={`${stats?.avgQualityScore || 0}%`}
-                    color="green"
-                />
-                <StatCard
-                    icon={<Zap className="w-5 h-5" />}
-                    label="AI Generations"
-                    value={stats?.aiGenerations || 0}
-                    color="purple"
-                />
-                <StatCard
-                    icon={<Activity className="w-5 h-5" />}
-                    label="Weekly Trend"
-                    value={`+${stats?.weeklyTrend || 0}%`}
-                    color="amber"
-                />
+                <StatCard icon={<FileText className="w-5 h-5" />} label="Files Analyzed" value={stats?.filesAnalyzed || 0} color="blue" />
+                <StatCard icon={<TrendingUp className="w-5 h-5" />} label="Coverage" value={`${stats?.avgQualityScore || 0}%`} color="green" />
+                <StatCard icon={<Zap className="w-5 h-5" />} label="Recent Views" value={stats?.aiGenerations || 0} color="purple" />
+                <StatCard icon={<Activity className="w-5 h-5" />} label="Weekly Trend" value={`${stats?.weeklyTrend || 0}%`} color="amber" />
             </div>
 
-            {/* Recent Activity */}
             <div className="bg-white/5 border-white/10 rounded-xl border overflow-hidden">
                 <div className="px-4 py-3 border-b border-white/10 bg-white/5">
                     <h3 className="font-semibold text-zinc-100 flex items-center gap-2">
@@ -102,15 +125,19 @@ export default function ActivityFeed() {
                     </h3>
                 </div>
                 <div className="divide-y">
-                    {activity.map((item) => (
-                        <div key={item.id} className="px-4 py-3 hover:bg-white/5 transition-colors">
-                            <p className="text-sm text-zinc-400">
-                                <span className="font-medium text-zinc-100">{item.action}</span>{" "}
-                                <span className="text-blue-600">{item.file}</span>
-                            </p>
-                            <p className="text-xs text-gray-400 mt-1">{item.time}</p>
-                        </div>
-                    ))}
+                    {activity.length === 0 ? (
+                        <div className="px-4 py-5 text-sm text-zinc-400">No activity yet.</div>
+                    ) : (
+                        activity.map((item) => (
+                            <div key={item.id} className="px-4 py-3 hover:bg-white/5 transition-colors">
+                                <p className="text-sm text-zinc-400">
+                                    <span className="font-medium text-zinc-100">{item.action}</span>{" "}
+                                    <span className="text-blue-600">{item.file}</span>
+                                </p>
+                                <p className="text-xs text-gray-400 mt-1">{item.time}</p>
+                            </div>
+                        ))
+                    )}
                 </div>
             </div>
         </div>
@@ -121,7 +148,7 @@ function StatCard({
     icon,
     label,
     value,
-    color
+    color,
 }: {
     icon: React.ReactNode;
     label: string;
@@ -132,7 +159,7 @@ function StatCard({
         blue: "bg-blue-500/20 text-blue-400",
         green: "bg-green-500/20 text-green-400",
         purple: "bg-purple-500/20 text-purple-400",
-        amber: "bg-amber-500/20 text-amber-400"
+        amber: "bg-amber-500/20 text-amber-400",
     };
 
     return (

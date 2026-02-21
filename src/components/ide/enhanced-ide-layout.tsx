@@ -975,7 +975,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                             fileName={activeFile.name}
                                             onChange={handleContentChange}
                                             onSave={handleSave}
-                                            onRun={() => toast("Run functionality not implemented yet", "success")}
+                                            onRun={handleRunProject}
                                             onMonacoMount={(monaco) => {
                                                 monacoInstanceRef.current = monaco;
                                             }}

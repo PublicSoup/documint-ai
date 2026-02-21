@@ -95,9 +95,17 @@ export async function getAICompletionWithDetailedError(
     messages: AIMessage[],
     options: AICompletionOptions = {}
 ): Promise<{ success: boolean; data?: AICompletionResult; error?: string }> {
-    // MOCK MODE: When no API key, provide helpful mock responses
+    // In development, allow mock responses when key is missing.
+    // In production, fail closed so behavior is explicit and observable.
     if (!env.GOOGLE_API_KEY) {
-        console.warn("⚠️ [AI Mock Mode] GOOGLE_API_KEY not configured - using mock responses");
+        if (env.NODE_ENV !== "development") {
+            return {
+                success: false,
+                error: "AI backend is not configured. Set GOOGLE_API_KEY.",
+            };
+        }
+
+        console.warn("⚠️ [AI Mock Mode] GOOGLE_API_KEY not configured - using mock responses in development");
         const lastUserMessage = messages.filter(m => m.role === "user").pop()?.content || "";
 
         const mockResponse = generateMockResponse(lastUserMessage);
@@ -141,10 +149,10 @@ export async function getAICompletionWithDetailedError(
             try {
                 result = await model.generateContent({ contents });
                 break; // Success
-            } catch (apiError: any) {
+            } catch (apiError: unknown) {
                 attempts++;
                 console.error(`[Gemini] API Error (Attempt ${attempts}/${maxRetries}):`, apiError);
-                let errorMessage = apiError.message || "Unknown API Error";
+                const errorMessage = apiError instanceof Error ? apiError.message : String(apiError);
 
                 // Handle Rate Limiting (429) and Service Unavailable (503)
                 if (errorMessage.includes("429") || errorMessage.includes("503")) {
@@ -191,9 +199,10 @@ export async function getAICompletionWithDetailedError(
                 model: modelName,
             }
         };
-    } catch (e: any) {
+    } catch (e: unknown) {
         console.error("[Gemini] Unhandled error:", e);
-        return { success: false, error: `Unexpected Error: ${e.message || "Unknown error"}` };
+        const errorMessage = e instanceof Error ? e.message : "Unknown error";
+        return { success: false, error: `Unexpected Error: ${errorMessage}` };
     }
 }
 
@@ -230,7 +239,8 @@ export async function generateText(
 export async function generateDocumentation(
     code: string,
     language: string,
-    type: 'file' | 'function' | 'class' | 'complex_logic' = 'file'
+    type: 'file' | 'function' | 'class' | 'complex_logic' = 'file',
+    styleGuide?: string
 ): Promise<string> {
     const systemPrompt = "You are DocuMint AI, an expert technical documentation assistant.";
     let userPrompt = "";
@@ -243,6 +253,8 @@ Structure your response with:
 - **Returns**: Describe the return value and type
 - **Example**: Show a practical usage example
 
+${styleGuide ? `STYLE GUIDE INSTRUCTIONS: ${styleGuide}\n` : ""}
+
 Code:
 \`\`\`${language}
 ${code}
@@ -253,6 +265,8 @@ Include:
 - **Purpose**: What this class represents and its responsibilities
 - **Key Methods**: Overview of main methods and their purposes
 - **Usage**: How to instantiate and use this class
+
+${styleGuide ? `STYLE GUIDE INSTRUCTIONS: ${styleGuide}\n` : ""}
 
 Code:
 \`\`\`${language}
@@ -265,6 +279,8 @@ Focus on:
 - Why it uses this particular approach
 - Any important edge cases
 
+${styleGuide ? `STYLE GUIDE INSTRUCTIONS: ${styleGuide}\n` : ""}
+
 Code:
 \`\`\`${language}
 ${code}
@@ -275,6 +291,8 @@ Include:
 - **Purpose**: Main responsibility of this file
 - **Key Exports**: Important functions, classes, or components
 - **Dependencies**: Notable imports
+
+${styleGuide ? `STYLE GUIDE INSTRUCTIONS: ${styleGuide}\n` : ""}
 
 Code:
 \`\`\`${language}
@@ -295,7 +313,8 @@ export async function generateDocumentationWithContext(
     type: 'file' | 'function' | 'class' | 'complex_logic',
     userId: string,
     fileId: string,
-    relatedFileIds: string[] = []
+    relatedFileIds: string[] = [],
+    styleGuide?: string
 ): Promise<string> {
     // Note: In the future, we can implement sophisticated context building here.
     // For now, we'll use the existing generateDocumentation logic with a hint about context.
@@ -304,6 +323,8 @@ export async function generateDocumentationWithContext(
     
 File ID: ${fileId}
 Related Files: ${relatedFileIds.join(", ")}
+
+${styleGuide ? `STYLE GUIDE INSTRUCTIONS: ${styleGuide}\n` : ""}
 
 CODE:
 \`\`\`${language}
@@ -342,4 +363,45 @@ Include:
  */
 export async function isAIAvailable(): Promise<boolean> {
     return !!env.GOOGLE_API_KEY;
+}
+
+/**
+ * Detect intent drift between code and documentation
+ */
+export async function detectIntentDrift(
+    newCode: string,
+    documentation: string
+): Promise<{ drifted: boolean; reasoning?: string }> {
+    const systemPrompt = "You are a Documentation Drift Analyst. Determine if code changes invalidate existing documentation. Respond ONLY in valid JSON.";
+    const userPrompt = `
+    EXISTING DOCUMENTATION (JSON format):
+    ${documentation}
+
+    NEW CODE STATE:
+    \`\`\`
+    ${newCode.substring(0, 6000)}
+    \`\`\`
+
+    Analyze if the new code implementation has drifted significantly from the documented intent.
+    Focus on signature changes, logic contradictions, or missing critical context.
+
+    Return JSON:
+    {
+      "drifted": boolean,
+      "reasoning": "concise explanation of the mismatch, or null"
+    }`;
+
+    try {
+        const result = await generateText(systemPrompt, userPrompt, { 
+            temperature: 0.1,
+            jsonMode: true 
+        });
+        
+        // Clean up markdown if AI includes it
+        const cleanJson = result.replace(/```json\n?|\n?```/g, "").trim();
+        return JSON.parse(cleanJson);
+    } catch (e) {
+        console.error("Drift detection failed:", e);
+        return { drifted: false };
+    }
 }
