@@ -1,100 +1,145 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { generateDocumentationWithContext } from "@/lib/ai";
 import { hasFeatureAccess } from "@/lib/subscription";
 import { getFileContent } from "@/lib/files";
+import { checkFilePermission } from "@/lib/permissions";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
-export async function POST(req: Request) {
+const bulkRegenerateSchema = z.object({
+    fileIds: z.array(z.string().min(1)).max(100).optional(),
+}).strict();
+
+interface RegenerateResult {
+    fileId: string;
+    name: string;
+    success: boolean;
+    error?: string;
+}
+
+export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        // Premium feature check
+        await enforceRateLimit(session.user.id, "api");
+
         const hasAccess = await hasFeatureAccess(session.user.id, "analytics");
         if (!hasAccess) {
-            return NextResponse.json({
-                error: "Bulk regeneration requires Pro plan",
-                upgradeUrl: "/dashboard/settings?tab=billing"
-            }, { status: 403 });
+            return NextResponse.json(
+                {
+                    error: "Bulk regeneration requires Pro plan",
+                    upgradeUrl: "/dashboard/settings?tab=billing",
+                },
+                { status: 403 }
+            );
         }
 
-        const { fileIds } = await req.json();
+        const parsed = bulkRegenerateSchema.safeParse(await req.json().catch(() => ({})));
+        if (!parsed.success) {
+            return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+        }
 
-        // Get all user's files if no specific IDs provided
+        const { fileIds } = parsed.data;
+
         const files = await db.file.findMany({
             where: {
-                userId: session.user.id,
-                ...(fileIds ? { id: { in: fileIds } } : {})
+                ...(fileIds ? { id: { in: fileIds } } : {}),
+                OR: [
+                    { userId: session.user.id },
+                    { team: { members: { some: { userId: session.user.id } } } },
+                ],
             },
             select: {
                 id: true,
                 name: true,
-                content: true,
-                language: true
-            }
-        }) as any[];
+                language: true,
+                teamId: true,
+            },
+            take: fileIds ? Math.min(fileIds.length, 100) : 100,
+        });
 
         if (files.length === 0) {
             return NextResponse.json({ error: "No files to regenerate" }, { status: 400 });
         }
 
-        const results: { fileId: string; name: string; success: boolean; error?: string }[] = [];
+        const results: RegenerateResult[] = [];
 
-        // Process files with full context awareness
         for (const file of files) {
             try {
-                const content = await getFileContent(file.id);
-                if (!content) {
-                    console.warn(`Skipping ${file.name}: No content found`);
+                const canEdit = await checkFilePermission(session.user.id, file.id, "edit");
+                if (!canEdit) {
                     results.push({
                         fileId: file.id,
                         name: file.name,
                         success: false,
-                        error: "Content not found"
+                        error: "No edit permission",
                     });
                     continue;
                 }
 
-                // Generate documentation with FULL codebase context
+                const content = await getFileContent(file.id);
+                if (!content) {
+                    results.push({
+                        fileId: file.id,
+                        name: file.name,
+                        success: false,
+                        error: "Content not found",
+                    });
+                    continue;
+                }
+
+                let styleGuide = "";
+                if (file.teamId) {
+                    const teamConfig = await db.integration.findFirst({
+                        where: { teamId: file.teamId, type: "TEAM_CONFIG" },
+                        select: { config: true },
+                    });
+                    styleGuide =
+                        (teamConfig?.config as { styleGuide?: string } | null)?.styleGuide || "";
+                }
+
                 const summary = await generateDocumentationWithContext(
-                    content.substring(0, 4000),
-                    file.language,
+                    content.slice(0, 6000),
+                    file.language || "text",
                     "file",
                     session.user.id,
                     file.id,
-                    []
+                    [],
+                    styleGuide
                 );
 
-                // Update or create documentation
                 await db.documentation.upsert({
                     where: { fileId: file.id },
                     update: {
                         content: JSON.stringify({
                             summary,
                             entities: [],
-                            qualityScore: 75,
                             metadata: {
                                 regeneratedAt: new Date().toISOString(),
-                                bulkOperation: true
-                            }
-                        })
+                                bulkOperation: true,
+                            },
+                        }),
+                        status: "DRAFT",
+                        verifiedAt: null,
+                        verifiedById: null,
                     },
                     create: {
                         fileId: file.id,
                         content: JSON.stringify({
                             summary,
                             entities: [],
-                            qualityScore: 75,
                             metadata: {
                                 regeneratedAt: new Date().toISOString(),
-                                bulkOperation: true
-                            }
-                        })
-                    }
+                                bulkOperation: true,
+                            },
+                        }),
+                    },
                 });
 
                 results.push({ fileId: file.id, name: file.name, success: true });
@@ -104,12 +149,30 @@ export async function POST(req: Request) {
                     fileId: file.id,
                     name: file.name,
                     success: false,
-                    error: "Generation failed"
+                    error: "Generation failed",
                 });
             }
         }
 
-        const successCount = results.filter(r => r.success).length;
+        const successCount = results.filter((result) => result.success).length;
+
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: session.user.id,
+                action: "BULK_REGENERATE_DOCS",
+                entity: "Documentation",
+                entityId: session.user.id,
+                details: {
+                    requested: fileIds?.length || null,
+                    processed: files.length,
+                    success: successCount,
+                    failed: files.length - successCount,
+                },
+            });
+        } catch {
+            // Non-blocking
+        }
 
         return NextResponse.json({
             message: `Regenerated ${successCount}/${files.length} files`,
@@ -117,12 +180,11 @@ export async function POST(req: Request) {
             stats: {
                 total: files.length,
                 success: successCount,
-                failed: files.length - successCount
-            }
+                failed: files.length - successCount,
+            },
         });
-
     } catch (error) {
-        console.error("Bulk Regenerate Error:", error);
+        console.error("Bulk regenerate error:", error);
         return NextResponse.json({ error: "Bulk operation failed" }, { status: 500 });
     }
 }
