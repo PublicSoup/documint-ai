@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { FileCode2, Bell, Settings, LogOut, Search, Menu } from "lucide-react";
 import { GlobalSearch } from "@/components/global-search";
 import { Button } from "@/components/ui/button";
-import { NotificationDropdown } from "@/components/notification-dropdown";
+import { NotificationCenter } from "@/components/notification-center";
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 
@@ -31,10 +31,10 @@ export function DashboardHeader() {
                     {/* Logo */}
                     <div className="flex items-center gap-8">
                         <Link href="/dashboard" className="flex items-center gap-2 group">
-                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center shadow-lg shadow-primary/20 group-hover:shadow-primary/40 transition-all">
+                            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center transition-all">
                                 <FileCode2 className="text-white w-5 h-5" />
                             </div>
-                            <span className="font-bold text-lg bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70">
+                            <span className="font-bold text-lg text-white">
                                 DocuMint
                             </span>
                         </Link>
@@ -56,7 +56,7 @@ export function DashboardHeader() {
                                     >
                                         {item.name}
                                         {isActive && (
-                                            <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-4/5 h-0.5 bg-primary rounded-full shadow-[0_0_10px_2px_rgba(124,58,237,0.5)]"></span>
+                                            <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-4/5 h-0.5 bg-primary rounded-full"></span>
                                         )}
                                     </Link>
                                 );
@@ -70,7 +70,7 @@ export function DashboardHeader() {
                             <GlobalSearch />
                         </div>
 
-                        <NotificationDropdown />
+                        <NotificationCenter />
 
                         <Button
                             variant="ghost"

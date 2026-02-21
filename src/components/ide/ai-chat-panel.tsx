@@ -768,7 +768,7 @@ export function AIChatPanel({
                         <div className="relative">
                             <Bot className="w-5 h-5 text-indigo-400" />
                             {loading && msg.id === messages[messages.length - 1].id && (
-                                <span className="absolute -top-1 -right-1 w-2 h-2 bg-indigo-500 rounded-full animate-pulse" />
+                                <span className="absolute -top-1 -right-1 w-2 h-2 bg-indigo-500 rounded-full" />
                             )}
                         </div>
                     ) : (
@@ -1055,7 +1055,7 @@ export function AIChatPanel({
                     <div>
                         <h3 className="text-sm font-bold text-white">DocuMint Agent</h3>
                         <div className="flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
                             <span className="text-[10px] text-muted-foreground">Online</span>
                         </div>
                     </div>

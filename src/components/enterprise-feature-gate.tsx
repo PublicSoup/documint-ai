@@ -36,7 +36,7 @@ export function EnterpriseFeatureGate({ children, isPro, featureName, descriptio
                     <p className="text-sm text-gray-400 mb-6">{description}</p>
                     <Button
                         onClick={() => router.push("/dashboard/billing")}
-                        className="w-full bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-white font-bold shadow-lg shadow-amber-500/20"
+                        className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold"
                     >
                         <Sparkles className="w-4 h-4 mr-2" />
                         Upgrade to Enterprise

@@ -582,7 +582,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                     className={cn(
                         "p-2 rounded-lg transition-all duration-200 relative group",
                         showSidebar && activeSidebarTab === "explorer"
-                            ? "bg-purple-500/15 text-purple-400 shadow-[0_0_12px_rgba(168,85,247,0.15)]"
+                            ? "bg-purple-500/15 text-purple-400"
                             : "text-white/25 hover:text-white/50 hover:bg-white/[0.04]"
                     )}
                     title="Explorer (⌘B)"
@@ -602,7 +602,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                     className={cn(
                         "p-2 rounded-lg transition-all duration-200 relative group",
                         showSidebar && activeSidebarTab === "search"
-                            ? "bg-purple-500/15 text-purple-400 shadow-[0_0_12px_rgba(168,85,247,0.15)]"
+                            ? "bg-purple-500/15 text-purple-400"
                             : "text-white/25 hover:text-white/50 hover:bg-white/[0.04]"
                     )}
                     title="Search (⌘F)"
@@ -622,7 +622,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                     className={cn(
                         "p-2 rounded-lg transition-all duration-200 relative group",
                         showSidebar && activeSidebarTab === "git"
-                            ? "bg-purple-500/15 text-purple-400 shadow-[0_0_12px_rgba(168,85,247,0.15)]"
+                            ? "bg-purple-500/15 text-purple-400"
                             : "text-white/25 hover:text-white/50 hover:bg-white/[0.04]"
                     )}
                     title="Source Control (⌘G)"
@@ -830,7 +830,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 setClickTimeout(timeout);
                                 setShowAIEditor(!showAIEditor);
                             }}
-                            className={cn("p-1.5 rounded transition-all", showAIEditor ? "bg-purple-500/15 text-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.2)]" : "text-purple-400/40 hover:bg-purple-500/10 hover:text-purple-400")}
+                            className={cn("p-1.5 rounded transition-all", showAIEditor ? "bg-purple-500/15 text-purple-400" : "text-purple-400/40 hover:bg-purple-500/10 hover:text-purple-400")}
                             title="Toggle AI Editor"
                         >
                             <Bot className="w-4 h-4" />
@@ -844,7 +844,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 setClickTimeout(timeout);
                                 setShowDocPreview(!showDocPreview);
                             }}
-                            className={cn("p-1.5 rounded transition-all", showDocPreview ? "bg-blue-500/15 text-blue-400 shadow-[0_0_8px_rgba(59,130,246,0.2)]" : "text-blue-400/40 hover:bg-blue-500/10 hover:text-blue-400")}
+                            className={cn("p-1.5 rounded transition-all", showDocPreview ? "bg-blue-500/15 text-blue-400" : "text-blue-400/40 hover:bg-blue-500/10 hover:text-blue-400")}
                             title="Toggle Doc Preview"
                         >
                             <FileText className="w-4 h-4" />
@@ -852,7 +852,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
                         <button
                             onClick={() => setShowLocalTopology(!showLocalTopology)}
-                            className={cn("p-1.5 rounded transition-all", showLocalTopology ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.2)]" : "text-emerald-400/40 hover:bg-emerald-500/10 hover:text-emerald-400")}
+                            className={cn("p-1.5 rounded transition-all", showLocalTopology ? "bg-emerald-500/15 text-emerald-400" : "text-emerald-400/40 hover:bg-emerald-500/10 hover:text-emerald-400")}
                             title="Toggle Local Topology"
                         >
                             <LayoutIcon className="w-4 h-4" />
@@ -938,7 +938,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         <button
                             onClick={handleSave}
                             disabled={!activeFileId || !unsavedChanges[activeFileId]}
-                            className={cn("p-1.5 rounded transition-all flex items-center gap-1.5 text-xs font-medium", unsavedChanges[activeFileId || ""] ? "text-emerald-400 hover:bg-emerald-500/10 shadow-[0_0_6px_rgba(16,185,129,0.15)]" : "text-white/20 opacity-50")}
+                            className={cn("p-1.5 rounded transition-all flex items-center gap-1.5 text-xs font-medium", unsavedChanges[activeFileId || ""] ? "text-emerald-400 hover:bg-emerald-500/10" : "text-white/20 opacity-50")}
                         >
                             <Save className="w-4 h-4" />
                         </button>

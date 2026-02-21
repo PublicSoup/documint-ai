@@ -90,7 +90,7 @@ export function LivePreview({ url, isLoading = false, onClose, onRun }: LivePrev
             {url && (
                 <div className="flex items-center h-7 px-2 bg-[#030014]/50 border-b border-white/[0.04] shrink-0">
                     <div className="flex-1 flex items-center gap-2 bg-white/[0.03] rounded px-2 py-0.5">
-                        <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_4px_rgba(52,211,153,0.4)]" />
+                        <div className="w-2 h-2 rounded-full bg-emerald-400" />
                         <span className="text-[10px] text-white/40 font-mono truncate">{url}</span>
                     </div>
                 </div>
@@ -110,7 +110,7 @@ export function LivePreview({ url, isLoading = false, onClose, onRun }: LivePrev
                             </>
                         ) : (
                             <>
-                                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-600/10 to-green-500/5 flex items-center justify-center border border-emerald-500/10 shadow-[0_0_30px_rgba(16,185,129,0.06)]">
+                                <div className="w-16 h-16 rounded-2xl bg-emerald-600/10 flex items-center justify-center border border-emerald-500/10">
                                     <Monitor className="w-7 h-7 text-emerald-400/30" />
                                 </div>
                                 <div className="text-center">

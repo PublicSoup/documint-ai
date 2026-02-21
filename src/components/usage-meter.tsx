@@ -32,8 +32,8 @@ export default function UsageMeter() {
                     {usage.plan} Plan
                 </span>
                 <span className={`text-xs font-bold px-2 py-0.5 rounded ${isAtLimit ? 'bg-red-500/20 text-red-400' :
-                        isNearLimit ? 'bg-amber-500/20 text-amber-400' :
-                            'bg-primary/20 text-primary'
+                    isNearLimit ? 'bg-amber-500/20 text-amber-400' :
+                        'bg-primary/20 text-primary'
                     }`}>
                     {usage.filesProcessed} / {usage.filesLimit} files
                 </span>
@@ -43,8 +43,8 @@ export default function UsageMeter() {
             <div className="w-full h-2 bg-black/40 rounded-full overflow-hidden">
                 <div
                     className={`h-full transition-all ${isAtLimit ? 'bg-red-500' :
-                            isNearLimit ? 'bg-amber-500' :
-                                'bg-primary shadow-[0_0_10px_rgba(124,58,237,0.5)]'
+                        isNearLimit ? 'bg-amber-500' :
+                            'bg-primary'
                         }`}
                     style={{ width: `${percentage}%` }}
                 />
@@ -55,8 +55,8 @@ export default function UsageMeter() {
                     <Link
                         href="/dashboard/billing"
                         className={`block text-center text-xs font-medium py-2 px-3 rounded-lg transition-colors ${isAtLimit
-                                ? 'bg-red-500 hover:bg-red-600 text-white'
-                                : 'bg-amber-500 hover:bg-amber-600 text-white'
+                            ? 'bg-red-500 hover:bg-red-600 text-white'
+                            : 'bg-amber-500 hover:bg-amber-600 text-white'
                             }`}
                     >
                         {isAtLimit ? '⚠️ Limit Reached - Upgrade Now' : '🚀 Upgrade for More'}

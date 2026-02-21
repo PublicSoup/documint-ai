@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 import { motion, HTMLMotionProps } from "framer-motion"
 
 const buttonVariants = {
-    primary: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-[0_0_20px_-5px_rgba(124,58,237,0.5)] hover:shadow-[0_0_25px_-5px_rgba(124,58,237,0.6)]",
+    primary: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm",
     secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
     ghost: "hover:bg-accent hover:text-accent-foreground",
     glass: "glass text-white hover:bg-white/10 hover:border-white/20 shadow-lg",

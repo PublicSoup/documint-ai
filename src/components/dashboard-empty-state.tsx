@@ -21,7 +21,6 @@ export function DashboardEmptyState({ teamId, isPro }: DashboardEmptyStateProps)
                     transition={{ duration: 0.5 }}
                     className="relative inline-block"
                 >
-                    <div className="absolute inset-0 bg-primary/20 blur-3xl rounded-full" />
                     <Sparkles className="w-16 h-16 text-primary relative z-10 mx-auto" />
                 </motion.div>
 
@@ -30,7 +29,7 @@ export function DashboardEmptyState({ teamId, isPro }: DashboardEmptyStateProps)
                     animate={{ y: 0, opacity: 1 }}
                     transition={{ delay: 0.2 }}
                 >
-                    <h2 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">
+                    <h2 className="text-3xl font-bold text-white">
                         Welcome to DocuMint AI
                     </h2>
                     <p className="text-zinc-400 mt-2 text-lg">

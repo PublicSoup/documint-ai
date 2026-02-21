@@ -89,7 +89,7 @@ export function OnboardingChecklist() {
             description: "Unlock advanced AI analysis and team features.",
             completed: state.steps.hasUpgraded,
             icon: CreditCard,
-            action: <Link href="/dashboard/billing"><Button size="sm" variant="primary" className="h-7 text-xs bg-gradient-to-r from-purple-600 to-blue-600 border-0">Upgrade</Button></Link>
+            action: <Link href="/dashboard/billing"><Button size="sm" variant="primary" className="h-7 text-xs border-0">Upgrade</Button></Link>
         }
     ];
 
@@ -109,7 +109,7 @@ export function OnboardingChecklist() {
                 >
                     <div className="glass-card bg-gradient-to-r from-indigo-950/40 to-black/40 border border-indigo-500/20 p-6 rounded-2xl relative overflow-hidden">
                         {/* Background Splashes */}
-                        <div className="absolute top-0 right-0 p-32 bg-indigo-500/5 blur-[100px] rounded-full pointer-events-none" />
+
 
                         <div className="flex items-start justify-between mb-6 relative z-10">
                             <div>

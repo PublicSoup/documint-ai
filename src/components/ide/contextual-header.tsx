@@ -45,7 +45,7 @@ export function ContextualHeader({
                 </div>
                 {isSaving && (
                     <div className="flex items-center gap-1.5 text-[10px] text-purple-300/60">
-                        <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                        <div className="w-1.5 h-1.5 rounded-full bg-purple-400" />
                         <span>Saving</span>
                     </div>
                 )}

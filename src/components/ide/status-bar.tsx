@@ -114,7 +114,7 @@ export function IDEStatusBar({
                 <div className="flex items-center gap-1.5 min-w-[70px]">
                     {isSaving ? (
                         <>
-                            <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse shadow-[0_0_6px_rgba(168,85,247,0.4)]" />
+                            <div className="w-2 h-2 rounded-full bg-purple-400" />
                             <span className="text-purple-300 font-medium">Saving...</span>
                         </>
                     ) : (
@@ -143,8 +143,8 @@ export function IDEStatusBar({
                                 className={cn(
                                     "h-full rounded-full transition-all duration-700",
                                     isFileLimitNear
-                                        ? "bg-gradient-to-r from-amber-500 to-orange-500 shadow-[0_0_8px_rgba(251,191,36,0.4)]"
-                                        : "bg-gradient-to-r from-emerald-500/80 to-emerald-400/60",
+                                        ? "bg-amber-500"
+                                        : "bg-emerald-500/80",
                                 )}
                                 style={{ width: `${Math.min(filePercentage, 100)}%` }}
                             />
@@ -167,8 +167,8 @@ export function IDEStatusBar({
                                 className={cn(
                                     "h-full rounded-full transition-all duration-700",
                                     isTokenLimitNear
-                                        ? "bg-gradient-to-r from-amber-500 to-orange-500 shadow-[0_0_8px_rgba(251,191,36,0.4)]"
-                                        : "bg-gradient-to-r from-purple-500/80 to-violet-400/60",
+                                        ? "bg-amber-500"
+                                        : "bg-purple-500/80",
                                 )}
                                 style={{ width: `${Math.min(tokenPercentage, 100)}%` }}
                             />
@@ -211,7 +211,7 @@ export function IDEStatusBar({
                         onClick={() => {
                             window.location.href = "/checkout";
                         }}
-                        className="bg-gradient-to-r from-purple-600 to-violet-500 hover:from-purple-500 hover:to-violet-400 text-white px-2.5 py-0.5 rounded-md font-bold text-[9px] uppercase tracking-wider flex items-center gap-1 transition-all ml-1 shadow-[0_0_12px_rgba(139,92,246,0.3)] hover:shadow-[0_0_16px_rgba(139,92,246,0.5)]"
+                        className="bg-purple-600 hover:bg-purple-500 text-white px-2.5 py-0.5 rounded-md font-bold text-[9px] uppercase tracking-wider flex items-center gap-1 transition-all ml-1"
                     >
                         <Zap className="w-2.5 h-2.5 fill-current" />
                         Upgrade

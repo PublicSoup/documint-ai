@@ -339,7 +339,7 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         placeholder="Search..."
-                        className="w-full bg-black/20 border border-white/[0.06] rounded-lg pl-7 pr-2 py-1 text-[10px] text-white placeholder:text-white/15 focus:outline-none focus:border-purple-500/40 focus:bg-black/30 focus:shadow-[0_0_8px_rgba(168,85,247,0.1)] transition-all"
+                        className="w-full bg-black/20 border border-white/[0.06] rounded-lg pl-7 pr-2 py-1 text-[10px] text-white placeholder:text-white/15 focus:outline-none focus:border-purple-500/40 focus:bg-black/30 transition-all"
                     />
                 </div>
             </div>
