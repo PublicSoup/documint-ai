@@ -1,19 +1,33 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { sendNotification } from "@/lib/notifications";
+import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
+
+const paramsSchema = z.object({
+    token: z.string().min(10).max(255),
+}).strict();
 
 export async function GET(
-    req: Request,
+    req: NextRequest,
     { params }: { params: Promise<{ token: string }> }
 ) {
     try {
-        const { token } = await params;
+        const clientIp = await getClientIP(req);
+        await enforceRateLimit(clientIp, "auth");
 
-        // Find the invite
+        const parsedParams = paramsSchema.safeParse(await params);
+        if (!parsedParams.success) {
+            return NextResponse.json({ error: "Invalid invitation token" }, { status: 400 });
+        }
+
+        const { token } = parsedParams.data;
+
         const invite = await db.teamInvite.findUnique({
             where: { token },
-            include: { team: true }
+            include: { team: true },
         });
 
         if (!invite) {
@@ -28,9 +42,8 @@ export async function GET(
             teamName: invite.team.name,
             email: invite.email,
             role: invite.role,
-            expiresAt: invite.expiresAt
+            expiresAt: invite.expiresAt,
         });
-
     } catch (error) {
         console.error("Get invite error:", error);
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
@@ -38,21 +51,27 @@ export async function GET(
 }
 
 export async function POST(
-    req: Request,
+    req: NextRequest,
     { params }: { params: Promise<{ token: string }> }
 ) {
     try {
         const session = await getServerSession(authOptions);
-        if (!session?.user?.email) {
+        if (!session?.user?.id || !session?.user?.email) {
             return NextResponse.json({ error: "Please login first" }, { status: 401 });
         }
 
-        const { token } = await params;
+        await enforceRateLimit(session.user.id, "api");
 
-        // Find and validate the invite
+        const parsedParams = paramsSchema.safeParse(await params);
+        if (!parsedParams.success) {
+            return NextResponse.json({ error: "Invalid invitation token" }, { status: 400 });
+        }
+
+        const { token } = parsedParams.data;
+
         const invite = await db.teamInvite.findUnique({
             where: { token },
-            include: { team: true }
+            include: { team: true },
         });
 
         if (!invite) {
@@ -63,72 +82,83 @@ export async function POST(
             return NextResponse.json({ error: "Invitation has expired" }, { status: 410 });
         }
 
-        // Verify email matches
         if (invite.email.toLowerCase() !== session.user.email.toLowerCase()) {
-            return NextResponse.json({
-                error: `This invitation was sent to ${invite.email}. Please login with that email.`
-            }, { status: 403 });
+            return NextResponse.json(
+                { error: `This invitation was sent to ${invite.email}. Please login with that email.` },
+                { status: 403 }
+            );
         }
 
-        // Get user
         const user = await db.user.findUnique({
-            where: { email: session.user.email }
+            where: { id: session.user.id },
+            select: { id: true, name: true, email: true },
         });
 
         if (!user) {
             return NextResponse.json({ error: "User not found" }, { status: 404 });
         }
 
-        // Check if already a member
         const existingMember = await db.teamMember.findUnique({
             where: {
                 teamId_userId: {
                     teamId: invite.teamId,
-                    userId: user.id
-                }
-            }
+                    userId: user.id,
+                },
+            },
         });
 
         if (existingMember) {
-            // Already a member, just delete invite and redirect
             await db.teamInvite.delete({ where: { id: invite.id } });
             return NextResponse.json({
                 success: true,
                 message: "You're already a member of this team",
                 teamId: invite.teamId,
-                teamName: invite.team.name
+                teamName: invite.team.name,
             });
         }
 
-        // Add user to team
-        await db.teamMember.create({
-            data: {
-                teamId: invite.teamId,
-                userId: user.id,
-                role: invite.role
-            }
+        await db.$transaction(async (tx) => {
+            await tx.teamMember.create({
+                data: {
+                    teamId: invite.teamId,
+                    userId: user.id,
+                    role: invite.role,
+                },
+            });
+
+            await tx.teamInvite.delete({ where: { id: invite.id } });
         });
 
-        // Delete the invite
-        await db.teamInvite.delete({ where: { id: invite.id } });
-
-        // Create notification for the new member
-        await db.notification.create({
-            data: {
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
                 userId: user.id,
-                type: "INVITE",
-                message: `Welcome to ${invite.team.name}! You've joined as ${invite.role}.`,
-                link: `/dashboard?team=${invite.teamId}`
-            }
+                action: "ACCEPT_INVITE",
+                entity: "Team",
+                entityId: invite.teamId,
+                details: {
+                    role: invite.role,
+                    teamName: invite.team.name,
+                },
+            });
+        } catch {
+            // Non-blocking
+        }
+
+        await sendNotification({
+            userId: user.id,
+            type: "TEAM_JOIN",
+            title: "Welcome to the Team! 🎉",
+            message: `You have successfully joined **${invite.team.name}** as ${invite.role}.`,
+            teamId: invite.teamId,
         });
 
         return NextResponse.json({
             success: true,
             teamId: invite.teamId,
             teamName: invite.team.name,
-            role: invite.role
+            role: invite.role,
         });
-
     } catch (error) {
         console.error("Accept invite error:", error);
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });

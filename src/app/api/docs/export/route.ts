@@ -1,8 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../../../../lib/auth";
-import { db } from "../../../../lib/db";
-import { resolveUserId } from "../../../../lib/resolve-user";
+import { z } from "zod";
+import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { checkFilePermission } from "@/lib/permissions";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { safeJsonParse } from "@/lib/utils";
+
+interface ExportedFile {
+    name: string;
+    language: string | null;
+    content: string;
+    metadata: Record<string, unknown>;
+}
+
+const exportBodySchema = z.object({
+    fileIds: z.array(z.string().min(1)).min(1).max(100),
+}).strict();
+
+interface ParsedDocumentation {
+    summary?: string;
+    entities?: Array<{ name?: string; doc?: string }>;
+    metadata?: Record<string, unknown>;
+}
 
 export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions);
@@ -10,59 +30,80 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { fileIds } = await req.json();
-
-    if (!Array.isArray(fileIds) || fileIds.length === 0) {
-        return NextResponse.json({ error: "fileIds array is required" }, { status: 400 });
-    }
-
-    // Resolve user
-    const userId = await resolveUserId(session);
-    if (!userId) return NextResponse.json({ error: "User not found" }, { status: 404 });
-
     try {
-        // Fetch valid files owned by user (or team logic if added later)
+        await enforceRateLimit(session.user.id, "api");
+
+        const parsedBody = exportBodySchema.safeParse(await req.json());
+        if (!parsedBody.success) {
+            return NextResponse.json({ error: "fileIds array is required" }, { status: 400 });
+        }
+
+        const requestedFileIds = Array.from(new Set(parsedBody.data.fileIds));
+
         const files = await db.file.findMany({
-            where: {
-                id: { in: fileIds },
-                userId: userId, // Ensure ownership
-            },
-            include: {
-                documentation: true,
-            },
+            where: { id: { in: requestedFileIds } },
+            include: { documentation: true },
         });
 
-        const exportData = files.reduce((acc, file) => {
-            let content = "";
-            let metadata = {};
+        const exportData: Record<string, ExportedFile> = {};
 
-            if (file.documentation) {
-                try {
-                    const docJson = JSON.parse(file.documentation.content);
-                    // Reconstruct markdown from JSON for export
-                    content = `# ${file.name}\n\n${docJson.summary}\n\n`;
-                    if (Array.isArray(docJson.entities)) {
-                        content += docJson.entities.map((e: any) => `## ${e.name}\n\n${e.doc}`).join("\n\n");
-                    }
-                    metadata = docJson.metadata || {};
-                } catch (e) {
-                    content = "Error parsing documentation content.";
-                }
-            } else {
-                content = "No documentation generated.";
+        for (const file of files) {
+            const canView = await checkFilePermission(session.user.id, file.id, "view");
+            if (!canView) {
+                continue;
             }
 
-            acc[file.id] = {
+            let content = "No documentation generated.";
+            let metadata: Record<string, unknown> = {};
+
+            if (file.documentation?.content) {
+                const docJson = safeJsonParse<ParsedDocumentation>(file.documentation.content, {});
+                const summary = docJson.summary || "No summary available.";
+
+                const sections = [
+                    `# ${file.name}`,
+                    "",
+                    summary,
+                    "",
+                ];
+
+                if (Array.isArray(docJson.entities) && docJson.entities.length > 0) {
+                    docJson.entities.forEach((entity) => {
+                        const entityName = entity.name || "Unnamed Entity";
+                        const entityDoc = entity.doc || "No description available.";
+                        sections.push(`## ${entityName}`, "", entityDoc, "");
+                    });
+                }
+
+                content = sections.join("\n").trim();
+                metadata = docJson.metadata || {};
+            }
+
+            exportData[file.id] = {
                 name: file.name,
                 language: file.language,
-                content: content,
-                metadata: metadata
+                content,
+                metadata,
             };
-            return acc;
-        }, {} as Record<string, any>);
+        }
+
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: session.user.id,
+                action: "EXPORT_DOCS",
+                entity: "Documentation",
+                entityId: requestedFileIds.join(","),
+                details: {
+                    requestedCount: requestedFileIds.length,
+                    exportedCount: Object.keys(exportData).length,
+                },
+            });
+        } catch {
+            // Non-blocking
+        }
 
         return NextResponse.json({ files: exportData });
-
     } catch (error) {
         console.error("Batch export error:", error);
         return NextResponse.json({ error: "Failed to fetch files" }, { status: 500 });
