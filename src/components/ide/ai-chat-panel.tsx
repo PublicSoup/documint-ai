@@ -953,14 +953,15 @@ export function AIChatPanel({
                             }
 
                             if (event.type === "thought") {
-                                if (onAgentAction) onAgentAction(`Thinking: ${event.content.substring(0, 30)}...`);
+                                const thoughtText = typeof event.content === "string" ? event.content : "";
+                                if (onAgentAction) onAgentAction(`Thinking: ${thoughtText.slice(0, 30)}...`);
 
                                 setMessages(prev => prev.map(m => m.id === assistantId ? {
                                     ...m,
                                     thoughtSteps: [...(m.thoughtSteps || []), {
                                         id: generateId(),
                                         type: 'thought',
-                                        content: event.content,
+                                        content: thoughtText,
                                         timestamp: Date.now()
                                     }]
                                 } : m));
@@ -980,22 +981,24 @@ export function AIChatPanel({
                                 } : m));
 
                             } else if (event.type === "tool_result") {
+                                const resultText = typeof event.result === "string" ? event.result : JSON.stringify(event.result ?? "");
                                 setMessages(prev => prev.map(m => m.id === assistantId ? {
                                     ...m,
                                     thoughtSteps: [...(m.thoughtSteps || []), {
                                         id: generateId(),
                                         type: 'tool_result',
-                                        content: event.result.substring(0, 200) + (event.result.length > 200 ? "..." : ""),
+                                        content: resultText.slice(0, 200) + (resultText.length > 200 ? "..." : ""),
                                         timestamp: Date.now()
                                     }]
                                 } : m));
 
                             } else if (event.type === "response") {
+                                const responseText = typeof event.content === "string" ? event.content : "";
                                 if (onAgentAction) onAgentAction(null);
                                 setMessages(prev => prev.map(m => m.id === assistantId ? {
                                     ...m,
-                                    content: m.content + event.content,
-                                    codeBlocks: extractCodeBlocks(m.content + event.content).map(block => ({
+                                    content: m.content + responseText,
+                                    codeBlocks: extractCodeBlocks(m.content + responseText).map(block => ({
                                         ...block,
                                         id: generateId(),
                                         fileName: block.filename,
@@ -1020,15 +1023,15 @@ export function AIChatPanel({
                 }
             }
 
-        } catch (e: any) {
-            if (e.name === 'AbortError') {
+        } catch (e: unknown) {
+            if (e instanceof Error && e.name === 'AbortError') {
                 console.log("Request aborted");
                 return;
             }
             const errorMessage: Message = {
                 id: generateId(),
                 role: "assistant",
-                content: `⚠️ Error: ${e.message || "Network error"}`,
+                content: `⚠️ Error: ${e instanceof Error ? e.message : "Network error"}`,
                 codeBlocks: [],
                 timestamp: Date.now()
             };
