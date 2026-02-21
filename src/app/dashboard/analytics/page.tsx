@@ -1,13 +1,13 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { db } from "../../../lib/db";
 import { redirect } from "next/navigation";
 import { BarChart3, TrendingUp, Users, FileText, CheckSquare, Eye, Crown, ArrowUpRight } from "lucide-react";
 import Link from 'next/link';
-import { hasFeatureAccess } from "../../../lib/subscription";
+import { hasFeatureAccess } from "@/lib/subscription";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AnalyticsCharts } from "@/components/analytics-charts";
+import { getAnalyticsData } from "@/lib/analytics";
 
 export const metadata = {
     title: "Analytics | DocuMint AI",
@@ -16,7 +16,7 @@ export const metadata = {
 
 export default async function AnalyticsPage() {
     const session = await getServerSession(authOptions);
-    if (!session) redirect("/");
+    if (!session?.user?.id) redirect("/");
 
     // Gate: Analytics is Pro Feature
     const hasAccess = await hasFeatureAccess(session.user.id, "analytics");
@@ -32,81 +32,17 @@ export default async function AnalyticsPage() {
                     Gain deep insights into your documentation coverage, team activity, and usage trends.
                 </p>
                 <Link href="/dashboard/settings?tab=billing">
-                    <Button size="lg" className="px-8 shadow-lg shadow-primary/20" rightIcon={<Crown className="w-4 h-4 text-amber-200" />}>
+                    <Button size="lg" className="px-8 shadow-lg shadow-primary/20">
                         Upgrade to Pro
+                        <Crown className="w-4 h-4 ml-2 text-amber-200" />
                     </Button>
                 </Link>
             </div>
         );
     }
 
-    // Fetch Stats
-    const fileCount = await db.file.count({ where: { userId: session.user.id } });
-    const docCount = await db.documentation.count({ where: { file: { userId: session.user.id } } });
-    const reviewCount = await db.reviewRequest.count({
-        where: {
-            OR: [
-                { requesterId: session.user.id },
-                { reviewerId: session.user.id }
-            ],
-            status: "PENDING"
-        }
-    });
-
-    // Real View Count
-    const totalViewsConfig = await db.docView.aggregate({
-        where: { file: { userId: session.user.id } },
-        _count: {
-            _all: true,
-        }
-    });
-    const totalViews = totalViewsConfig._count._all;
-
-    // Calculate Coverage
-    const coverage = fileCount > 0 ? Math.round((docCount / fileCount) * 100) : 0;
-
-    // Fetch Recent Activity
-    const recentDocs = await db.documentation.findMany({
-        where: { file: { userId: session.user.id } },
-        orderBy: { updatedAt: "desc" },
-        take: 5,
-        include: {
-            file: {
-                select: { name: true, language: true }
-            }
-        }
-    });
-
-    // Fetch Top Viewed Docs
-    const topViewedFiles = await db.docView.groupBy({
-        by: ['fileId'],
-        where: { file: { userId: session.user.id } },
-        _count: {
-            fileId: true,
-        },
-        orderBy: {
-            _count: {
-                fileId: 'desc'
-            }
-        },
-        take: 5,
-    });
-
-    // Get file names for top views
-    const fileIds = topViewedFiles.map(t => t.fileId);
-    const topFiles = await db.file.findMany({
-        where: { id: { in: fileIds } },
-        select: { id: true, name: true, language: true }
-    });
-
-    // Merge count with file details
-    const topDocs = topViewedFiles.map(view => {
-        const file = topFiles.find(f => f.id === view.fileId);
-        return {
-            ...file,
-            views: view._count.fileId
-        };
-    }).filter(d => d.name);
+    // Fetch data using the helper
+    const data = await getAnalyticsData(session.user.id);
 
     return (
         <div className="max-w-7xl mx-auto space-y-8 animate-fade-in pb-10">
@@ -119,31 +55,36 @@ export default async function AnalyticsPage() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 <StatCard
                     label="Total Files"
-                    value={fileCount.toString()}
+                    value={data.overview.totalFiles.toString()}
                     icon={<FileText className="w-5 h-5 text-blue-400" />}
                     bg="bg-blue-500/10"
                 />
                 <StatCard
                     label="Doc Coverage"
-                    value={`${coverage}%`}
+                    value={`${data.coverage.percentage}%`}
                     icon={<TrendingUp className="w-5 h-5 text-green-400" />}
                     bg="bg-green-500/10"
                 />
                 <StatCard
-                    label="Pending Reviews"
-                    value={reviewCount.toString()}
-                    icon={<CheckSquare className="w-5 h-5 text-amber-400" />}
+                    label="Active Velocity"
+                    value={`+${data.overview.velocity.score}%`}
+                    icon={<BarChart3 className="w-5 h-5 text-amber-400" />}
                     bg="bg-amber-500/10"
                 />
                 <StatCard
                     label="Total Views"
-                    value={totalViews.toString()}
+                    value={data.overview.totalViews.toString()}
                     icon={<Eye className="w-5 h-5 text-pink-400" />}
                     bg="bg-pink-500/10"
                 />
             </div>
 
-            <AnalyticsCharts data={[]} />
+            {/* Documentation Growth Chart */}
+            <AnalyticsCharts data={data.recentActivity.map(a => ({
+                name: new Date(a.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+                docs: a.creations,
+                views: a.views
+            }))} />
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full">
                 {/* Popular Documentation */}
@@ -156,21 +97,21 @@ export default async function AnalyticsPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="space-y-4">
-                            {topDocs.length === 0 ? (
+                            {data.topDocs.length === 0 ? (
                                 <div className="text-center py-12 text-muted-foreground text-sm border-2 border-dashed border-white/5 rounded-xl bg-white/5">
                                     No views recorded yet.
                                 </div>
                             ) : (
                                 <div className="space-y-2">
-                                    {topDocs.map((doc, i) => (
-                                        <div key={i} className="p-3 rounded-xl hover:bg-white/5 transition-all flex items-center justify-between group cursor-default border border-transparent hover:border-white/5">
+                                    {data.topDocs.map((doc, i) => (
+                                        <div key={doc.id} className="p-3 rounded-xl hover:bg-white/5 transition-all flex items-center justify-between group cursor-default border border-transparent hover:border-white/5">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-muted-foreground font-bold text-xs group-hover:bg-primary/20 group-hover:text-primary transition-colors">
                                                     {i + 1}
                                                 </div>
                                                 <div>
-                                                    <div className="font-medium text-sm text-white group-hover:text-primary transition-colors">{doc.name}</div>
-                                                    <div className="text-xs text-muted-foreground">{doc.language}</div>
+                                                    <div className="font-medium text-sm text-white group-hover:text-primary transition-colors truncate max-w-[200px]">{doc.name}</div>
+                                                    <div className="text-[10px] text-zinc-500 uppercase font-black">{doc.language}</div>
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-1 rounded-md border border-primary/20">
@@ -185,32 +126,32 @@ export default async function AnalyticsPage() {
                     </CardContent>
                 </Card>
 
-                {/* Recent Activity Feed */}
+                {/* Stale Documentation */}
                 <Card className="h-full border-white/5 bg-black/20">
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2 text-white">
-                            <FileText className="w-4 h-4 text-blue-400" />
-                            Recent Updates
+                            <AlertCircle className="w-4 h-4 text-amber-400" />
+                            Documentation Debt
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
                         <div className="space-y-1">
-                            {recentDocs.length === 0 ? (
+                            {data.staleDocs.length === 0 ? (
                                 <div className="p-8 border-2 border-dashed border-white/5 rounded-xl text-center text-muted-foreground bg-white/5">
-                                    No recent documentation activity.
+                                    Your documentation is up to date! 🎉
                                 </div>
                             ) : (
-                                recentDocs.map((doc, i) => (
+                                data.staleDocs.map((doc) => (
                                     <div key={doc.id} className="flex items-start gap-4 p-4 rounded-xl hover:bg-white/5 transition-colors group relative border border-transparent hover:border-white/5">
-                                        <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0 border border-blue-500/20 group-hover:border-blue-500/50 transition-colors">
-                                            <div className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+                                        <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0 border border-amber-500/20 group-hover:border-amber-500/50 transition-colors">
+                                            <div className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
                                         </div>
                                         <div className="flex-1">
                                             <p className="text-sm font-medium text-white/90">
-                                                Updated <span className="text-blue-400 group-hover:text-blue-300 transition-colors">{doc.file.name}</span>
+                                                <span className="text-amber-400 group-hover:text-amber-300 transition-colors">{doc.name}</span>
                                             </p>
-                                            <p className="text-xs text-muted-foreground mt-1">
-                                                {new Date(doc.updatedAt).toLocaleDateString()} at {new Date(doc.updatedAt).toLocaleTimeString()}
+                                            <p className="text-[10px] text-muted-foreground mt-1 uppercase font-bold tracking-wider">
+                                                {doc.reason === "OUT_OF_SYNC" ? "Code changed after docs" : "Update recommended"} • {doc.daysSinceUpdate} days ago
                                             </p>
                                         </div>
                                         <ArrowUpRight className="w-4 h-4 text-white/20 group-hover:text-white/60 opacity-0 group-hover:opacity-100 transition-all" />
@@ -240,3 +181,5 @@ function StatCard({ label, value, icon, bg }: { label: string, value: string, ic
         </Card>
     );
 }
+
+import { AlertCircle } from "lucide-react";
