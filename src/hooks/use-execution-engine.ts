@@ -140,7 +140,7 @@ export function useExecutionEngine({
 
             log(`\r\n\x1b[32m> [Success] Application running at https://${remoteRunner.id}-dev.documint.cloud\x1b[0m\r\n`);
 
-            setPreviewUrl("https://documintai.dev"); // Mock
+            setPreviewUrl(`https://${remoteRunner.id}-dev.documint.cloud`);
             setIsPreviewOpen(true);
             setIsInstalling(false);
             return;

@@ -104,7 +104,7 @@ export function FileTree({ files, activeFileId, onSelect, onAction }: FileTreePr
             </div>
 
             <div className="flex-1 overflow-y-auto p-2 space-y-0.5 custom-scrollbar">
-                {/* Mock Folder Structure for Visuals (Since DB is flat) */}
+                {/* Root folder grouping for current workspace file list */}
                 <div
                     onClick={() => setIsExpanded(!isExpanded)}
                     className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-white/70 hover:text-white hover:bg-white/5 rounded cursor-pointer group select-none transition-colors"
