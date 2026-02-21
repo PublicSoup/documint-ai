@@ -1,5 +1,3 @@
-import { db } from "./db";
-
 export async function trackTokenUsage(
     userId: string,
     model: string,
@@ -8,18 +6,25 @@ export async function trackTokenUsage(
     action: string
 ) {
     try {
-        // Log to database for analytics
-        // Note: Real implementation would batch this or use a timeseries DB
-        // For now, we update the user's daily usage stats if we had a table for it
-        // Or just log to console/Redis
+        const totalTokens = inputTokens + outputTokens;
 
-        console.log(`[TokenTracker] User:${userId} | Model:${model} | In:${inputTokens} | Out:${outputTokens} | Action:${action}`);
-
-        // Example: Update a Redis counter (mocked here)
-        // await redis.incrby(`usage:${userId}:tokens`, inputTokens + outputTokens);
-
+        // Persist as auditable event until dedicated usage table is introduced.
+        const { logAudit } = await import("./audit-logger");
+        await logAudit({
+            userId,
+            action: "TRACK_TOKENS",
+            entity: "AI",
+            entityId: model,
+            details: {
+                model,
+                inputTokens,
+                outputTokens,
+                totalTokens,
+                usageAction: action,
+            },
+        });
     } catch (error) {
         console.error("Failed to track token usage:", error);
-        // Don't fail the request just because tracking failed
+        // Never fail primary request path because telemetry failed.
     }
 }

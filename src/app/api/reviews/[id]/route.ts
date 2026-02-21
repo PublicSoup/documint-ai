@@ -1,60 +1,78 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../../../../lib/auth";
-import { db } from "../../../../lib/db";
+import { z } from "zod";
+import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { checkFilePermission } from "@/lib/permissions";
 
-// PUT: Update Review Status (Approve/Reject)
-export async function PUT(req: Request, props: { params: Promise<{ id: string }> }) {
+const updateReviewSchema = z.object({
+    status: z.enum(["APPROVED", "CHANGES_REQUESTED"]),
+    comments: z.string().max(4000).optional(),
+}).strict();
+
+// PUT: Update review status
+export async function PUT(req: NextRequest, props: { params: Promise<{ id: string }> }) {
     const params = await props.params;
+
     try {
         const session = await getServerSession(authOptions);
-        if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        const { status, comments } = await req.json(); // status: APPROVED, CHANGES_REQUESTED
+        const parsed = updateReviewSchema.safeParse(await req.json());
+        if (!parsed.success) {
+            return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+        }
 
-        if (!status) return NextResponse.json({ error: "Status required" }, { status: 400 });
+        const { status, comments } = parsed.data;
 
         const review = await db.reviewRequest.findUnique({
             where: { id: params.id },
-            include: { documentation: true }
+            include: {
+                documentation: {
+                    select: { id: true, fileId: true },
+                },
+            },
         });
 
         if (!review) return NextResponse.json({ error: "Review not found" }, { status: 404 });
 
-        // Check permission (Are you the reviewer? Or Team Admin?)
-        // For MVP: Any authenticated user in the team? 
-        // We'll enforce: must be reviewerId OR different user than requester (self-approval blocked?)
-        if (review.requesterId === session.user.id && status === "APPROVED") {
-            // return NextResponse.json({ error: "Cannot approve your own request" }, { status: 403 });
-            // Allow for dev/demo purposes
+        const canApprove = await checkFilePermission(session.user.id, review.documentation.fileId, "approve");
+        const isAssignedReviewer = review.reviewerId === session.user.id;
+
+        if (!canApprove && !isAssignedReviewer) {
+            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 
-        // Update Review
+        if (status === "APPROVED" && review.requesterId === session.user.id && !canApprove) {
+            return NextResponse.json({ error: "Requester cannot self-approve" }, { status: 403 });
+        }
+
+        const mergedComments = comments
+            ? `${review.comments || ""}${review.comments ? "\n---\n" : ""}[${status}] ${comments}`
+            : review.comments;
+
         await db.reviewRequest.update({
             where: { id: params.id },
             data: {
                 status,
-                comments: comments ? `${review.comments || ''}\n---\n[${status}] ${comments}` : review.comments
-            }
+                comments: mergedComments,
+                reviewerId: review.reviewerId || session.user.id,
+            },
         });
 
-        // Update Documentation Status if Approved
         if (status === "APPROVED") {
             await db.documentation.update({
                 where: { id: review.documentationId },
-                data: { status: "APPROVED" }
+                data: { status: "APPROVED", verifiedAt: new Date(), verifiedById: session.user.id },
             });
-        } else if (status === "CHANGES_REQUESTED") {
-            // Keep Doc in REVIEW or set back to DRAFT?
-            // Usually DRAFT implies editing.
+        } else {
             await db.documentation.update({
                 where: { id: review.documentationId },
-                data: { status: "DRAFT" }
+                data: { status: "DRAFT", verifiedAt: null, verifiedById: null },
             });
         }
 
         return NextResponse.json({ success: true });
-
     } catch (error) {
         console.error("Update Review Error:", error);
         return NextResponse.json({ error: "Failed to update review" }, { status: 500 });

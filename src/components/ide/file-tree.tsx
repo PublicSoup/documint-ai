@@ -5,14 +5,14 @@ import { useState, useMemo } from "react";
 import { File } from "@prisma/client";
 
 interface FileTreeProps {
-    files: (File & { documentation?: any })[];
+    files: (File & { documentation?: { status?: string } | null })[];
     activeFileId?: string;
     onSelect: (fileId: string) => void;
     onAction?: (action: "ai" | "delete" | "rename" | "new_file", fileId?: string) => void;
 }
 
 import { ContextMenu, ContextMenuItem } from "./context-menu";
-import { Copy, Trash2, Pencil, Sparkles, Download, FileText } from "lucide-react";
+import { Copy, Trash2, Pencil, Sparkles, FileText } from "lucide-react";
 
 export function FileTree({ files, activeFileId, onSelect, onAction }: FileTreeProps) {
     const [search, setSearch] = useState("");
@@ -60,8 +60,9 @@ export function FileTree({ files, activeFileId, onSelect, onAction }: FileTreePr
             {
                 label: "Rename",
                 icon: Pencil,
-                disabled: true, // TODO: Implement renaming
-                shortcut: "F2"
+                disabled: !onAction,
+                shortcut: "F2",
+                onClick: () => onAction?.("rename", fileId)
             },
             {
                 label: "Delete",

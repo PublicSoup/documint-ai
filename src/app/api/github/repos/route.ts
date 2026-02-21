@@ -17,14 +17,9 @@ export async function GET(req: NextRequest) {
         });
 
         if (!connection || !connection.accessToken) {
-            // Return demo repos if no token
             return NextResponse.json({
-                repos: [
-                    { id: 1, name: "my-project", full_name: "jdoe/my-project", language: "TypeScript", updated_at: new Date().toISOString(), private: false },
-                    { id: 2, name: "api-server", full_name: "jdoe/api-server", language: "Python", updated_at: new Date().toISOString(), private: true },
-                    { id: 3, name: "react-app", full_name: "jdoe/react-app", language: "JavaScript", updated_at: new Date().toISOString(), private: false },
-                ],
-                demo: true
+                repos: [],
+                connected: false,
             });
         }
 
@@ -47,9 +42,19 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: "Failed to fetch repos" }, { status: res.status });
         }
 
-        const repos = await res.json();
+        const repos = (await res.json()) as Array<{
+            id: number;
+            name: string;
+            full_name: string;
+            language: string | null;
+            updated_at: string;
+            private: boolean;
+            description?: string | null;
+            default_branch: string;
+        }>;
+
         return NextResponse.json({
-            repos: repos.map((repo: any) => ({
+            repos: repos.map((repo) => ({
                 id: repo.id,
                 name: repo.name,
                 full_name: repo.full_name,
