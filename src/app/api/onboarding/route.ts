@@ -1,59 +1,55 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { resolveUserId } from "@/lib/resolve-user";
 import { getUserSubscription } from "@/lib/subscription";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { z } from "zod";
+import { errorResponse, validateBody } from "@/lib/api-utils";
 
+const onboardingSchema = z.object({
+    dismissed: z.boolean(),
+});
+
+/**
+ * GET /api/onboarding
+ * Returns onboarding progress steps and dismissed state for the current user.
+ */
 export async function GET() {
     try {
         const session = await getServerSession(authOptions);
-        if (!session?.user) {
+        if (!session?.user?.id) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        // No dev-only onboarding shortcuts in production paths.
+        // Rate limit
+        await enforceRateLimit(session.user.id, "api");
 
-        const userId = await resolveUserId(session);
-        if (!userId) {
-            return NextResponse.json({ error: "User not found" }, { status: 404 });
-        }
+        const userId = session.user.id;
 
-        // 1. Check if user has uploaded any files
-        const fileCount = await db.file.count({
-            where: { userId }
-        });
-
-        // 2. Check if user has shared any document (isPublic = true)
-        // We need to look up documentation associated with user's files
-        // Or directly if we had userId on documentation, but we only have fileId.
-        // Files are filtered by userId, so we filter documentation by those files.
-        const sharedCount = await db.documentation.count({
-            where: {
-                isPublic: true,
-                file: {
-                    userId: userId
+        // 1. Check progress steps
+        const [fileCount, sharedCount, subscription, user] = await Promise.all([
+            db.file.count({ where: { userId } }),
+            db.documentation.count({
+                where: {
+                    isPublic: true,
+                    file: { userId }
                 }
-            }
-        });
+            }),
+            getUserSubscription(userId),
+            db.user.findUnique({
+                where: { id: userId },
+                select: { settings: true }
+            })
+        ]);
 
-        // 3. Check subscription status
-        const subscription = await getUserSubscription(userId);
         const isPro = subscription.isPro || subscription.isTeam;
-
-        // 4. Check if they have set a custom name (profile setup - simple proxy)
-        const user = await db.user.findUnique({
-            where: { id: userId },
-            select: { name: true, settings: true }
-        });
-
-        // Determine dismissed state from user settings
         const settings = (user?.settings as { onboardingDismissed?: boolean } | null) || {};
         const isDismissed = !!settings.onboardingDismissed;
 
         return NextResponse.json({
             steps: {
-                hasAccount: true, // Always true if logged in
+                hasAccount: true,
                 hasScanned: fileCount > 0,
                 hasShared: sharedCount > 0,
                 hasUpgraded: isPro,
@@ -62,27 +58,32 @@ export async function GET() {
         });
 
     } catch (error) {
-        console.error("Onboarding API Error:", error);
-        return NextResponse.json({ error: "Internal Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
-export async function POST(req: Request) {
+/**
+ * POST /api/onboarding
+ * Updates the dismissed state of the onboarding checklist in user settings.
+ */
+export async function POST(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
-        if (!session?.user) {
+        if (!session?.user?.id) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const userId = await resolveUserId(session);
-        if (!userId) {
-            return NextResponse.json({ error: "User not found" }, { status: 404 });
-        }
+        await enforceRateLimit(session.user.id, "api");
 
-        const { dismissed } = await req.json();
+        const userId = session.user.id;
+        const { dismissed } = await validateBody(request, onboardingSchema);
 
-        // Update user settings
-        const user = await db.user.findUnique({ where: { id: userId }, select: { settings: true } });
+        // Fetch current settings to preserve other keys
+        const user = await db.user.findUnique({ 
+            where: { id: userId }, 
+            select: { settings: true } 
+        });
+        
         const currentSettings = (user?.settings as Record<string, unknown> | null) || {};
 
         await db.user.update({
@@ -98,7 +99,6 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: true });
 
     } catch (error) {
-        console.error("Onboarding Update Error:", error);
-        return NextResponse.json({ error: "Internal Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
