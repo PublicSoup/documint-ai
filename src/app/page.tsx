@@ -60,11 +60,10 @@ export default function LandingPage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      {/* Animated Background Elements */}
+      {/* Static Background Gradients */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none -z-10">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 blur-[120px] rounded-full animate-pulse" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/10 blur-[120px] rounded-full animate-float" />
-        <div className="absolute top-[20%] right-[10%] w-[30%] h-[30%] bg-indigo-600/10 blur-[100px] rounded-full" />
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/15 blur-[120px] rounded-full" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[35%] h-[35%] bg-purple-600/8 blur-[120px] rounded-full" />
       </div>
 
       {/* Header */}
@@ -200,10 +199,10 @@ export default function LandingPage() {
             <div className="grid grid-cols-12 h-full">
               <div className="col-span-3 border-r border-white/5 p-6 bg-black/20">
                 <div className="space-y-4">
-                  <div className="w-full h-4 bg-white/5 rounded animate-pulse" />
-                  <div className="w-3/4 h-4 bg-white/5 rounded animate-pulse" />
-                  <div className="w-full h-4 bg-white/5 rounded animate-pulse" />
-                  <div className="w-1/2 h-4 bg-white/5 rounded animate-pulse" />
+                  <div className="w-full h-4 bg-white/8 rounded" />
+                  <div className="w-3/4 h-4 bg-white/5 rounded" />
+                  <div className="w-full h-4 bg-white/6 rounded" />
+                  <div className="w-1/2 h-4 bg-white/4 rounded" />
                 </div>
               </div>
               <div className="col-span-9 p-6 bg-[#0d1117] font-mono text-xs relative overflow-hidden">
@@ -224,8 +223,8 @@ export default function LandingPage() {
                     <div className="h-4"></div>
                   </div>
                 </div>
-                <div className="absolute bottom-4 right-4 px-3 py-1.5 bg-primary/20 border border-primary/40 rounded-lg text-primary text-xs font-sans animate-pulse flex items-center gap-2">
-                  <Sparkles className="w-3 h-3" /> AI analyzing...
+                <div className="absolute bottom-4 right-4 px-3 py-1.5 bg-primary/20 border border-primary/30 rounded-lg text-primary text-xs font-sans flex items-center gap-2">
+                  <Sparkles className="w-3 h-3" /> AI Ready
                 </div>
               </div>
             </div>
@@ -248,7 +247,7 @@ export default function LandingPage() {
             initial="initial"
             whileInView="animate"
             viewport={{ once: true }}
-            className="grid grid-cols-1 md:grid-cols-3 gap-8"
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
           >
             {[
               {
@@ -384,7 +383,7 @@ export default function LandingPage() {
             <span className="text-primary italic">next big thing?</span>
           </h2>
           <p className="text-xl text-white/50 mb-12">
-            Join 50,000+ developers building with DocuMint AI.
+            Ship documentation that scales with your code.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
             <Link href="/auth/register">
@@ -448,7 +447,7 @@ export default function LandingPage() {
           <div>© 2026 DocuMint AI Inc. All rights reserved.</div>
           <div className="flex gap-6">
             <span>SECURE PAYMENTS BY STRIPE</span>
-            <span>AI POWERED BY GEMINI 2.0 FLASH</span>
+            <span>BUILT FOR DEVELOPERS</span>
           </div>
         </div>
       </footer>

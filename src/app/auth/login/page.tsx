@@ -43,9 +43,8 @@ export default function LoginPage() {
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-[#030014] px-4 selection:bg-primary/30 relative overflow-hidden">
-            {/* Animated background highlights */}
-            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 blur-[120px] rounded-full animate-pulse" />
-            <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/10 blur-[120px] rounded-full animate-float" />
+            {/* Subtle static background */}
+            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/10 blur-[120px] rounded-full" />
 
             <div className="max-w-md w-full relative z-10">
                 <div className="text-center mb-10">
@@ -60,7 +59,6 @@ export default function LoginPage() {
                 </div>
 
                 <div className="glass-card p-8 rounded-[2rem] border border-white/10 shadow-2xl relative">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 blur-3xl -z-10" />
 
                     <div className="mb-8">
                         <h2 className="text-3xl font-bold text-white tracking-tight">Welcome back</h2>
@@ -129,7 +127,7 @@ export default function LoginPage() {
                             <div className="w-full border-t border-white/5"></div>
                         </div>
                         <div className="relative flex justify-center text-[10px] uppercase font-black tracking-widest">
-                            <span className="px-4 bg-[#030014]/50 text-white/20">Access via Social</span>
+                            <span className="px-4 bg-[#030014]/50 text-white/20">or continue with</span>
                         </div>
                     </div>
 

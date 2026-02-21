@@ -18,6 +18,7 @@ import {
     Activity,
     Clock,
     ShieldCheck,
+    ShieldAlert,
     Search,
     ChevronRight,
     Terminal,
@@ -25,6 +26,7 @@ import {
     Check
 } from "lucide-react";
 import Link from "next/link";
+import { cn } from "@/lib/utils";
 import FileUpload from "@/components/file-upload";
 import DocEditor from "@/components/doc-editor";
 import UsageMeter from "@/components/usage-meter";
@@ -41,7 +43,17 @@ import { OnboardingChecklist } from "@/components/onboarding-checklist";
 import AuditLogViewer from "@/components/audit-log-viewer";
 import { EnterpriseFeatureGate } from "@/components/enterprise-feature-gate";
 import { ArchitectureTab } from "@/components/architecture-tab";
+import AnalyticsDashboard from "@/components/analytics-dashboard";
+import { TeamProjectOverview } from "@/components/analytics/team-overview";
+import { TeamLeaderboard } from "@/components/team-leaderboard";
+import { TeamWeeklyReview } from "@/components/analytics/weekly-review";
+import { TeamReviewQueue } from "@/components/analytics/review-queue";
+import { TeamScorecard } from "@/components/analytics/team-scorecard";
+import { TeamSecurityAudit } from "@/components/analytics/team-security-audit";
+import { TeamAIAudit } from "@/components/team-ai-audit";
 import { CodeHealthIndex } from "@/components/analytics/health-index";
+import { GlobalSearch } from "@/components/global-search";
+import { getPriorityActions } from "./actions";
 import { Network, Sparkles, BrainCircuit, Fingerprint } from "lucide-react";
 
 export default async function DashboardPage(props: {
@@ -83,11 +95,13 @@ export default async function DashboardPage(props: {
     // Determine context (Personal vs Team)
     const teamId = searchParams?.teamId as string | undefined;
     let whereClause: any = { userId: session.user.id, teamId: null };
+    let userRole = "OWNER"; // Default for personal files
 
     if (teamId) {
-        const isMember = memberships.some(m => m.teamId === teamId);
-        if (isMember) {
+        const membership = memberships.find(m => m.teamId === teamId);
+        if (membership) {
             whereClause = { teamId };
+            userRole = membership.role;
         }
     }
 
@@ -95,24 +109,16 @@ export default async function DashboardPage(props: {
     let totalFilesCount = 0;
     let verifiedDocsCount = 0;
 
-    // DEV MODE BYPASS: Use sample stats
-    const isDevMode = session.user.id.startsWith("dev-");
-    if (isDevMode) {
-        console.log("🔧 [Dev Mode] Using sample dashboard stats");
-        totalFilesCount = 12;
-        verifiedDocsCount = 7;
-    } else {
-        try {
-            totalFilesCount = await db.file.count({ where: whereClause });
-            verifiedDocsCount = await db.documentation.count({
-                where: {
-                    file: whereClause,
-                    verifiedAt: { not: null }
-                }
-            });
-        } catch (e) {
-            console.error("Failed to fetch stats:", e);
-        }
+    try {
+        totalFilesCount = await db.file.count({ where: whereClause });
+        verifiedDocsCount = await db.documentation.count({
+            where: {
+                file: whereClause,
+                verifiedAt: { not: null }
+            }
+        });
+    } catch (e) {
+        console.error("Failed to fetch stats:", e);
     }
 
     // Fetch files based on context
@@ -143,10 +149,17 @@ export default async function DashboardPage(props: {
             verifiedAt?: Date | null;
             verifiedById?: string | null;
             isPublic: boolean;
+            status: string;
+            metadata?: any;
         } | null;
     }
 
     const typedFiles = files as unknown as FileWithDocs[];
+
+    // Fetch Priority Actions and Hotspots
+    const priorityData = await getPriorityActions(teamId);
+    const priorityActions = priorityData.actions;
+    const hotspots = priorityData.hotspots;
 
     const selectedDocId = searchParams?.docId;
     let selectedFile = null;
@@ -155,11 +168,41 @@ export default async function DashboardPage(props: {
     if (selectedDocId) {
         selectedFile = typedFiles.find(f => f.id === selectedDocId as string);
         if (selectedFile && selectedFile.documentation) {
+            // Fetch team policy if applicable
+            let lockApproved = false;
+            if (teamId) {
+                const teamConfig = await db.integration.findFirst({
+                    where: { teamId, type: "TEAM_CONFIG" }
+                });
+                if ((teamConfig?.config as any)?.lockApproved) {
+                    lockApproved = true;
+                }
+            }
+
+            // Audit Logging - View Doc
+            try {
+                const { logAudit } = await import("@/lib/audit-logger");
+                await logAudit({
+                    userId: session.user.id,
+                    action: "VIEW_DOCS",
+                    entity: "Documentation",
+                    entityId: selectedFile.id, // documentation id or file id, using file id for consistency in lookup
+                    details: { name: selectedFile.name }
+                });
+            } catch (e) { }
+
             try {
                 parsedDoc = JSON.parse(selectedFile.documentation.content);
                 if (parsedDoc) {
                     parsedDoc.verifiedAt = selectedFile.documentation.verifiedAt ? new Date(selectedFile.documentation.verifiedAt).toISOString() : null;
                     parsedDoc.verifiedById = selectedFile.documentation.verifiedById;
+                    parsedDoc.status = selectedFile.documentation.status;
+                    parsedDoc.lockApproved = lockApproved;
+
+                    // Metadata for drift awareness
+                    const meta = (selectedFile.documentation.metadata as any) || {};
+                    parsedDoc.hasProposedChanges = !!meta.proposedContent;
+                    parsedDoc.proposedAt = meta.proposedAt;
                 }
             } catch (e) {
                 console.error("Failed to parse doc content", e);
@@ -175,6 +218,12 @@ export default async function DashboardPage(props: {
                 <div className="flex items-center justify-between">
                     <TabsList className="bg-white/5 border border-white/5">
                         <TabsTrigger value="overview">Overview</TabsTrigger>
+                        <TabsTrigger value="health" className="group">
+                            <span className="flex items-center gap-2">
+                                <Activity className="w-4 h-4" />
+                                Project Health
+                            </span>
+                        </TabsTrigger>
                         <TabsTrigger value="audit" className="group">
                             <span className="flex items-center gap-2">
                                 <ShieldCheck className="w-4 h-4" />
@@ -193,65 +242,24 @@ export default async function DashboardPage(props: {
                                 )}
                             </span>
                         </TabsTrigger>
+                        {teamId && (
+                            <TabsTrigger value="security" className="group">
+                                <span className="flex items-center gap-2">
+                                    <ShieldAlert className="w-4 h-4" />
+                                    Security Audit
+                                </span>
+                            </TabsTrigger>
+                        )}
                     </TabsList>
+
+                    <GlobalSearch teamId={teamId} />
                 </div>
 
                 <TabsContent value="overview" className="space-y-6 animate-in fade-in-50 duration-500">
                     {/* Executive Insights Row */}
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                        <div className="lg:col-span-5">
-                            <CodeHealthIndex score={84} change={12} />
-                        </div>
+                    <TeamProjectOverview teamId={teamId} />
 
-                        <div className="lg:col-span-7 grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <Card className="glass-card border-white/5 relative overflow-hidden group bg-gradient-to-br from-violet-500/5 to-transparent">
-                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
-                                    <Zap className="w-12 h-12 text-violet-500" />
-                                </div>
-                                <CardContent className="p-6">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1">Quick Start</p>
-                                    <h3 className="text-2xl font-bold text-white tracking-tighter mb-3">Get Started</h3>
-                                    <div className="space-y-2">
-                                        <Link href="/code" className="flex items-center gap-2 text-xs text-violet-300 hover:text-white transition-colors group/item">
-                                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${totalFilesCount > 0 ? 'border-emerald-500 bg-emerald-500/20' : 'border-white/20'}`}>
-                                                {totalFilesCount > 0 && <Check className="w-2.5 h-2.5 text-emerald-400" />}
-                                            </div>
-                                            <span className="group-hover/item:translate-x-0.5 transition-transform">Launch Cloud IDE</span>
-                                            <ChevronRight className="w-3 h-3 ml-auto opacity-0 group-hover/item:opacity-100 transition-opacity" />
-                                        </Link>
-                                        <div className="flex items-center gap-2 text-xs text-violet-300/60">
-                                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${totalFilesCount > 0 ? 'border-emerald-500 bg-emerald-500/20' : 'border-white/20'}`}>
-                                                {totalFilesCount > 0 && <Check className="w-2.5 h-2.5 text-emerald-400" />}
-                                            </div>
-                                            <span>Upload or import code</span>
-                                        </div>
-                                        <div className="flex items-center gap-2 text-xs text-violet-300/60">
-                                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${verifiedDocsCount > 0 ? 'border-emerald-500 bg-emerald-500/20' : 'border-white/20'}`}>
-                                                {verifiedDocsCount > 0 && <Check className="w-2.5 h-2.5 text-emerald-400" />}
-                                            </div>
-                                            <span>Generate AI documentation</span>
-                                        </div>
-                                    </div>
-                                </CardContent>
-                            </Card>
-
-                            <Card className="glass-card border-white/5 relative overflow-hidden group bg-gradient-to-br from-blue-500/5 to-transparent">
-                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
-                                    <BrainCircuit className="w-12 h-12 text-blue-500" />
-                                </div>
-                                <CardContent className="p-6">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1">Architecture Depth</p>
-                                    <h3 className="text-3xl font-bold text-white tracking-tighter">{totalFilesCount} Nodes</h3>
-                                    <div className="mt-4 flex items-center gap-2 text-xs text-blue-400 font-medium">
-                                        <Activity className="w-3 h-3" />
-                                        <span>{verifiedDocsCount} Docs Verified</span>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        </div>
-                    </div>
-
-                    {/* Quick Launch & Stats Overview */}
+                    {/* Quick Launch Row */}
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
                         {/* Cloud IDE Quick Launch */}
@@ -296,17 +304,24 @@ export default async function DashboardPage(props: {
                                                 <Sparkles className="w-3 h-3" />
                                                 AI Priority Queue
                                             </span>
-                                            <span className="text-[10px] bg-indigo-500 text-white px-1.5 rounded-full font-bold">2</span>
+                                            <span className="text-[10px] bg-indigo-500 text-white px-1.5 rounded-full font-bold">{priorityActions.length}</span>
                                         </div>
                                         <div className="space-y-2">
-                                            <div className="text-[11px] text-white/60 hover:text-white transition-colors cursor-pointer flex items-center gap-2">
-                                                <div className="w-1 h-1 rounded-full bg-amber-400 animate-pulse" />
-                                                New API in `/v2/users` needs docs
-                                            </div>
-                                            <div className="text-[11px] text-white/60 hover:text-white transition-colors cursor-pointer flex items-center gap-2">
-                                                <div className="w-1 h-1 rounded-full bg-blue-400" />
-                                                Refactor suggested for `db.ts`
-                                            </div>
+                                            {priorityActions.length > 0 ? priorityActions.map(action => (
+                                                <Link
+                                                    key={action.id}
+                                                    href={`/dashboard?${teamId ? `teamId=${teamId}&` : ""}docId=${action.fileId}`}
+                                                    className="text-[11px] text-white/60 hover:text-white transition-colors cursor-pointer flex items-center gap-2 group"
+                                                >
+                                                    <div className={cn(
+                                                        "w-1 h-1 rounded-full group-hover:scale-125 transition-transform",
+                                                        action.priority === "CRITICAL" ? "bg-rose-500 animate-pulse" : "bg-amber-400"
+                                                    )} />
+                                                    <span className="truncate">{action.label}</span>
+                                                </Link>
+                                            )) : (
+                                                <p className="text-[10px] text-zinc-600 italic">No critical issues detected.</p>
+                                            )}
                                         </div>
                                     </div>
 
@@ -361,9 +376,10 @@ export default async function DashboardPage(props: {
                                             fileName={selectedFile.name}
                                             fileLanguage={selectedFile.language}
                                             initialContent={parsedDoc}
-                                            currentUser={{ id: session!.user.id, name: session!.user.name || "User" }}
+                                            currentUser={{ id: session!.user.id, name: session!.user.name || "User", role: userRole }}
                                             isPublic={!!selectedFile.documentation?.isPublic}
                                             isPro={subscription.isPro || subscription.isTeam}
+                                            lockApproved={parsedDoc.lockApproved}
                                         />
                                     </div>
                                 ) : (
@@ -411,8 +427,8 @@ export default async function DashboardPage(props: {
                                         </div>
 
                                         <div className="mt-12 flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                                            <Clock className="w-3 h-3" />
-                                            <span>Last activity: 2 minutes ago</span>
+                                            <Database className="w-3 h-3" />
+                                            <span>{totalFilesCount} files in workspace</span>
                                         </div>
                                     </div>
                                 </div>
@@ -430,15 +446,31 @@ export default async function DashboardPage(props: {
                                             <span className="text-[10px] text-muted-foreground uppercase tracking-widest">Beta</span>
                                         </div>
                                         <div className="space-y-4">
-                                            {typedFiles.slice(0, 3).map((f, i) => (
-                                                <div key={i} className="flex items-center justify-between group cursor-pointer">
+                                            {hotspots.length > 0 ? hotspots.map((f, i) => (
+                                                <Link
+                                                    key={i}
+                                                    href={`/dashboard?${teamId ? `teamId=${teamId}&` : ""}docId=${f.id}`}
+                                                    className="flex items-center justify-between group cursor-pointer"
+                                                >
                                                     <div className="flex items-center gap-3">
-                                                        <div className="w-1.5 h-1.5 rounded-full bg-orange-400" />
-                                                        <span className="text-sm text-white/70 group-hover:text-white transition-colors">{f.name}</span>
+                                                        <div className={cn(
+                                                            "w-1.5 h-1.5 rounded-full",
+                                                            f.riskScore > 70 ? "bg-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" : "bg-orange-400"
+                                                        )} />
+                                                        <span className="text-sm text-white/70 group-hover:text-white transition-colors truncate max-w-[180px]">{f.name}</span>
                                                     </div>
-                                                    <span className="text-xs text-muted-foreground">High Complexity</span>
-                                                </div>
-                                            ))}
+                                                    <div className="flex items-center gap-2">
+                                                        {f.isDocumented ? (
+                                                            <div className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 text-[8px] font-black uppercase">Docs</div>
+                                                        ) : (
+                                                            <div className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 text-[8px] font-black uppercase">Missing</div>
+                                                        )}
+                                                        <span className="text-[10px] font-bold text-zinc-500">{f.riskScore}</span>
+                                                    </div>
+                                                </Link>
+                                            )) : (
+                                                <p className="text-xs text-zinc-600 italic">Project too small for hotspot analysis.</p>
+                                            )}
                                         </div>
                                     </Card>
 
@@ -452,12 +484,30 @@ export default async function DashboardPage(props: {
                                         </div>
                                         <div className="flex flex-col items-center justify-center h-20">
                                             <Github className="w-8 h-8 text-white/10 mb-2" />
-                                            <p className="text-xs text-muted-foreground text-center">Repository synced with <br />main branch 5m ago.</p>
+                                            <p className="text-xs text-muted-foreground text-center">Connect a repository to<br />enable sync tracking.</p>
                                         </div>
                                     </Card>
                                 </div>
                             )}
                         </div>
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="health" className="space-y-6 animate-in fade-in-50 duration-500">
+                    {teamId && <TeamScorecard teamId={teamId} />}
+                    {teamId && <TeamAIAudit teamId={teamId} />}
+
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                        <div className="lg:col-span-8 space-y-6">
+                            <AnalyticsDashboard teamId={teamId} />
+                            {teamId && <TeamReviewQueue teamId={teamId} />}
+                        </div>
+                        {teamId && (
+                            <div className="lg:col-span-4 space-y-6">
+                                <TeamWeeklyReview teamId={teamId} />
+                                <TeamLeaderboard teamId={teamId} />
+                            </div>
+                        )}
                     </div>
                 </TabsContent>
 
@@ -480,6 +530,12 @@ export default async function DashboardPage(props: {
                         <ArchitectureTab teamId={teamId} />
                     </EnterpriseFeatureGate>
                 </TabsContent>
+
+                {teamId && (
+                    <TabsContent value="security" className="space-y-6 animate-in fade-in-50 duration-500">
+                        <TeamSecurityAudit teamId={teamId} />
+                    </TabsContent>
+                )}
             </Tabs>
         </div>
     );
