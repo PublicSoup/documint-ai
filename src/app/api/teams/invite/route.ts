@@ -1,68 +1,106 @@
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth"; // Assuming authOptions is exported here, need to verify
-import { db } from "@/lib/db";
-import { z } from "zod";
 import { randomBytes } from "crypto";
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { z } from "zod";
+import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/db";
 import { sendEmail, emailTemplates } from "@/lib/email";
+import { sendNotification } from "@/lib/notifications";
+import { checkTeamPermission } from "@/lib/permissions";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { getUserSubscription } from "@/lib/subscription";
 
 const inviteSchema = z.object({
-    email: z.string().email(),
-    teamId: z.string(),
+    email: z.string().trim().email().max(255),
+    teamId: z.string().trim().min(1).max(100),
     role: z.enum(["ADMIN", "MEMBER"]).default("MEMBER"),
-});
+}).strict();
 
-export async function POST(req: Request) {
+function getAcceptUrl(req: NextRequest, token: string): string {
+    const appBaseUrl =
+        process.env.NEXT_PUBLIC_APP_URL ||
+        process.env.NEXTAUTH_URL ||
+        req.nextUrl.origin;
+
+    return `${appBaseUrl.replace(/\/$/, "")}/invite/${token}`;
+}
+
+export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
-        if (!session?.user?.email) {
+        if (!session?.user?.id) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const body = await req.json();
-        const { email, teamId, role } = inviteSchema.parse(body);
+        await enforceRateLimit(session.user.id, "api");
 
-        // 1. Verify currentUser is an admin/owner of the team
-        // First, get the user ID from the email (since session might not have ID populated in some setups, but assuming db query is safer)
-        const currentUser = await db.user.findUnique({
-            where: { email: session.user.email },
-        });
-
-        if (!currentUser) {
-            return NextResponse.json({ error: "User not found" }, { status: 404 });
+        const parsedBody = inviteSchema.safeParse(await req.json());
+        if (!parsedBody.success) {
+            return NextResponse.json({ error: "Invalid invitation payload" }, { status: 400 });
         }
 
-        const teamMember = await db.teamMember.findUnique({
-            where: {
-                teamId_userId: {
-                    teamId,
-                    userId: currentUser.id,
-                },
-            },
-        });
+        const { email, teamId, role } = parsedBody.data;
 
-        if (!teamMember || (teamMember.role !== "OWNER" && teamMember.role !== "ADMIN")) {
+        const hasPermission = await checkTeamPermission(session.user.id, teamId, "manage");
+        if (!hasPermission) {
             return NextResponse.json(
                 { error: "You do not have permission to invite members" },
-                { status: 403 }
+                { status: 403 },
             );
         }
 
-        // 2. Check if user is already in the team
+        const team = await db.team.findUnique({
+            where: { id: teamId },
+            select: { id: true, name: true },
+        });
+
+        if (!team) {
+            return NextResponse.json({ error: "Team not found" }, { status: 404 });
+        }
+
+        const inviter = await db.user.findUnique({
+            where: { id: session.user.id },
+            select: { id: true, name: true, email: true },
+        });
+
+        if (!inviter) {
+            return NextResponse.json({ error: "User not found" }, { status: 404 });
+        }
+
+        const subscription = await getUserSubscription(inviter.id);
+        const currentMemberCount = await db.teamMember.count({ where: { teamId } });
+        const pendingInviteCount = await db.teamInvite.count({ where: { teamId } });
+
+        if (
+            subscription.limits.teamMembers !== -1 &&
+            currentMemberCount + pendingInviteCount >= subscription.limits.teamMembers
+        ) {
+            return NextResponse.json(
+                {
+                    error: "Team seat limit reached",
+                    message: `Your current plan allows up to ${subscription.limits.teamMembers} members. Please upgrade to add more.`,
+                },
+                { status: 403 },
+            );
+        }
+
         const existingMember = await db.teamMember.findFirst({
             where: {
                 teamId,
                 user: {
                     email,
-                }
-            }
+                },
+            },
+            select: { userId: true },
         });
 
         if (existingMember) {
-            return NextResponse.json({ error: "User is already a member of this team" }, { status: 400 });
+            return NextResponse.json(
+                { error: "User is already a member of this team" },
+                { status: 400 },
+            );
         }
 
-        // 3. Check for pending invites
         const existingInvite = await db.teamInvite.findUnique({
             where: {
                 teamId_email: {
@@ -70,17 +108,15 @@ export async function POST(req: Request) {
                     email,
                 },
             },
+            select: { id: true },
         });
 
         if (existingInvite) {
-            // Logic to resend invite or error
-            // For now, we'll error
             return NextResponse.json({ error: "Invite already sent" }, { status: 400 });
         }
 
-        // 4. Create Invite
         const token = randomBytes(32).toString("hex");
-        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
         const invite = await db.teamInvite.create({
             data: {
@@ -90,49 +126,62 @@ export async function POST(req: Request) {
                 token,
                 expiresAt,
             },
-            include: {
-                team: true
-            }
         });
 
-        // Send invitation email
-        const acceptUrl = `http://localhost:3000/invite/${token}`;
+        const acceptUrl = getAcceptUrl(req, token);
 
         try {
             await sendEmail({
                 to: email,
-                subject: `You've been invited to join ${invite.team.name} on DocuMint AI`,
+                subject: `You've been invited to join ${team.name} on DocuMint AI`,
                 html: emailTemplates.teamInvite(
-                    currentUser.name || currentUser.email || 'Someone',
-                    invite.team.name,
-                    acceptUrl
+                    inviter.name || inviter.email || "Someone",
+                    team.name,
+                    acceptUrl,
                 ),
             });
-            console.log(`Sent team invitation email to ${email}`);
         } catch (emailError) {
             console.error("Failed to send invitation email:", emailError);
-            // Continue anyway, email is non-critical
         }
 
-        // 5. Create in-app notification if user exists
-        const invitedUser = await db.user.findUnique({ where: { email } });
-        if (invitedUser) {
-            await db.notification.create({
-                data: {
+        try {
+            const invitedUser = await db.user.findUnique({
+                where: { email },
+                select: { id: true },
+            });
+
+            if (invitedUser) {
+                await sendNotification({
                     userId: invitedUser.id,
                     type: "INVITE",
-                    message: `${currentUser.name || "Someone"} invited you to join ${invite.team.name}`,
-                    link: acceptUrl, // In real app, this might be a dashboard link to invites
-                }
+                    title: "New Team Invitation",
+                    message: `**${inviter.name || "Someone"}** invited you to join **${team.name}**`,
+                    link: acceptUrl,
+                });
+            }
+        } catch (notificationError) {
+            console.error("Failed to create invitation notification:", notificationError);
+        }
+
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: inviter.id,
+                action: "INVITE_MEMBER",
+                entity: "Team",
+                entityId: teamId,
+                details: {
+                    invitedEmail: email,
+                    role,
+                    teamName: team.name,
+                },
             });
+        } catch {
+            // Keep mutation non-blocking if audit logging fails.
         }
 
-        return NextResponse.json({ success: true, invite });
-
+        return NextResponse.json({ success: true, invite }, { status: 201 });
     } catch (error) {
-        if (error instanceof z.ZodError) {
-            return NextResponse.json({ error: error.issues }, { status: 400 });
-        }
         console.error("Invite error:", error);
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
     }
