@@ -1,35 +1,14 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse } from "@/lib/api-utils";
 
-interface TeamListResponse {
-    teams: Array<{
-        id: string;
-        name: string;
-        role: string;
-        memberCount: number;
-        members: Array<{
-            userId: string;
-            role: string;
-            user: {
-                name: string | null;
-                email: string | null;
-                image: string | null;
-            };
-        }>;
-        invites: Array<{
-            id: string;
-            email: string;
-            role: string;
-            createdAt: Date;
-        }>;
-        joinedAt: Date;
-        slug: string;
-    }>;
-}
-
+/**
+ * GET /api/teams
+ * Returns a list of teams the current user is a member of.
+ */
 export async function GET() {
     try {
         const session = await getServerSession(authOptions);
@@ -68,7 +47,7 @@ export async function GET() {
             orderBy: { joinedAt: "asc" },
         });
 
-        const teams: TeamListResponse["teams"] = teamMemberships.map((membership) => ({
+        const teams = teamMemberships.map((membership) => ({
             id: membership.team.id,
             name: membership.team.name,
             role: membership.role,
@@ -94,7 +73,6 @@ export async function GET() {
 
         return NextResponse.json({ teams });
     } catch (error) {
-        console.error("[Teams_GET] Error:", error);
-        return NextResponse.json({ error: "Failed to fetch teams" }, { status: 500 });
+        return errorResponse(error);
     }
 }
