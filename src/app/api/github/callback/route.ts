@@ -75,8 +75,20 @@ export async function GET(req: NextRequest) {
             }
         });
 
-        // Store token in session or database (simplified for demo)
-        // In production, encrypt this token before storing
+        // Audit Logging
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: session.user.id,
+                action: "GITHUB_CONNECT",
+                entity: "GitHubConnection",
+                entityId: githubUser.id.toString(),
+                details: { 
+                    username: githubUser.login,
+                    avatarUrl: githubUser.avatar_url
+                }
+            });
+        } catch {}
 
         return NextResponse.redirect(`${env.NEXTAUTH_URL}/dashboard/billing?github_connected=true`);
     } catch (error) {

@@ -1,30 +1,18 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { resolveUserId } from "@/lib/resolve-user";
 import { getUserSubscription } from "@/lib/subscription";
 
-export async function GET(req: NextRequest) {
+export async function GET() {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        // DEV MODE BYPASS: Return sample onboarding state
-        if (session.user.id.startsWith("dev-")) {
-            console.log("🔧 [Dev Mode] Returning mock onboarding state");
-            return NextResponse.json({
-                steps: {
-                    hasAccount: true,
-                    hasScanned: true,
-                    hasShared: false,
-                    hasUpgraded: true,
-                },
-                isDismissed: true
-            });
-        }
+        // No dev-only onboarding shortcuts in production paths.
 
         const userId = await resolveUserId(session);
         if (!userId) {
@@ -60,7 +48,7 @@ export async function GET(req: NextRequest) {
         });
 
         // Determine dismissed state from user settings
-        const settings = (user?.settings as any) || {};
+        const settings = (user?.settings as { onboardingDismissed?: boolean } | null) || {};
         const isDismissed = !!settings.onboardingDismissed;
 
         return NextResponse.json({
@@ -79,7 +67,7 @@ export async function GET(req: NextRequest) {
     }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user) {
@@ -95,7 +83,7 @@ export async function POST(req: NextRequest) {
 
         // Update user settings
         const user = await db.user.findUnique({ where: { id: userId }, select: { settings: true } });
-        const currentSettings = (user?.settings as any) || {};
+        const currentSettings = (user?.settings as Record<string, unknown> | null) || {};
 
         await db.user.update({
             where: { id: userId },

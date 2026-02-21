@@ -11,7 +11,7 @@ interface AuditEntry {
     action: string;
     entity: string;
     entityId: string | null;
-    details: any;
+    details: Record<string, unknown>;
     ip: string | null;
     createdAt: string;
     user?: { name: string | null; email: string } | null;
@@ -56,26 +56,26 @@ export default function AdminAuditPage() {
     const verifyIntegrity = async () => {
         setVerificationStatus('verifying');
 
-        // basic client-side check of the chain
-        // In a real scenario, we'd verify signatures or re-hash locally.
-        // For now, we simulate the check or implement a basic check if we had the logic here.
-        // Since we are adding hashes now, let's pretend to verify.
+        try {
+            const res = await fetch(`/api/audit/verify?limit=${Math.min(logs.length || 100, 500)}`);
+            const data = await res.json();
 
-        setTimeout(() => {
-            // Check if any logs have missing hashes (tampered or pre-hashing)
-            const hasMissingHashes = logs.some(l => !l.hash);
-
-            // In a real implementation, we would re-calculate SHA256(prevHash + ...) and compare.
-            // For Phase 3 implementation demonstration:
-            if (hasMissingHashes && logs.length > 0) {
-                // Some logs might be old, so maybe valid warning vs invalid
-                setVerificationStatus('valid'); // Assume valid for mixed content for now, or 'invalid'? 
-                // Let's mark as valid for the demo unless we find an explicit break.
-            } else {
-                setVerificationStatus('valid');
+            if (!res.ok) {
+                throw new Error(data?.error || 'Verification failed');
             }
-            toast.success("Chain integrity verified");
-        }, 1000);
+
+            if (data.success) {
+                setVerificationStatus('valid');
+                toast.success(`Chain integrity verified (${data.totalVerified} entries)`);
+            } else {
+                setVerificationStatus('invalid');
+                toast.error(`Integrity check failed (${data.summary?.tamperedCount || 0} tampered entries)`);
+            }
+        } catch (error) {
+            console.error('Audit verify error:', error);
+            setVerificationStatus('invalid');
+            toast.error('Failed to verify audit chain integrity');
+        }
     };
 
     const clearUserFilter = () => {
