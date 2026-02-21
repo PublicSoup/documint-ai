@@ -1,118 +1,147 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { sendNotification } from "@/lib/notifications";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
-// POST: Process mentions in text and create notifications
-export async function POST(req: Request) {
+const mentionPostSchema = z.object({
+    text: z.string().max(10_000),
+    contextType: z.enum(["comment", "review", "documentation"]),
+    contextId: z.string().min(1).optional(),
+    contextName: z.string().min(1).max(255).optional(),
+}).strict();
+
+const mentionSearchSchema = z.object({
+    q: z.string().trim().min(2).max(100),
+    limit: z.coerce.number().int().min(1).max(20).default(10),
+}).strict();
+
+// POST: process mentions in text and create notifications
+export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const { text, contextType, contextId, contextName } = await req.json();
-        // contextType: "comment", "review", "documentation"
-        // contextId: ID of the entity
-        // contextName: Human readable name for notification
+        await enforceRateLimit(session.user.id, "api");
 
-        if (!text) {
-            return NextResponse.json({ mentions: [] });
+        const parsed = mentionPostSchema.safeParse(await req.json());
+        if (!parsed.success) {
+            return NextResponse.json({ error: "Invalid mention payload" }, { status: 400 });
         }
 
-        // Extract @mentions
-        const mentionPattern = /@(\w+)/g;
-        const mentions = [...text.matchAll(mentionPattern)].map(m => m[1]);
+        const { text, contextType, contextId, contextName } = parsed.data;
 
-        if (mentions.length === 0) {
-            return NextResponse.json({ mentions: [] });
+        if (!text.trim()) {
+            return NextResponse.json({ mentions: [], notificationsSent: 0 });
         }
 
-        // Find users matching the mentions
+        const mentionPattern = /@([a-zA-Z0-9_]+)/g;
+        const mentions = [...text.matchAll(mentionPattern)].map((match) => match[1].toLowerCase());
+        const uniqueMentions = Array.from(new Set(mentions));
+
+        if (uniqueMentions.length === 0) {
+            return NextResponse.json({ mentions: [], notificationsSent: 0 });
+        }
+
+        const searchClauses = uniqueMentions.flatMap((mention) => [
+            { name: { contains: mention, mode: "insensitive" as const } },
+            { email: { startsWith: `${mention}@`, mode: "insensitive" as const } },
+        ]);
+
         const users = await db.user.findMany({
-            where: {
-                OR: [
-                    { name: { in: mentions, mode: 'insensitive' } },
-                    { email: { in: mentions.map(m => `${m}@%`), mode: 'insensitive' } }
-                ]
-            },
-            select: { id: true, name: true, email: true }
+            where: { OR: searchClauses },
+            select: { id: true, name: true, email: true },
+            take: 25,
         });
 
-        // Create notifications for each mentioned user
-        const notifications = [];
+        let notificationsSent = 0;
         for (const user of users) {
-            if (user.id === session.user.id) continue; // Don't notify self
+            if (user.id === session.user.id) continue;
 
-            const notification = await db.notification.create({
-                data: {
-                    userId: user.id,
-                    type: "MENTION",
-                    message: `${session.user.name || "Someone"} mentioned you in ${contextName || contextType}`,
-                    link: contextType === "comment"
-                        ? `/dashboard?file=${contextId}#comments`
-                        : `/dashboard/${contextType}s/${contextId}`
-                }
+            await sendNotification({
+                userId: user.id,
+                type: "MENTION",
+                title: "You were mentioned",
+                message: `**${session.user.name || "Someone"}** mentioned you in ${contextName || contextType}`,
+                link:
+                    contextType === "comment"
+                        ? `/dashboard?docId=${contextId || ""}#comments`
+                        : `/dashboard/${contextType}s/${contextId || ""}`,
             });
-            notifications.push(notification);
+            notificationsSent += 1;
         }
 
         return NextResponse.json({
-            mentions: users.map(u => u.name),
-            notificationsSent: notifications.length
+            mentions: users.map((user) => user.name || user.email),
+            notificationsSent,
         });
-
     } catch (error) {
-        console.error("Mention Process Error:", error);
+        console.error("Mention process error:", error);
         return NextResponse.json({ error: "Failed to process mentions" }, { status: 500 });
     }
 }
 
-// GET: Search users for autocomplete
-export async function GET(req: Request) {
+// GET: search users for mention autocomplete
+export async function GET(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const { searchParams } = new URL(req.url);
-        const query = searchParams.get("q");
+        await enforceRateLimit(session.user.id, "api");
 
-        if (!query || query.length < 2) {
+        const parsed = mentionSearchSchema.safeParse({
+            q: new URL(req.url).searchParams.get("q") ?? "",
+            limit: new URL(req.url).searchParams.get("limit") ?? 10,
+        });
+
+        if (!parsed.success) {
             return NextResponse.json({ users: [] });
         }
 
-        // Search team members if user is in teams
+        const { q: query, limit } = parsed.data;
+
         const teamMemberships = await db.teamMember.findMany({
             where: { userId: session.user.id },
-            select: { teamId: true }
+            select: { teamId: true },
         });
 
-        const teamIds = teamMemberships.map(m => m.teamId);
+        const teamIds = teamMemberships.map((membership) => membership.teamId);
 
         const users = await db.user.findMany({
             where: {
                 AND: [
                     {
                         OR: [
-                            { name: { contains: query, mode: 'insensitive' } },
-                            { email: { contains: query, mode: 'insensitive' } }
-                        ]
+                            { name: { contains: query, mode: "insensitive" } },
+                            { email: { contains: query, mode: "insensitive" } },
+                        ],
                     },
-                    teamIds.length > 0 ? {
-                        teamMembers: { some: { teamId: { in: teamIds } } }
-                    } : {}
-                ]
+                    teamIds.length > 0
+                        ? {
+                              teamMembers: {
+                                  some: {
+                                      teamId: { in: teamIds },
+                                  },
+                              },
+                          }
+                        : {
+                              id: session.user.id,
+                          },
+                ],
             },
             select: { id: true, name: true, image: true },
-            take: 10
+            take: limit,
         });
 
         return NextResponse.json({ users });
-
     } catch (error) {
-        console.error("User Search Error:", error);
+        console.error("Mention search error:", error);
         return NextResponse.json({ error: "Search failed" }, { status: 500 });
     }
 }
