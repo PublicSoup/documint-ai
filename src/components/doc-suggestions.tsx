@@ -3,11 +3,20 @@
 import { useState, useEffect } from "react";
 import {
     Lightbulb, AlertCircle, CheckCircle, Info,
-    RefreshCw, Loader2, Crown, ChevronDown, ChevronUp
+    RefreshCw, Loader2, Crown, ChevronDown, ChevronUp, Eye, Check, X, Sparkles
 } from "lucide-react";
+import { Button } from "./ui/button";
+import { useToast } from "./toast";
+import { DiffViewer } from "./diff-viewer";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 
 interface Suggestion {
-    type: "missing" | "improvement" | "example" | "clarity";
+    type: "missing" | "improvement" | "example" | "clarity" | "drift";
     severity: "low" | "medium" | "high";
     entity?: string;
     message: string;
@@ -16,6 +25,7 @@ interface Suggestion {
 
 interface DocSuggestionsProps {
     fileId: string;
+    onUpdate?: () => void;
 }
 
 const SEVERITY_STYLES = {
@@ -29,14 +39,20 @@ const TYPE_LABELS: Record<string, string> = {
     improvement: "Improve",
     example: "Example",
     clarity: "Clarity",
+    drift: "Drift",
 };
 
-export default function DocSuggestions({ fileId }: DocSuggestionsProps) {
+export default function DocSuggestions({ fileId, onUpdate }: DocSuggestionsProps) {
+    const { toast } = useToast();
     const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
     const [score, setScore] = useState<number | null>(null);
     const [loading, setLoading] = useState(false);
     const [expanded, setExpanded] = useState<number | null>(null);
     const [hasLoaded, setHasLoaded] = useState(false);
+
+    // Drift preview state
+    const [proposedUpdate, setProposedUpdate] = useState<{ current: string, next: string, raw: unknown } | null>(null);
+    const [isApplying, setIsApplying] = useState(false);
 
     const fetchSuggestions = async () => {
         setLoading(true);
@@ -56,6 +72,73 @@ export default function DocSuggestions({ fileId }: DocSuggestionsProps) {
             console.error(e);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const formatDocForDiff = (doc: { summary?: string, entities?: Array<{ name: string, type: string, doc: string }> } | null) => {
+        if (!doc) return "";
+        let out = `SUMMARY:\n${doc.summary || ""}\n\nENTITIES:\n`;
+        if (doc.entities) {
+            doc.entities.forEach((e) => {
+                out += `- ${e.name} (${e.type})\n  ${e.doc}\n\n`;
+            });
+        }
+        return out;
+    };
+
+    const handleApplySuggestion = async (s: Suggestion) => {
+        if (s.type === "drift") {
+            setLoading(true);
+            try {
+                const res = await fetch(`/api/regenerate/${fileId}`, { 
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ preview: true })
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    setProposedUpdate({
+                        current: formatDocForDiff(data.currentContent),
+                        next: formatDocForDiff(data.content),
+                        raw: data.content
+                    });
+                } else {
+                    toast("Failed to generate preview", "error");
+                }
+            } catch (e) {
+                toast("An error occurred during preview generation", "error");
+            } finally {
+                setLoading(false);
+            }
+        }
+    };
+
+    const commitUpdate = async () => {
+        if (!proposedUpdate) return;
+        setIsApplying(true);
+        try {
+            const res = await fetch(`/api/docs/${fileId}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ 
+                    content: proposedUpdate.raw,
+                    message: "Resolved documentation drift via AI suggestions"
+                }),
+            });
+
+            if (res.ok) {
+                toast("Documentation updated and synced", "success");
+                setProposedUpdate(null);
+                fetchSuggestions();
+                if (onUpdate) onUpdate();
+            } else {
+                toast("Failed to apply update", "error");
+            }
+        } catch (e) {
+            toast("Error applying update", "error");
+        } finally {
+            setIsApplying(false);
         }
     };
 
@@ -163,9 +246,24 @@ export default function DocSuggestions({ fileId }: DocSuggestionsProps) {
                                             {suggestion.message}
                                         </p>
                                         {isExpanded && (
-                                            <p className="text-sm text-zinc-400 mt-2 bg-white/50 p-3 rounded-lg border">
-                                                💡 {suggestion.suggestion}
-                                            </p>
+                                            <div className="mt-2 space-y-3">
+                                                <p className="text-sm text-zinc-400 bg-white/50 p-3 rounded-lg border">
+                                                    💡 {suggestion.suggestion}
+                                                </p>
+                                                {suggestion.type === "drift" && (
+                                                    <Button
+                                                        size="sm"
+                                                        onClick={(e: React.MouseEvent) => {
+                                                            e.stopPropagation();
+                                                            handleApplySuggestion(suggestion);
+                                                        }}
+                                                        className="bg-emerald-600 hover:bg-emerald-500 text-white gap-2 font-bold h-8 text-[10px]"
+                                                    >
+                                                        {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Eye className="w-3 h-3" />}
+                                                        Review Proposed Update
+                                                    </Button>
+                                                )}
+                                            </div>
                                         )}
                                     </div>
                                     <div className="text-gray-400">
@@ -181,6 +279,47 @@ export default function DocSuggestions({ fileId }: DocSuggestionsProps) {
                     })
                 )}
             </div>
+
+            {/* Preview Modal */}
+            <Dialog open={!!proposedUpdate} onOpenChange={(open) => !open && setProposedUpdate(null)}>
+                <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col bg-[#0A0A0B] border-white/10 p-0 overflow-hidden">
+                    <DialogHeader className="p-6 border-b border-white/10 shrink-0">
+                        <DialogTitle className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center">
+                                    <Sparkles className="w-5 h-5 text-emerald-500" />
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-bold text-white tracking-tight">Resolve Documentation Drift</h2>
+                                    <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider">AI-Drafted Update based on latest code</p>
+                                </div>
+                            </div>
+                        </DialogTitle>
+                    </DialogHeader>
+
+                    <div className="flex-1 overflow-y-auto p-6 custom-scrollbar bg-black/40">
+                        <DiffViewer 
+                            oldValue={proposedUpdate?.current || ""} 
+                            newValue={proposedUpdate?.next || ""} 
+                            filename="Project Documentation"
+                        />
+                    </div>
+
+                    <div className="p-4 border-t border-white/10 bg-white/5 flex justify-end gap-3 shrink-0">
+                        <Button variant="ghost" onClick={() => setProposedUpdate(null)} className="rounded-xl font-bold text-xs">
+                            Discard
+                        </Button>
+                        <Button 
+                            onClick={commitUpdate}
+                            disabled={isApplying}
+                            className="rounded-xl font-bold text-xs px-6 bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 gap-2"
+                        >
+                            {isApplying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                            Apply & Sync
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

@@ -1,103 +1,56 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Plus, Minus, RefreshCw } from "lucide-react";
-
-interface DiffChange {
-    type: "added" | "removed" | "unchanged";
-    value: string;
-    lines: string[];
-}
+import { useMemo } from "react";
+import * as diff from "diff";
+import { cn } from "@/lib/utils";
 
 interface DiffViewerProps {
-    fileId: string;
-    versionId1?: string;
-    versionId2?: string;
+    oldValue: string;
+    newValue: string;
+    filename?: string;
 }
 
-export function DiffViewer({ fileId, versionId1, versionId2 }: DiffViewerProps) {
-    const [diff, setDiff] = useState<{ changes: DiffChange[]; stats: { additions: number; deletions: number } } | null>(null);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-
-    useEffect(() => {
-        if (!versionId1 || !versionId2) return;
-
-        async function loadDiff() {
-            setLoading(true);
-            setError(null);
-            try {
-                const res = await fetch(`/api/versions/diff?v1=${versionId1}&v2=${versionId2}`);
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error);
-                setDiff(data);
-            } catch (e) {
-                setError(e instanceof Error ? e.message : "Failed to load diff");
-            } finally {
-                setLoading(false);
-            }
-        }
-
-        loadDiff();
-    }, [versionId1, versionId2]);
-
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center p-8 text-gray-500">
-                <RefreshCw className="w-5 h-5 animate-spin mr-2" />
-                Loading diff...
-            </div>
-        );
-    }
-
-    if (error) {
-        return (
-            <div className="p-4 text-red-500 bg-red-50 rounded-lg">
-                {error}
-            </div>
-        );
-    }
-
-    if (!diff) {
-        return (
-            <div className="p-8 text-center text-gray-500">
-                Select two versions to compare
-            </div>
-        );
-    }
+export function DiffViewer({ oldValue, newValue, filename }: DiffViewerProps) {
+    const diffs = useMemo(() => {
+        return diff.diffLines(oldValue, newValue);
+    }, [oldValue, newValue]);
 
     return (
-        <div className="rounded-lg border overflow-hidden">
-            {/* Stats header */}
-            <div className="flex items-center gap-4 px-4 py-2 bg-gray-50 border-b text-sm">
-                <span className="flex items-center gap-1 text-green-600">
-                    <Plus className="w-4 h-4" />
-                    {diff.stats.additions} additions
-                </span>
-                <span className="flex items-center gap-1 text-red-600">
-                    <Minus className="w-4 h-4" />
-                    {diff.stats.deletions} deletions
-                </span>
-            </div>
-
-            {/* Diff content */}
-            <div className="font-mono text-sm overflow-x-auto">
-                {diff.changes.map((change, i) => (
-                    <div key={i} className={`px-4 py-1 ${change.type === "added" ? "bg-green-50 text-green-800" :
-                            change.type === "removed" ? "bg-red-50 text-red-800" :
-                                "bg-white text-gray-700"
-                        }`}>
-                        {change.lines.map((line, j) => (
-                            <div key={j} className="flex">
-                                <span className="w-6 text-gray-400 select-none">
-                                    {change.type === "added" ? "+" :
-                                        change.type === "removed" ? "-" : " "}
-                                </span>
-                                <span className="flex-1 whitespace-pre-wrap">{line || " "}</span>
-                            </div>
-                        ))}
+        <div className="rounded-xl border border-white/10 bg-[#0A0A0B] overflow-hidden flex flex-col font-mono text-[11px]">
+            {filename && (
+                <div className="px-4 py-2 bg-white/5 border-b border-white/10 text-zinc-500 flex items-center justify-between">
+                    <span>{filename}</span>
+                    <div className="flex gap-3">
+                        <span className="text-emerald-500/80">+ Additions</span>
+                        <span className="text-rose-500/80">- Deletions</span>
                     </div>
-                ))}
+                </div>
+            )}
+            <div className="overflow-x-auto p-2">
+                <table className="w-full border-collapse">
+                    <tbody>
+                        {diffs.map((part, index) => {
+                            const colorClass = part.added 
+                                ? "bg-emerald-500/10 text-emerald-400" 
+                                : part.removed 
+                                    ? "bg-rose-500/10 text-rose-400 line-through decoration-rose-500/30" 
+                                    : "text-zinc-400";
+                            
+                            const prefix = part.added ? "+" : part.removed ? "-" : " ";
+                            
+                            return (
+                                <tr key={index} className={cn("group", colorClass)}>
+                                    <td className="w-6 text-center select-none opacity-30 border-r border-white/5 pr-2">
+                                        {prefix}
+                                    </td>
+                                    <td className="pl-3 py-0.5 whitespace-pre-wrap break-all leading-relaxed">
+                                        {part.value}
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
             </div>
         </div>
     );

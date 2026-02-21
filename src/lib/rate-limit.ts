@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { headers as nextHeaders } from "next/headers";
 import { env } from "./env";
 import { ApiErrors } from "./api-utils";
+import { db } from "./db";
 
 // Initialize Redis client (falls back to null for dev/when not configured)
 const redis = env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN
@@ -168,7 +169,7 @@ export function rateLimitResponse(remaining: number, reset: number) {
 }
 
 // Helpers for API routes
-export function getClientIP(req?: Request): string {
+export async function getClientIP(req?: Request): Promise<string> {
     let headersList: Headers | undefined;
 
     if (req) {
@@ -176,7 +177,7 @@ export function getClientIP(req?: Request): string {
     } else {
         try {
             // Try to use next/headers if called in a request context
-            headersList = nextHeaders();
+            headersList = await nextHeaders();
         } catch {
             // Not in a request context or headers() failed
             return "127.0.0.1";
@@ -196,14 +197,14 @@ export function getClientIP(req?: Request): string {
     return "127.0.0.1";
 }
 
-export function getUserAgent(req?: Request): string {
+export async function getUserAgent(req?: Request): Promise<string> {
     let headersList: Headers | undefined;
 
     if (req) {
         headersList = req.headers as Headers;
     } else {
         try {
-            headersList = nextHeaders();
+            headersList = await nextHeaders();
         } catch {
             return "unknown";
         }
@@ -213,11 +214,41 @@ export function getUserAgent(req?: Request): string {
 }
 
 export async function validateApiKey(apiKey: string): Promise<string | null> {
-    // TODO: In production, check against DB model ApiKey
-    // For now, basic admin key check
+    if (!apiKey) return null;
+
+    // 1. Check Admin Key (Env)
     const adminKey = process.env.ADMIN_API_KEY;
     if (adminKey && apiKey === adminKey) {
         return "admin-user";
     }
+
+    // 2. Check Database for User Key
+    try {
+        const user = await db.user.findFirst({
+            where: {
+                settings: {
+                    path: ['apiKey'],
+                    equals: apiKey
+                }
+            },
+            select: { id: true }
+        });
+
+        return user?.id || null;
+    } catch {
+        // Fallback: manual scan if json search fails
+        // This is slow but works as a last resort
+        const users = await db.user.findMany({
+            select: { id: true, settings: true }
+        });
+
+        for (const u of users) {
+            const settings = u.settings as { apiKey?: string } | null;
+            if (settings?.apiKey === apiKey) {
+                return u.id;
+            }
+        }
+    }
+
     return null;
 }

@@ -11,7 +11,7 @@ import { env } from "./env";
 import { encrypt } from "./security/encryption";
 
 export const authOptions: NextAuthOptions = {
-    adapter: PrismaAdapter(db) as any,
+    adapter: PrismaAdapter(db) as NextAuthOptions['adapter'],
     session: {
         strategy: "jwt"
     },
@@ -40,12 +40,12 @@ export const authOptions: NextAuthOptions = {
             wellKnown: `${env.AUTH0_ISSUER}/.well-known/openid-configuration`,
             authorization: { params: { scope: "openid email profile" } },
             idToken: true,
-            profile(profile: any) {
+            profile(profile: Record<string, unknown>) {
                 return {
-                    id: profile.sub,
-                    name: profile.name,
-                    email: profile.email,
-                    image: profile.picture,
+                    id: profile.sub as string,
+                    name: profile.name as string,
+                    email: profile.email as string,
+                    image: profile.picture as string,
                 };
             },
             clientId: env.AUTH0_CLIENT_ID,
@@ -65,6 +65,16 @@ export const authOptions: NextAuthOptions = {
                 }
 
                 const email = credentials.email.trim();
+
+                // High-Security Rate Limiting: 5 attempts per hour per email
+                try {
+                    const { enforceRateLimit } = await import("./rate-limit");
+                    await enforceRateLimit(email, "security");
+                } catch (limitError: unknown) {
+                    console.warn(`Auth blocked: Rate limit for ${email}`);
+                    const message = limitError instanceof Error ? limitError.message : "Too many attempts. Try again in an hour.";
+                    throw new Error(message);
+                }
 
                 // DEV BYPASS: Allow login without DB if in dev mode or DB is down
 
@@ -149,6 +159,39 @@ export const authOptions: NextAuthOptions = {
         }
     },
     events: {
+        async signIn({ user, account, isNewUser }) {
+            try {
+                const { logAudit } = await import("./audit-logger");
+                await logAudit({
+                    userId: user.id,
+                    action: isNewUser ? "SIGN_UP" : "SIGN_IN",
+                    entity: "User",
+                    entityId: user.id,
+                    details: { 
+                        method: account?.provider || "credentials",
+                        isNewUser: !!isNewUser
+                    }
+                });
+            } catch (e) {
+                console.error("Failed to log auth audit event", e);
+            }
+        },
+        async signOut({ token }) {
+            try {
+                const { logAudit } = await import("./audit-logger");
+                if (token?.id) {
+                    await logAudit({
+                        userId: token.id as string,
+                        action: "SIGN_OUT",
+                        entity: "User",
+                        entityId: token.id as string,
+                        details: { method: "session-end" }
+                    });
+                }
+            } catch (e) {
+                console.error("Failed to log signOut audit event", e);
+            }
+        },
         async createUser({ user }) {
             if (user.email) {
                 try {

@@ -1,5 +1,27 @@
 {
     "framework": "nextjs",
     "buildCommand": "npx prisma generate && next build",
-    "installCommand": "npm install"
+    "installCommand": "npm install",
+    "crons": [
+        {
+            "path": "/api/cron/health-reports",
+            "schedule": "0 9 * * 1"
+        },
+        {
+            "path": "/api/cron/drift-alerts",
+            "schedule": "0 10 * * *"
+        },
+        {
+            "path": "/api/cron/retention-check",
+            "schedule": "0 1 * * *"
+        },
+        {
+            "path": "/api/cron/ai-audit",
+            "schedule": "0 2 * * 1"
+        },
+        {
+            "path": "/api/cron/prune-versions",
+            "schedule": "0 3 * * *"
+        }
+    ]
 }

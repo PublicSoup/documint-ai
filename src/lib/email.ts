@@ -218,5 +218,154 @@ export const emailTemplates = {
         </div>
       </body>
     </html>
+  `,
+
+  documentationDrift: (name: string, fileName: string, dashboardUrl: string) => `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #ef4444, #f87171); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { padding: 30px; background: #f9fafb; }
+          .button { display: inline-block; padding: 12px 30px; background: #ef4444; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+          .info-box { background: #fee2e2; padding: 15px; border-radius: 5px; border-left: 4px solid #ef4444; margin: 20px 0; }
+          .footer { background: #f3f4f6; padding: 20px; text-align: center; color: #6b7280; font-size: 14px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Documentation Out of Sync ⚠️</h1>
+          </div>
+          <div class="content">
+            <h2>Hi ${name},</h2>
+            <p>Our drift detection system noticed that the source code for <strong>${fileName}</strong> was recently updated.</p>
+            
+            <div class="info-box">
+              <p>The existing documentation for this file is now marked as a <strong>DRAFT</strong> because it may no longer accurately reflect the current state of the code.</p>
+            </div>
+            
+            <p>We recommend reviewing the documentation and using the "Regenerate AI" feature to bring it back in sync with your latest changes.</p>
+            
+            <a href="${dashboardUrl}" class="button">View in Dashboard</a>
+            
+            <p>Best regards,<br>The DocuMint AI Team</p>
+          </div>
+          <div class="footer">
+            <p>&copy; 2025 DocuMint AI. All rights reserved.</p>
+            <p>This is an automated notification from our documentation health system.</p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `,
+
+  teamHealthReport: (teamName: string, stats: { coverage: number, totalFiles: number, documentedFiles: number, staleCount: number, coverageGoal: number }, dashboardUrl: string) => `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { padding: 30px; background: #f9fafb; }
+          .stat-grid { margin: 20px 0; }
+          .stat-card { display: inline-block; width: 45%; background: white; padding: 15px; border-radius: 8px; border: 1px solid #e5e7eb; text-align: center; margin-right: 5px; }
+          .stat-value { font-size: 24px; font-weight: bold; color: #4f46e5; }
+          .stat-label { font-size: 12px; color: #6b7280; text-transform: uppercase; }
+          .progress-container { width: 100%; background: #e5e7eb; height: 10px; border-radius: 5px; margin: 15px 0; }
+          .progress-bar { height: 100%; border-radius: 5px; background: #4f46e5; }
+          .button { display: inline-block; padding: 12px 30px; background: #4f46e5; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+          .footer { background: #f3f4f6; padding: 20px; text-align: center; color: #6b7280; font-size: 14px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Team Health Report 📊</h1>
+            <p>${teamName}</p>
+          </div>
+          <div class="content">
+            <h2>Documentation Overview</h2>
+            <p>Here's how your team's documentation is holding up against your <strong>${stats.coverageGoal}%</strong> target.</p>
+            
+            <div class="stat-grid">
+              <div class="stat-card">
+                <div class="stat-value">${stats.coverage}%</div>
+                <div class="stat-label">Coverage</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value">${stats.staleCount}</div>
+                <div class="stat-label">Stale Docs</div>
+              </div>
+            </div>
+
+            <div class="progress-container">
+                <div class="progress-bar" style="width: ${Math.min(stats.coverage, 100)}%;"></div>
+            </div>
+            
+            <p><strong>Detailed Breakdown:</strong></p>
+            <ul>
+              <li>Goal: ${stats.coverageGoal}%</li>
+              <li>Current: ${stats.coverage}%</li>
+              <li>Total Project Files: ${stats.totalFiles}</li>
+              <li>Documented Files: ${stats.documentedFiles}</li>
+              <li>Out of Sync: ${stats.staleCount}</li>
+            </ul>
+            
+            <a href="${dashboardUrl}" class="button">View Team Dashboard</a>
+            
+            <p>Regularly updating your documentation ensures that your team stays productive and avoids technical debt.</p>
+            
+            <p>Best regards,<br>The DocuMint AI Team</p>
+          </div>
+          <div class="footer">
+            <p>&copy; 2026 DocuMint AI. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `,
+
+  reviewRequested: (reviewerName: string, requesterName: string, fileName: string, reviewUrl: string) => `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { padding: 30px; background: #f9fafb; }
+          .info-box { background: #eef2ff; padding: 15px; border-radius: 5px; border-left: 4px solid #4f46e5; margin: 20px 0; }
+          .button { display: inline-block; padding: 12px 30px; background: #4f46e5; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+          .footer { background: #f3f4f6; padding: 20px; text-align: center; color: #6b7280; font-size: 14px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Review Requested 🔍</h1>
+          </div>
+          <div class="content">
+            <h2>Hi ${reviewerName},</h2>
+            <p><strong>${requesterName}</strong> has requested your review on the documentation for <strong>${fileName}</strong>.</p>
+            
+            <div class="info-box">
+              <p>The documentation is currently in <strong>REVIEW</strong> status and needs your approval or feedback before it can be finalized.</p>
+            </div>
+            
+            <a href="${reviewUrl}" class="button">Review Documentation</a>
+            
+            <p>Best regards,<br>The DocuMint AI team</p>
+          </div>
+          <div class="footer">
+            <p>&copy; 2026 DocuMint AI. All rights reserved.</p>
+            <p>This is an automated notification from your workspace.</p>
+          </div>
+        </div>
+      </body>
+    </html>
   `
 };

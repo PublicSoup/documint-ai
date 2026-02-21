@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { hasFeatureAccess } from "@/lib/subscription";
 
-type FeatureType = "analytics" | "changelog" | "smartSuggestions" | "auditLog" | "customTemplates" | "prioritySupport" | "diagramGenerator" | "rulesetGenerator";
+type FeatureType = "analytics" | "changelog" | "smartSuggestions" | "auditLog" | "customTemplates" | "prioritySupport" | "diagramGenerator" | "rulesetGenerator" | "aiArchitect" | "codeExplain";
 
 /**
  * Middleware helper to check feature access
@@ -28,6 +28,8 @@ export async function requireFeature(feature: FeatureType): Promise<NextResponse
             prioritySupport: "Upgrade to Pro or Team for Priority Support",
             diagramGenerator: "Upgrade to Pro or Team to generate Architecture Diagrams",
             rulesetGenerator: "Upgrade to Starter or Pro to generate AI IDE Rulesets",
+            aiArchitect: "Upgrade to Starter or Pro to access the AI Architect",
+            codeExplain: "Upgrade to Starter or Pro to use Persona-based Explanations",
         };
 
         const proFeatures: FeatureType[] = ["auditLog", "customTemplates", "prioritySupport", "diagramGenerator"];
@@ -118,6 +120,24 @@ export function getUpgradePrompt(feature: FeatureType) {
                 "Analyze tech stack automatically",
                 "Enforce team coding standards",
                 "Boost developer productivity",
+            ],
+        },
+        aiArchitect: {
+            title: "Unlock AI Architect",
+            benefits: [
+                "Senior Engineer paired with you",
+                "Architectural refactoring advice",
+                "Project-aware codebase analysis",
+                "Automated code pattern suggestions",
+            ],
+        },
+        codeExplain: {
+            title: "Unlock Persona Explanations",
+            benefits: [
+                "Explain code to non-technical stakeholders",
+                "Educational breakdowns for juniors",
+                "Concise summaries for seniors",
+                "Tailored documentation perspective",
             ],
         },
     };

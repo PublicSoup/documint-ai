@@ -8,7 +8,7 @@ export interface ApiError {
     error: string;
     message: string;
     code?: string;
-    details?: any;
+    details?: unknown;
     statusCode: number;
 }
 
@@ -18,9 +18,9 @@ export interface ApiError {
 export class ApiException extends Error {
     statusCode: number;
     code?: string;
-    details?: any;
+    details?: unknown;
 
-    constructor(message: string, statusCode: number = 500, code?: string, details?: any) {
+    constructor(message: string, statusCode: number = 500, code?: string, details?: unknown) {
         super(message);
         this.name = "ApiException";
         this.statusCode = statusCode;
@@ -42,7 +42,7 @@ export const ApiErrors = {
     notFound: (resource = "Resource") =>
         new ApiException(`${resource} not found`, 404, "NOT_FOUND"),
 
-    badRequest: (message = "Bad request", details?: any) =>
+    badRequest: (message = "Bad request", details?: unknown) =>
         new ApiException(message, 400, "BAD_REQUEST", details),
 
     conflict: (message = "Resource already exists") =>

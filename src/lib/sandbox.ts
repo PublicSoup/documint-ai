@@ -49,22 +49,24 @@ export async function runInSandbox(cmd: string, args: string[] = [], timeout: nu
             stderr: stderr.trim(),
             output: stdout.trim() || stderr.trim() || "(No output from sandbox)"
         };
-    } catch (error: any) {
-        console.error(`[Sandbox] Execution failed: ${error.message}`);
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[Sandbox] Execution failed: ${message}`);
         return {
             success: false,
-            error: error.message,
+            error: message,
             stdout: "",
             stderr: "",
-            output: `[Sandbox Error]: ${error.message}`
+            output: `[Sandbox Error]: ${message}`
         };
     } finally {
         if (sandbox) {
             try {
                 await sandbox.stop();
                 console.log(`[Sandbox] Sandbox stopped successfully.`);
-            } catch (stopError: any) {
-                console.error(`[Sandbox] Failed to stop sandbox: ${stopError.message}`);
+            } catch (stopError: unknown) {
+                const message = stopError instanceof Error ? stopError.message : String(stopError);
+                console.error(`[Sandbox] Failed to stop sandbox: ${message}`);
             }
         }
     }

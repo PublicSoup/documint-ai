@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { Users, CreditCard, FileText, Activity, TrendingUp, Shield } from 'lucide-react';
 import Link from 'next/link';
+import { SystemHealth } from '@/components/admin/system-health';
 
 interface DashboardStats {
     totalUsers: number;
@@ -17,6 +18,10 @@ interface UserSummary {
     email: string;
     createdAt: string;
     subscription?: { plan: string; status: string } | null;
+    _count?: {
+        files: number;
+        auditLogs: number;
+    };
 }
 
 export default function AdminDashboard() {
@@ -29,11 +34,11 @@ export default function AdminDashboard() {
             try {
                 const res = await fetch('/api/admin/users');
                 if (!res.ok) throw new Error('Failed to fetch');
-                const users = await res.json();
+                const users: UserSummary[] = await res.json();
 
-                const activeSubscriptions = users.filter((u: any) => u.subscription?.status === 'active').length;
-                const totalFiles = users.reduce((acc: number, u: any) => acc + (u._count?.files || 0), 0);
-                const recentActivity = users.reduce((acc: number, u: any) => acc + (u._count?.auditLogs || 0), 0);
+                const activeSubscriptions = users.filter((u) => u.subscription?.status === 'active').length;
+                const totalFiles = users.reduce((acc: number, u) => acc + (u._count?.files || 0), 0);
+                const recentActivity = users.reduce((acc: number, u) => acc + (u._count?.auditLogs || 0), 0);
 
                 setStats({
                     totalUsers: users.length,
@@ -43,7 +48,7 @@ export default function AdminDashboard() {
                 });
 
                 // Get 5 most recent users
-                const sorted = [...users].sort((a: any, b: any) =>
+                const sorted = [...users].sort((a, b) =>
                     new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
                 );
                 setRecentUsers(sorted.slice(0, 5));
@@ -96,6 +101,9 @@ export default function AdminDashboard() {
                     <p className="text-sm text-zinc-500">System overview and quick actions</p>
                 </div>
             </div>
+
+            {/* System Health Section */}
+            <SystemHealth />
 
             {/* Stat Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

@@ -5,7 +5,7 @@ export async function getFileContent(fileId: string): Promise<string | null> {
     const file = await db.file.findUnique({
         where: { id: fileId },
         select: { content: true, storagePath: true }
-    }) as any;
+    });
 
     if (!file) return null;
 

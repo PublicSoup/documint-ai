@@ -1,4 +1,4 @@
-export default function FileCodeIcon({ language }: { language: string }) {
+export default function FileCodeIcon({ language, className }: { language: string, className?: string }) {
     const langConfig: Record<string, { color: string; bg: string; label: string }> = {
         // Python
         python: { color: "text-amber-400", bg: "bg-amber-400/10", label: "PY" },
@@ -43,7 +43,7 @@ export default function FileCodeIcon({ language }: { language: string }) {
     const config = langConfig[language.toLowerCase()] || { color: "text-white/60", bg: "bg-white/10", label: language.slice(0, 2).toUpperCase() };
 
     return (
-        <div className={`w-8 h-8 rounded-lg ${config.bg} border border-white/5 flex items-center justify-center flex-shrink-0 shadow-sm`}>
+        <div className={`w-8 h-8 rounded-lg ${config.bg} border border-white/5 flex items-center justify-center flex-shrink-0 shadow-sm ${className || ''}`}>
             <span className={`text-[10px] font-bold ${config.color} tracking-tighter`}>{config.label}</span>
         </div>
     );

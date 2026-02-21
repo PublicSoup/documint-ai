@@ -32,7 +32,7 @@ export async function buildFullCodebaseContext(
             }
         },
         orderBy: { updatedAt: 'desc' }
-    }) as any[];
+    });
 
     let context = "";
     let usedChars = 0;
