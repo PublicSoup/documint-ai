@@ -28,66 +28,6 @@ interface AICompletionResult {
 const genAI = new GoogleGenerativeAI(env.GOOGLE_API_KEY);
 
 /**
- * Generate mock AI responses for dev mode (no API key)
- */
-function generateMockResponse(userMessage: string): string {
-    const lowerMessage = userMessage.toLowerCase();
-
-    // File creation requests
-    if (lowerMessage.includes("create") && (lowerMessage.includes("file") || lowerMessage.includes("component"))) {
-        return `# Mock Mode Active 🔧
-
-I'm running in **mock mode** because \`GOOGLE_API_KEY\` is not configured.
-
-**To enable full AI features:**
-1. Get a free API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
-2. Add it to your \`.env\` file:
-   \`\`\`
-   GOOGLE_API_KEY="your-api-key-here"
-   \`\`\`
-3. Restart the dev server
-
-**For now, you can still:**
-- Create files manually using the New File button
-- Edit files in the editor
-- Use the dashboard features
-
-Would you like me to show you how to get an API key?`;
-    }
-
-    // Help requests
-    if (lowerMessage.includes("help") || lowerMessage.includes("how")) {
-        return `# DocuMint AI - Mock Mode 🤖
-
-I'm your AI coding assistant! Currently running in **mock mode**.
-
-**To unlock full AI capabilities:**
-1. Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
-2. Create a free API key
-3. Add \`GOOGLE_API_KEY\` to your \`.env\` file
-
-**Available features in mock mode:**
-- ✅ File creation (manual)
-- ✅ Code editing
-- ✅ Dashboard navigation
-- ❌ AI code generation
-- ❌ AI explanations`;
-    }
-
-    // Default response
-    return `# AI Mock Mode Active 🔧
-
-Thanks for your message! I'm currently in **mock mode** because no \`GOOGLE_API_KEY\` is configured in your \`.env\` file.
-
-**Quick Setup:**
-1. Get your free key: [Google AI Studio](https://aistudio.google.com/app/apikey)
-2. Add to \`.env\`: \`GOOGLE_API_KEY="your-key"\`
-3. Restart: \`npm run dev\`
-
-The dashboard and file operations still work - only AI responses are mocked!`;
-}
-
-/**
  * Get AI completion with detailed error handling
  * Uses generateContent() API for maximum compatibility with all Gemini models
  */
@@ -95,27 +35,10 @@ export async function getAICompletionWithDetailedError(
     messages: AIMessage[],
     options: AICompletionOptions = {}
 ): Promise<{ success: boolean; data?: AICompletionResult; error?: string }> {
-    // In development, allow mock responses when key is missing.
-    // In production, fail closed so behavior is explicit and observable.
     if (!env.GOOGLE_API_KEY) {
-        if (env.NODE_ENV !== "development") {
-            return {
-                success: false,
-                error: "AI backend is not configured. Set GOOGLE_API_KEY.",
-            };
-        }
-
-        console.warn("⚠️ [AI Mock Mode] GOOGLE_API_KEY not configured - using mock responses in development");
-        const lastUserMessage = messages.filter(m => m.role === "user").pop()?.content || "";
-
-        const mockResponse = generateMockResponse(lastUserMessage);
         return {
-            success: true,
-            data: {
-                content: mockResponse,
-                provider: "gemini",
-                model: "mock-mode"
-            }
+            success: false,
+            error: "AI backend is not configured. Set GOOGLE_API_KEY.",
         };
     }
 

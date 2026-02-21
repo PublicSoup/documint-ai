@@ -12,7 +12,7 @@ const envSchema = z.object({
     UPSTASH_REDIS_REST_URL: z.string().url().optional(),
     UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
 
-    // AI Backend - Google Gemini (required in production; dev can use mock mode)
+    // AI Backend - Google Gemini
     GOOGLE_API_KEY: z.string().default(""),
 
     // Stripe Billing

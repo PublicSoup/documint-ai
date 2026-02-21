@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useToast } from "./toast";
+import { cn } from "@/lib/utils";
+import { Button } from "./ui/button";
 
 import { useRouter } from "next/navigation";
 import CodeArchaeology from "./code-archaeology";
@@ -10,7 +12,8 @@ import DocumentationTemplates from "./documentation-templates";
 import DocSuggestions from "./doc-suggestions";
 import { DiagramViewer } from "./diagram-viewer";
 import { VerifiedBadge } from "./verified-badge";
-import { FileText, Edit2, Play, Users, Sparkles, Download, GitBranch, Github, Shovel, Loader2, Workflow, Globe, Save, X, RefreshCw, Headphones, ShieldCheck, Lock, Activity, Check } from "lucide-react";
+import { VersionHistory } from "./version-history";
+import { FileText, Edit2, Play, Users, Sparkles, Download, GitBranch, Github, Shovel, Loader2, Workflow, Globe, Save, X, RefreshCw, Headphones, ShieldCheck, Lock, Activity, Check, Trash2, History, Zap } from "lucide-react";
 
 interface DocEntity {
     type: string;
@@ -34,6 +37,9 @@ interface DocContent {
     };
     verifiedAt?: string | null;
     verifiedById?: string | null;
+    status: "DRAFT" | "REVIEW" | "APPROVED";
+    hasProposedChanges?: boolean;
+    proposedAt?: string;
 }
 
 interface DocEditorProps {
@@ -41,12 +47,13 @@ interface DocEditorProps {
     fileName: string;
     fileLanguage: string;
     initialContent: DocContent;
-    currentUser?: { id: string; name: string };
+    currentUser?: { id: string; name: string; role: string };
     isPublic: boolean;
     isPro: boolean;
+    lockApproved?: boolean;
 }
 
-export default function DocEditor({ fileId, fileName, fileLanguage, initialContent, isPublic: initialPublicState, isPro }: DocEditorProps) {
+export default function DocEditor({ fileId, fileName, fileLanguage, initialContent, currentUser, isPublic: initialPublicState, isPro, lockApproved = false }: DocEditorProps) {
     const router = useRouter();
     const { toast } = useToast();
     const [isEditing, setIsEditing] = useState(false);
@@ -55,8 +62,12 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
     const [regeneratingEntity, setRegeneratingEntity] = useState<number | null>(null);
     const [content, setContent] = useState<DocContent>(initialContent);
     const [verifying, setVerifying] = useState(false);
+    const [isApproving, setIsApproving] = useState(false);
     const [isPublic, setIsPublic] = useState(initialPublicState);
     const [sharing, setSharing] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    const isLocked = lockApproved && content.status === "APPROVED" && currentUser?.role !== "OWNER" && currentUser?.role !== "ADMIN";
 
     // Persona states
     const [showPersonaModal, setShowPersonaModal] = useState(false);
@@ -64,7 +75,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
     const [personaExplanation, setPersonaExplanation] = useState<{ persona: string; text: string } | null>(null);
 
     // View Mode
-    const [mode, setMode] = useState<"standard" | "archaeology" | "code" | "deep-audit">("standard");
+    const [mode, setMode] = useState<"standard" | "archaeology" | "code" | "deep-audit" | "history">("standard");
 
     // GitHub Import State
     const [showGithubModal, setShowGithubModal] = useState(false);
@@ -81,6 +92,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
     // Translation State
     const [translating, setTranslating] = useState(false);
     const [currentLang, setCurrentLang] = useState("English");
+    const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
 
     // Code View State
     const [rawContent, setRawContent] = useState<string | null>(null);
@@ -90,6 +102,8 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
     const [chatHistory, setChatHistory] = useState<{ role: "user" | "assistant" | "system"; content: string }[]>([]);
     const [chatInput, setChatInput] = useState("");
     const [sendingChat, setSendingChat] = useState(false);
+    const [isSavingCode, setIsSavingCode] = useState(false);
+    const [historyLoaded, setHistoryLoaded] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -127,7 +141,16 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
             };
             fetchRaw();
         }
-    }, [mode, fileId, rawContent]);
+
+        // Load chat history from initial content metadata
+        if (!historyLoaded && initialContent?.metadata) {
+            const metadata = initialContent.metadata as any;
+            if (metadata.chatHistory && Array.isArray(metadata.chatHistory)) {
+                setChatHistory(metadata.chatHistory);
+            }
+            setHistoryLoaded(true);
+        }
+    }, [mode, fileId, rawContent, initialContent, historyLoaded]);
 
     const handleSendChat = async () => {
         if (!chatInput.trim() || sendingChat) return;
@@ -163,6 +186,36 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
         }
     };
 
+    const handleSaveCode = async () => {
+        if (!rawContent || isSavingCode) return;
+        setIsSavingCode(true);
+        try {
+            const res = await fetch(`/api/files/${fileId}/raw`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ content: rawContent }),
+            });
+
+            const data = await res.json();
+
+            if (res.ok) {
+                if (data.intentDrift?.drifted) {
+                    toast(data.intentDrift.reasoning || "AI detected a documentation drift!", "warning");
+                } else {
+                    toast("Source code updated successfully!", "success");
+                }
+                router.refresh();
+            } else {
+                toast(data.error || "Failed to update code", "error");
+            }
+        } catch (e) {
+            console.error(e);
+            toast("Error saving source code", "error");
+        } finally {
+            setIsSavingCode(false);
+        }
+    };
+
 
     const handleCancel = () => {
         setContent(initialContent);
@@ -178,13 +231,16 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                 body: JSON.stringify({ content }),
             });
 
-            if (!res.ok) throw new Error("Failed to save");
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.message || "Failed to save");
+            }
 
             setIsEditing(false);
             router.refresh();
-        } catch (error) {
+        } catch (error: any) {
             console.error("Save error:", error);
-            toast("Failed to save changes", "error");
+            toast(error.message || "Failed to save changes", "error");
         } finally {
             setIsSaving(false);
         }
@@ -226,6 +282,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                     language: fileLanguage,
                     type: entity.type,
                     name: entity.name,
+                    fileId // Added fileId for style guide context
                 }),
             });
 
@@ -548,30 +605,44 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
         if (targetLang === currentLang) return;
         setTranslating(true);
         try {
-            // Get current content (either edited or initial entities summary)
-            // For MVP, we translate the SUMMARY if entities, or content if string.
-            // But content is DocContent.
-            let textToTranslate = "";
-            if (content.summary) textToTranslate = content.summary;
-            else if (typeof content === 'string') textToTranslate = content;
-            else textToTranslate = JSON.stringify(content); // Fallback
-
-            const res = await fetch("/api/translate", {
+            const summaryRes = await fetch("/api/translate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: textToTranslate, targetLang })
+                body: JSON.stringify({ text: content.summary || "", targetLang })
             });
-            const data = await res.json();
 
-            if (res.ok) {
-                // Update summary with translation
-                // Note: We are only translating summary for MVP
-                setContent(prev => ({ ...prev, summary: data.translatedText }));
-                setIsEditing(true);
-                setCurrentLang(targetLang);
-            } else {
+            if (!summaryRes.ok) {
                 toast("Translation failed", "error");
+                return;
             }
+
+            const summaryData = await summaryRes.json();
+
+            const translatedEntities = await Promise.all(
+                (content.entities || []).map(async (entity) => {
+                    if (!entity.doc) return entity;
+                    try {
+                        const entityRes = await fetch("/api/translate", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ text: entity.doc, targetLang })
+                        });
+                        if (!entityRes.ok) return entity;
+                        const entityData = await entityRes.json();
+                        return { ...entity, doc: entityData.translatedText || entity.doc };
+                    } catch {
+                        return entity;
+                    }
+                })
+            );
+
+            setContent(prev => ({
+                ...prev,
+                summary: summaryData.translatedText || prev.summary,
+                entities: translatedEntities
+            }));
+            setIsEditing(true);
+            setCurrentLang(targetLang);
         } catch (e) {
             console.error(e);
             toast("Error translating", "error");
@@ -624,13 +695,94 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                     toast("Document is now private.", "success");
                 }
             } else {
-                toast(data.error || "Failed to update share settings", "error");
+                toast(data.message || data.error || "Failed to update share settings", "error");
             }
         } catch (error) {
             console.error(error);
             toast("Error updating share settings", "error");
         } finally {
             setSharing(false);
+        }
+    };
+
+    const handleApprove = async () => {
+        setIsApproving(true);
+        try {
+            const res = await fetch(`/api/docs/${fileId}/approve`, { method: "POST" });
+            const data = await res.json();
+
+            if (res.ok) {
+                setContent(prev => ({
+                    ...prev,
+                    status: "APPROVED",
+                    verifiedAt: data.verifiedAt,
+                    verifiedById: currentUser?.id
+                }));
+                toast("Documentation approved!", "success");
+                router.refresh();
+            } else {
+                toast(data.error || "Approval failed", "error");
+            }
+        } catch (error) {
+            console.error(error);
+            toast("Error approving document", "error");
+        } finally {
+            setIsApproving(false);
+        }
+    };
+
+    const handleRequestReview = async () => {
+        setIsSaving(true);
+        try {
+            const res = await fetch(`/api/docs/${fileId}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ content, status: "REVIEW" }),
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                setContent(prev => ({ ...prev, status: data.status }));
+                toast("Review requested!", "success");
+                router.refresh();
+            } else {
+                toast("Failed to request review", "error");
+            }
+        } catch (error) {
+            console.error(error);
+            toast("Error requesting review", "error");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleDeleteDoc = async () => {
+        if (!confirm("Are you sure you want to delete this documentation? The source code will remain, but all AI-generated content and history for this file will be permanently removed.")) {
+            return;
+        }
+
+        setIsDeleting(true);
+        try {
+            const res = await fetch(`/api/docs/${fileId}`, {
+                method: "DELETE"
+            });
+
+            if (res.ok) {
+                toast("Documentation deleted", "success");
+                // Remove the docId from the URL to return to empty state
+                const url = new URL(window.location.href);
+                url.searchParams.delete("docId");
+                router.push(url.toString());
+                router.refresh();
+            } else {
+                const data = await res.json();
+                toast(data.message || "Failed to delete documentation", "error");
+            }
+        } catch (error) {
+            console.error("Delete error:", error);
+            toast("An unexpected error occurred", "error");
+        } finally {
+            setIsDeleting(false);
         }
     };
 
@@ -645,8 +797,16 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                         <VerifiedBadge
                             status={content.verifiedAt ? "VERIFIED" : "UNVERIFIED"}
                             verifiedAt={content.verifiedAt || undefined}
-                        // verifiedBy={content.verifiedById} // We'd need to fetch user name, skipping for now
+                            verifiedBy={content.verifiedById || undefined}
                         />
+                        <span className={cn(
+                            "px-2 py-1 text-xs rounded font-bold uppercase tracking-widest",
+                            content.status === "APPROVED" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" :
+                            content.status === "REVIEW" ? "bg-blue-500/10 text-blue-400 border border-blue-500/20 animate-pulse" :
+                            "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                        )}>
+                            {content.status}
+                        </span>
                         {content.qualityScore && (
                             <span className={`px-2 py-1 text-xs rounded font-bold ${content.qualityScore >= 80 ? 'bg-green-100 text-green-700' :
                                 content.qualityScore >= 60 ? 'bg-yellow-100 text-yellow-700' :
@@ -673,6 +833,17 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                     >
                         <FileText className="w-4 h-4" />
                         Code
+                    </button>
+                    <button
+                        onClick={() => setMode(mode === "history" ? "standard" : "history")}
+                        className={`px-3 py-2 text-sm font-medium rounded-lg flex items-center gap-2 border transition-colors ${mode === "history"
+                            ? "bg-blue-500/20 text-blue-300 border-blue-500/30"
+                            : "bg-white/5 border-white/10/10 text-white/70 border-white/10 hover:bg-white/5 border-white/10/20"
+                            }`}
+                        title={mode === "history" ? "Return to docs" : "View version history"}
+                    >
+                        <History className="w-4 h-4" />
+                        History
                     </button>
                     <button
                         onClick={() => setMode(mode === "standard" ? "archaeology" : "standard")}
@@ -726,7 +897,11 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                             >
                                 <Workflow className="w-4 h-4" /> Visualize
                             </button>
-                            <DocumentationTemplates fileId={fileId} fileName={fileName} />
+                            <DocumentationTemplates 
+                                fileId={fileId} 
+                                fileName={fileName} 
+                                teamId={searchParams?.get("teamId") || undefined} 
+                            />
 
                             <button
                                 onClick={() => {
@@ -775,6 +950,28 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                 </div>
                             </div>
 
+                            {content.status === "DRAFT" && (
+                                <button
+                                    onClick={handleRequestReview}
+                                    disabled={isSaving}
+                                    className="px-3 py-2 text-sm font-medium text-amber-300 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 rounded-lg flex items-center gap-2 disabled:opacity-50"
+                                >
+                                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <GitBranch className="w-4 h-4" />}
+                                    Request Review
+                                </button>
+                            )}
+
+                            {content.status === "REVIEW" && (currentUser?.role === "OWNER" || currentUser?.role === "ADMIN") && (
+                                <button
+                                    onClick={handleApprove}
+                                    disabled={isApproving}
+                                    className="px-3 py-2 text-sm font-medium text-emerald-300 bg-emerald-500/20 border border-emerald-500/30 hover:bg-emerald-500/30 rounded-lg flex items-center gap-2 disabled:opacity-50 shadow-[0_0_15px_-3px_rgba(16,185,129,0.3)] animate-pulse"
+                                >
+                                    {isApproving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                                    Approve Documentation
+                                </button>
+                            )}
+
                             <button
                                 onClick={handleShareToggle}
                                 disabled={sharing}
@@ -787,6 +984,18 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                 {sharing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
                                 {isPublic ? "Public" : "Share"}
                             </button>
+
+                            {(currentUser?.role === "OWNER" || currentUser?.role === "ADMIN") && (
+                                <button
+                                    onClick={handleDeleteDoc}
+                                    disabled={isDeleting}
+                                    className="px-3 py-2 text-sm font-medium text-rose-300 bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500/20 rounded-lg flex items-center gap-2 disabled:opacity-50 transition-colors"
+                                    title="Permanently delete documentation"
+                                >
+                                    {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                    Delete
+                                </button>
+                            )}
 
                             <div className="relative group">
                                 <button
@@ -858,14 +1067,54 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                         </>
                     ) : (
                         <button
-                            onClick={() => setIsEditing(true)}
-                            className="px-3 py-2 text-sm font-medium text-white/70 bg-white/5 border-white/10/5 border border-white/10 hover:bg-white/5 border-white/10/10 rounded-lg flex items-center gap-2"
+                            onClick={() => {
+                                if (isLocked) {
+                                    toast("This documentation is APPROVED and locked by team policy. Only administrators can modify it.", "error");
+                                    return;
+                                }
+                                setIsEditing(true);
+                            }}
+                            className={cn(
+                                "px-3 py-2 text-sm font-medium border rounded-lg flex items-center gap-2 transition-all",
+                                isLocked 
+                                    ? "bg-amber-500/10 border-amber-500/20 text-amber-500/50 cursor-not-allowed" 
+                                    : "text-white/70 bg-white/5 border-white/10/5 border-white/10 hover:bg-white/5 border-white/10/10"
+                            )}
                         >
-                            <Edit2 className="w-4 h-4" /> Edit Docs
+                            {isLocked ? <Lock className="w-4 h-4" /> : <Edit2 className="w-4 h-4" />}
+                            {isLocked ? "Locked" : "Edit Docs"}
                         </button>
                     )}
                 </div>
             </div>
+
+            {/* Drift Awareness Banner */}
+            {content.status === "DRAFT" && content.hasProposedChanges && (
+                <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-between group animate-in slide-in-from-top duration-500">
+                    <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center">
+                            <Zap className="w-5 h-5 text-amber-500 animate-pulse" />
+                        </div>
+                        <div>
+                            <h4 className="text-sm font-bold text-white uppercase tracking-tight">AI-Drafted Resolution Available</h4>
+                            <p className="text-xs text-amber-200/60 font-medium">
+                                Code drift detected {content.proposedAt ? `on ${new Date(content.proposedAt).toLocaleDateString()}` : "recently"}. 
+                                AI has prepared an updated version.
+                            </p>
+                        </div>
+                    </div>
+                    <button 
+                        className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-black text-[10px] uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-amber-500/10"
+                        onClick={() => {
+                            // Trigger the suggest review modal (it's in the subcomponent)
+                            // For simplicity, we can just scroll to the suggestions
+                            document.getElementById('smart-suggestions')?.scrollIntoView({ behavior: 'smooth' });
+                        }}
+                    >
+                        Review & Apply
+                    </button>
+                </div>
+            )}
 
             {/* Content */}
             {
@@ -876,11 +1125,20 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                             <div className="flex-1 bg-[#1e1e1e] border border-white/10 rounded-lg overflow-hidden flex flex-col">
                                 <div className="flex items-center justify-between px-4 py-2 bg-white/5 border-white/10/5 border-b border-white/5 shrink-0">
                                     <span className="text-xs text-muted-foreground font-mono">{fileName}</span>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-4">
                                         {loadingRaw && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
-                                        <span className="text-xs text-muted-foreground">
-                                            {loadingRaw ? "Loading source..." : "Read-only Preview"}
-                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[10px] text-muted-foreground uppercase font-black tracking-widest mr-2">Editable</span>
+                                            <Button 
+                                                size="sm" 
+                                                onClick={handleSaveCode}
+                                                disabled={isSavingCode || loadingRaw}
+                                                className="h-7 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] uppercase tracking-widest gap-1.5 rounded-lg"
+                                            >
+                                                {isSavingCode ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                                Commit Code
+                                            </Button>
+                                        </div>
                                     </div>
                                 </div>
                                 {loadingRaw ? (
@@ -889,9 +1147,9 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                     </div>
                                 ) : (
                                     <textarea
-                                        value={rawContent || "// Unable to load source code."}
-                                        readOnly
-                                        className="w-full flex-1 p-4 bg-[#1e1e1e] text-blue-100 font-mono text-sm focus:outline-none resize-none leading-relaxed custom-scrollbar"
+                                        value={rawContent || ""}
+                                        onChange={(e) => setRawContent(e.target.value)}
+                                        className="w-full flex-1 p-4 bg-[#0A0A0B] text-blue-100 font-mono text-sm focus:outline-none resize-none leading-relaxed custom-scrollbar selection:bg-primary/30"
                                         spellCheck={false}
                                     />
                                 )}
@@ -978,6 +1236,16 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                 ) : mode === "archaeology" ? (
                     <div className="mt-8">
                         <CodeArchaeology fileId={fileId} fileName={fileName} />
+                    </div>
+                ) : mode === "history" ? (
+                    <div className="mt-8 max-w-2xl mx-auto">
+                        <VersionHistory
+                            fileId={fileId}
+                            onRollback={(newContent) => {
+                                setContent(newContent);
+                                setMode("standard");
+                            }}
+                        />
                     </div>
                 ) : mode === "deep-audit" ? (
                     <div className="mt-8 animate-in fade-in duration-300">
@@ -1393,8 +1661,11 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
             {/* Smart Suggestions - Pro Feature */}
             {
                 !isEditing && mode === "standard" && (
-                    <div className="mt-8">
-                        <DocSuggestions fileId={fileId} />
+                    <div className="mt-8" id="smart-suggestions">
+                        <DocSuggestions 
+                            fileId={fileId} 
+                            onUpdate={() => router.refresh()}
+                        />
                     </div>
                 )
             }
