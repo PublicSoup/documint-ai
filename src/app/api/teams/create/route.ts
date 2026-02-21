@@ -1,41 +1,58 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../../../../lib/auth";
-import { db } from "../../../../lib/db";
-import { enforceRateLimit } from "../../../../lib/rate-limit";
+import { z } from "zod";
+import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { enforceRateLimit } from "@/lib/rate-limit";
+
+const createTeamSchema = z.object({
+    name: z.string().trim().min(2).max(100),
+}).strict();
+
+function slugifyTeamName(name: string): string {
+    const slug = name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+
+    return slug || "team";
+}
+
+async function createUniqueTeamSlug(base: string): Promise<string> {
+    let candidate = base;
+    let suffix = 0;
+
+    while (true) {
+        const existing = await db.team.findUnique({
+            where: { slug: candidate },
+            select: { id: true },
+        });
+
+        if (!existing) {
+            return candidate;
+        }
+
+        suffix += 1;
+        candidate = `${base}-${suffix}`;
+    }
+}
 
 export async function POST(req: NextRequest) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     try {
-        // Enforce rate limit
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
         await enforceRateLimit(session.user.id, "api");
 
-        const body = await req.json().catch(() => ({}));
-        const { name } = body;
-
-        if (!name || name.trim().length < 2) {
-            return NextResponse.json({ error: "Team name must be at least 2 characters" }, { status: 400 });
+        const parsedBody = createTeamSchema.safeParse(await req.json());
+        if (!parsedBody.success) {
+            return NextResponse.json({ error: "Team name must be between 2 and 100 characters" }, { status: 400 });
         }
 
-        // Generate slug from name
-        let slug = name.toLowerCase()
-            .replace(/[^a-z0-9]+/g, '-') // Replace non-alphanumeric with hyphens
-            .replace(/^-+|-+$/g, '');   // Remove leading/trailing hyphens
-
-        // Ensure uniqueness with deterministic incremental suffix.
-        let suffix = 0;
-        let candidate = slug;
-        while (true) {
-            const existing = await db.team.findUnique({ where: { slug: candidate } });
-            if (!existing) break;
-            suffix += 1;
-            candidate = `${slug}-${suffix}`;
-        }
-        slug = candidate;
+        const { name } = parsedBody.data;
+        const slug = await createUniqueTeamSlug(slugifyTeamName(name));
 
         const team = await db.team.create({
             data: {
@@ -44,27 +61,34 @@ export async function POST(req: NextRequest) {
                 members: {
                     create: {
                         userId: session.user.id,
-                        role: "OWNER"
-                    }
-                }
-            }
+                        role: "OWNER",
+                    },
+                },
+            },
+            select: {
+                id: true,
+                name: true,
+                slug: true,
+            },
         });
 
-        // Audit Logging
         try {
-            const { logAudit } = await import("../../../../lib/audit-logger");
+            const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
                 userId: session.user.id,
                 action: "CREATE_TEAM",
                 entity: "Team",
                 entityId: team.id,
-                details: { name: team.name, slug: team.slug }
+                details: {
+                    name: team.name,
+                    slug: team.slug,
+                },
             });
-        } catch (e) {
-            console.error("Failed to log audit for team creation:", e);
+        } catch {
+            // Keep mutation non-blocking if audit logging fails.
         }
 
-        return NextResponse.json({ team });
+        return NextResponse.json({ team }, { status: 201 });
     } catch (error: unknown) {
         console.error("Create team error:", error);
 
