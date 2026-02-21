@@ -3,7 +3,6 @@ import { FileCode, Folder, ChevronRight, ChevronDown, Search, ExternalLink } fro
 import { cn } from "@/lib/utils";
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import FileCodeIcon from "./file-code-icon";
 
 interface FileWithDocs {
     id: string;
@@ -82,10 +81,10 @@ export function DashboardFileTree({ files, selectedFileId, teamId }: DashboardFi
                             <div key={ext}>
                                 {/* Language Group Header */}
                                 {Object.keys(groupedFiles).length > 1 && (
-                                    <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] text-muted-foreground uppercase tracking-wide">
-                                        <div className="w-4 h-4"><FileCodeIcon language={ext} /></div>
-                                        <span>{ext}</span>
-                                        <span className="ml-auto">{groupFiles.length}</span>
+                                    <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] text-muted-foreground uppercase tracking-wide min-w-0">
+                                        <div className="w-3 h-3 rounded bg-white/10 border border-white/10 shrink-0" />
+                                        <span className="truncate">{ext}</span>
+                                        <span className="ml-auto shrink-0">{groupFiles.length}</span>
                                     </div>
                                 )}
                                 {/* Files in Group */}
@@ -96,7 +95,7 @@ export function DashboardFileTree({ files, selectedFileId, teamId }: DashboardFi
                                             key={file.id}
                                             href={`${baseHref}${file.id}`}
                                             className={cn(
-                                                "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-all group relative",
+                                                "w-full min-w-0 flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-all group relative",
                                                 isSelected
                                                     ? "bg-primary/10 text-primary font-medium"
                                                     : "text-zinc-400 hover:text-white hover:bg-white/5"
