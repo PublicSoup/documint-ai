@@ -11,10 +11,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Rate Limit: Check if user is Pro
-    // ideally check subscription status, defaulting to 'api' (60/min) or 'pro' if needed
-    // For now, let's use 'pro' for this premium feature if allowed, or stricter 'free'.
-    // Let's assume standard 'api' limit for now to be safe.
+    // Apply standard API rate limiting for PR analysis.
     const result = await rateLimit(session.user.id, "api");
 
     if (result && !result.success) {
@@ -92,7 +89,7 @@ Provide the structured JSON report.`;
         let analysis;
         try {
             analysis = JSON.parse(content);
-        } catch (e) {
+        } catch {
             console.error("Failed to parse AI JSON:", content);
             // Fallback object
             analysis = {
@@ -103,6 +100,24 @@ Provide the structured JSON report.`;
                 securityIssues: []
             };
         }
+
+        // Audit Logging
+        try {
+            const { logAudit } = await import("../../../../../lib/audit-logger");
+            await logAudit({
+                userId: session.user.id,
+                action: "ANALYZE_GITHUB_PR",
+                entity: "PullRequest",
+                entityId: `${owner}/${repo}/${pullNumber}`,
+                details: { 
+                    owner, 
+                    repo, 
+                    pullNumber,
+                    impactScore: analysis.impactScore,
+                    issueCount: (analysis.securityIssues?.length || 0) + (analysis.suggestions?.length || 0)
+                }
+            });
+        } catch {}
 
         return NextResponse.json({
             owner,
