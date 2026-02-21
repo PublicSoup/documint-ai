@@ -10,10 +10,17 @@ interface DiagramViewerProps {
     onNodeClick?: (id: string) => void;
 }
 
+declare global {
+    interface Window {
+        mermaidNodeClick?: (id: string) => void;
+    }
+}
+
 export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramViewerProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [svg, setSvg] = useState<string>("");
     const [error, setError] = useState<string | null>(null);
+    const [isRendering, setIsRendering] = useState(false);
 
     useEffect(() => {
         mermaid.initialize({
@@ -45,14 +52,13 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
             }
         });
 
-        // Expose callback for Mermaid to find
-        (window as any).mermaidNodeClick = (id: string) => {
-            console.log("📊 [Mermaid] Node clicked:", id);
+        // Expose callback for Mermaid click directives.
+        window.mermaidNodeClick = (id: string) => {
             if (onNodeClick) onNodeClick(id);
         };
 
         return () => {
-            delete (window as any).mermaidNodeClick;
+            delete window.mermaidNodeClick;
         };
     }, [onNodeClick]);
 
@@ -91,24 +97,24 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
         const renderDiagram = async () => {
             if (!code || !containerRef.current) return;
 
+            setIsRendering(true);
             try {
                 setError(null);
-                const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
+                const id = `mermaid-${Math.random().toString(36).slice(2, 11)}`;
                 const { svg } = await mermaid.render(id, code);
                 setSvg(svg);
-            } catch (err) {
-                console.warn("First render failed, attempting client-side auto-repair...");
+            } catch {
                 try {
                     const repaired = autoRepair(code);
-                    // If repair didn't change anything, don't bother retrying (unless forceFormat logic is generic)
-
-                    const id = `mermaid-retry-${Math.random().toString(36).substr(2, 9)}`;
+                    const id = `mermaid-retry-${Math.random().toString(36).slice(2, 11)}`;
                     const { svg } = await mermaid.render(id, repaired);
                     setSvg(svg);
-                } catch (retryErr) {
-                    console.error("Mermaid final render error:", retryErr);
+                } catch {
                     setError("Failed to render diagram. The AI output might be invalid syntax.");
+                    setSvg("");
                 }
+            } finally {
+                setIsRendering(false);
             }
         };
 
@@ -168,6 +174,30 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
         return () => container.removeEventListener('wheel', onWheel);
     }, []);
 
+    useEffect(() => {
+        if (!onNodeClick || !svg) return;
+
+        const container = containerRef.current;
+        if (!container) return;
+
+        const onSvgClick = (event: MouseEvent) => {
+            const target = event.target as Element | null;
+            const node = target?.closest("g.node");
+            if (!node) return;
+
+            const title = node.querySelector("title")?.textContent?.trim();
+            const text = node.textContent?.trim();
+            const nodeId = (title || text || node.id || "").trim();
+
+            if (nodeId) {
+                onNodeClick(nodeId);
+            }
+        };
+
+        container.addEventListener("click", onSvgClick);
+        return () => container.removeEventListener("click", onSvgClick);
+    }, [onNodeClick, svg]);
+
     if (error) {
         return (
             <div className="p-4 border border-red-500/20 bg-red-500/10 rounded-lg text-red-400 text-sm">
@@ -220,10 +250,14 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
                             transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.k})`
                         }}
                     />
-                ) : (
+                ) : isRendering ? (
                     <div className="flex items-center justify-center text-zinc-500 h-full">
                         <Loader2 className="w-6 h-6 animate-spin mr-2" />
                         Rendering...
+                    </div>
+                ) : (
+                    <div className="flex items-center justify-center text-zinc-500 h-full text-sm">
+                        No diagram available.
                     </div>
                 )}
             </div>
