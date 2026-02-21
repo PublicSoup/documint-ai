@@ -4,10 +4,12 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { requireFeature } from "@/lib/feature-gate";
 import { buildGlobalContext, ADVANCED_SYSTEM_PROMPT } from "@/lib/context-builder";
-import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { getFileContent } from "@/lib/files";
 import { safeJsonParse } from "@/lib/utils";
 import { generateText } from "@/lib/ai";
+import { z } from "zod";
+import { errorResponse, validateBody, successResponse } from "@/lib/api-utils";
 
 // Documentation tone personalities
 type DocTone = "technical" | "friendly" | "enterprise" | "minimal" | "educational";
@@ -29,17 +31,27 @@ const BUILTIN_TEMPLATES: Record<string, string> = {
     "tutorial": "Create a step-by-step tutorial based on this code. Explain the logic flow as a learning guide."
 };
 
-interface DocOptions {
-    tone: DocTone;
-    format: "markdown" | "html" | "rst" | "adoc";
-    includeExamples: boolean;
-    includeTypeHints: boolean;
-    includeSeeAlso: boolean;
-    groupByType: boolean;
-    generateSummary: boolean;
-    maxDepth: number;
-    template?: string;
-}
+const docToneSchema = z.enum(["technical", "friendly", "enterprise", "minimal", "educational"]);
+const docFormatSchema = z.enum(["markdown", "html", "rst", "adoc"]);
+
+const docOptionsSchema = z.object({
+    tone: docToneSchema.default("technical"),
+    format: docFormatSchema.default("markdown"),
+    includeExamples: z.boolean().default(true),
+    includeTypeHints: z.boolean().default(true),
+    includeSeeAlso: z.boolean().default(true),
+    groupByType: z.boolean().default(true),
+    generateSummary: z.boolean().default(true),
+    maxDepth: z.number().int().min(1).max(5).default(3),
+    template: z.string().optional(),
+});
+
+const postBodySchema = z.object({
+    fileId: z.string().min(1),
+    options: docOptionsSchema.optional(),
+});
+
+type DocOptions = z.infer<typeof docOptionsSchema>;
 
 const DEFAULT_OPTIONS: DocOptions = {
     tone: "technical",
@@ -52,6 +64,29 @@ const DEFAULT_OPTIONS: DocOptions = {
     maxDepth: 3,
 };
 
+interface DocEntity {
+    type: string;
+    name: string;
+    doc?: string;
+    params?: Array<{ name: string; type?: string; doc?: string }>;
+    returns?: string;
+    methods?: Array<string>;
+    example?: string;
+    seeAlso?: string[];
+}
+
+interface ParsedDoc {
+    summary?: string;
+    entities?: DocEntity[];
+    lineCount?: number;
+    qualityScore?: number;
+    securityInsights?: string[];
+}
+
+/**
+ * POST /api/generate-docs
+ * Generates structured documentation for a specific file using AI and predefined templates.
+ */
 export async function POST(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
@@ -60,18 +95,9 @@ export async function POST(request: NextRequest) {
         }
 
         // Rate limiting
-        const limit = await rateLimit(session.user.id, "pro");
-        if (limit && !limit.success) {
-            return rateLimitResponse(limit.remaining, limit.reset);
-        }
+        await enforceRateLimit(session.user.id, "pro");
 
-        const body = await request.json();
-        const { fileId, options: userOptions } = body;
-
-        if (!fileId) {
-            return NextResponse.json({ error: "No file specified" }, { status: 400 });
-        }
-
+        const { fileId, options: userOptions } = await validateBody(request, postBodySchema);
         const options: DocOptions = { ...DEFAULT_OPTIONS, ...userOptions };
 
         // Get the file with documentation
@@ -90,13 +116,29 @@ export async function POST(request: NextRequest) {
         }
 
         if (!file.documentation?.content) {
-            return NextResponse.json({ error: "No documentation found for this file" }, { status: 400 });
+            return NextResponse.json({ error: "No documentation found for this file. Please analyze the file first." }, { status: 400 });
         }
 
-        const doc = safeJsonParse(file.documentation.content, {} as any);
+        const doc = safeJsonParse<ParsedDoc>(file.documentation.content, {});
+
+        // Audit Log
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: session.user.id,
+                action: "GENERATE_DOCS",
+                entity: "File",
+                entityId: fileId,
+                details: { 
+                    format: options.format, 
+                    tone: options.tone,
+                    template: options.template || "none"
+                },
+            });
+        } catch (e) {}
 
         // Handle Templates (Custom & Built-in)
-        const templateId = userOptions.template;
+        const templateId = options.template;
         let pTemplate = "";
 
         if (templateId) {
@@ -169,24 +211,23 @@ ${JSON.stringify(doc.entities ? doc.entities.slice(0, 20) : "No entities", null,
             }
         }
 
-
         const tonePrompt = TONE_PROMPTS[options.tone];
 
         const entities = doc.entities || [];
-        const functions = entities.filter((e: any) => e.type === "function");
-        const classes = entities.filter((e: any) => e.type === "class");
+        const functions = entities.filter((e) => e.type === "function");
+        const classes = entities.filter((e) => e.type === "class");
 
         // Build the documentation structure
         let documentation = "";
 
         if (options.format === "markdown") {
-            documentation = generateMarkdownDocs(file, doc, functions, classes, options);
+            documentation = generateMarkdownDocs({ name: file.name, language: file.language || "text" }, doc, functions, classes, options);
         } else if (options.format === "html") {
-            documentation = generateHtmlDocs(file, doc, functions, classes, options);
+            documentation = generateHtmlDocs({ name: file.name, language: file.language || "text" }, doc, functions, classes, options);
         } else if (options.format === "rst") {
-            documentation = generateRstDocs(file, doc, functions, classes, options);
+            documentation = generateRstDocs({ name: file.name, language: file.language || "text" }, doc, functions, classes, options);
         } else {
-            documentation = generateAsciidocDocs(file, doc, functions, classes, options);
+            documentation = generateAsciidocDocs({ name: file.name, language: file.language || "text" }, doc, functions, classes, options);
         }
 
         // Enhance with AI if summary is requested
@@ -194,8 +235,8 @@ ${JSON.stringify(doc.entities ? doc.entities.slice(0, 20) : "No entities", null,
             const summaryPrompt = `${tonePrompt}
 
 Generate a brief module overview for this ${file.language} file with:
-- ${functions.length} functions: ${functions.slice(0, 5).map((f: any) => f.name).join(", ")}
-- ${classes.length} classes: ${classes.slice(0, 5).map((c: any) => c.name).join(", ")}
+- ${functions.length} functions: ${functions.slice(0, 5).map((f) => f.name).join(", ")}
+- ${classes.length} classes: ${classes.slice(0, 5).map((c) => c.name).join(", ")}
 
 Original summary: ${doc.summary || "None provided"}
 
@@ -233,12 +274,11 @@ Write 2-3 sentences describing what this module does and its main purpose.`;
         });
 
     } catch (error) {
-        console.error("Generate docs error:", error);
-        return NextResponse.json({ error: "Failed to generate documentation" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
-function generateMarkdownDocs(file: any, doc: any, functions: any[], classes: any[], options: DocOptions): string {
+function generateMarkdownDocs(file: { name: string; language: string }, doc: ParsedDoc, functions: DocEntity[], classes: DocEntity[], options: DocOptions): string {
     let md = `# ${file.name}\n\n`;
 
     // Summary
@@ -257,10 +297,10 @@ function generateMarkdownDocs(file: any, doc: any, functions: any[], classes: an
     // Classes
     if (classes.length > 0 && options.groupByType) {
         md += `## Classes\n\n`;
-        classes.forEach((cls: any) => {
+        classes.forEach((cls) => {
             md += `### \`${cls.name}\`\n\n`;
             if (cls.doc) md += `${cls.doc}\n\n`;
-            if (cls.methods?.length > 0) {
+            if (cls.methods && cls.methods.length > 0) {
                 md += `**Methods:**\n`;
                 cls.methods.forEach((m: string) => {
                     md += `- \`${m}()\`\n`;
@@ -276,18 +316,18 @@ function generateMarkdownDocs(file: any, doc: any, functions: any[], classes: an
             md += `## Functions\n\n`;
         }
 
-        functions.forEach((fn: any) => {
+        functions.forEach((fn) => {
             md += `### \`${fn.name}()\`\n\n`;
 
             if (fn.doc) {
                 md += `${fn.doc}\n\n`;
             }
 
-            if (options.includeTypeHints && fn.params?.length > 0) {
+            if (options.includeTypeHints && fn.params && fn.params.length > 0) {
                 md += `**Parameters:**\n\n`;
                 md += `| Name | Type | Description |\n|------|------|-------------|\n`;
-                fn.params.forEach((p: any) => {
-                    md += `| \`${p.name}\` | \`${p.type || 'any'}\` | ${p.doc || '-'} |\n`;
+                fn.params.forEach((p) => {
+                    md += `| \`${p.name}\` | \`${p.type || 'unknown'}\` | ${p.doc || '-'} |\n`;
                 });
                 md += `\n`;
             }
@@ -300,7 +340,7 @@ function generateMarkdownDocs(file: any, doc: any, functions: any[], classes: an
                 md += `**Example:**\n\n\`\`\`${file.language}\n${fn.example}\n\`\`\`\n\n`;
             }
 
-            if (options.includeSeeAlso && fn.seeAlso?.length > 0) {
+            if (options.includeSeeAlso && fn.seeAlso && fn.seeAlso.length > 0) {
                 md += `**See Also:** ${fn.seeAlso.map((s: string) => `\`${s}()\``).join(", ")}\n\n`;
             }
 
@@ -309,7 +349,7 @@ function generateMarkdownDocs(file: any, doc: any, functions: any[], classes: an
     }
 
     // Security Insights
-    if (doc.securityInsights?.length > 0) {
+    if (doc.securityInsights && doc.securityInsights.length > 0) {
         md += `## ⚠️ Security Notes\n\n`;
         doc.securityInsights.forEach((insight: string) => {
             md += `- ${insight}\n`;
@@ -323,7 +363,7 @@ function generateMarkdownDocs(file: any, doc: any, functions: any[], classes: an
     return md;
 }
 
-function generateHtmlDocs(file: any, doc: any, functions: any[], classes: any[], options: DocOptions): string {
+function generateHtmlDocs(file: { name: string; language: string }, doc: ParsedDoc, functions: DocEntity[], classes: DocEntity[], options: DocOptions): string {
     let html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -352,7 +392,7 @@ function generateHtmlDocs(file: any, doc: any, functions: any[], classes: any[],
 
     if (classes.length > 0) {
         html += `<div class="section"><h2>Classes</h2>`;
-        classes.forEach((cls: any) => {
+        classes.forEach((cls) => {
             html += `<div class="function-card"><h3><code>${cls.name}</code></h3>`;
             if (cls.doc) html += `<p>${cls.doc}</p>`;
             html += `</div>`;
@@ -362,7 +402,7 @@ function generateHtmlDocs(file: any, doc: any, functions: any[], classes: any[],
 
     if (functions.length > 0) {
         html += `<div class="section"><h2>Functions</h2>`;
-        functions.forEach((fn: any) => {
+        functions.forEach((fn) => {
             html += `<div class="function-card"><h3><code>${fn.name}()</code></h3>`;
             if (fn.doc) html += `<p>${fn.doc}</p>`;
             html += `</div>`;
@@ -380,7 +420,7 @@ function generateHtmlDocs(file: any, doc: any, functions: any[], classes: any[],
     return html;
 }
 
-function generateRstDocs(file: any, doc: any, functions: any[], classes: any[], options: DocOptions): string {
+function generateRstDocs(file: { name: string; language: string }, doc: ParsedDoc, functions: DocEntity[], classes: DocEntity[], options: DocOptions): string {
     let rst = `${"=".repeat(file.name.length)}\n${file.name}\n${"=".repeat(file.name.length)}\n\n`;
 
     if (doc.summary) {
@@ -389,7 +429,7 @@ function generateRstDocs(file: any, doc: any, functions: any[], classes: any[], 
 
     if (classes.length > 0) {
         rst += `Classes\n${"-".repeat(7)}\n\n`;
-        classes.forEach((cls: any) => {
+        classes.forEach((cls) => {
             rst += `.. class:: ${cls.name}\n\n`;
             if (cls.doc) rst += `   ${cls.doc}\n\n`;
         });
@@ -397,7 +437,7 @@ function generateRstDocs(file: any, doc: any, functions: any[], classes: any[], 
 
     if (functions.length > 0) {
         rst += `Functions\n${"-".repeat(9)}\n\n`;
-        functions.forEach((fn: any) => {
+        functions.forEach((fn) => {
             rst += `.. function:: ${fn.name}()\n\n`;
             if (fn.doc) rst += `   ${fn.doc}\n\n`;
         });
@@ -406,7 +446,7 @@ function generateRstDocs(file: any, doc: any, functions: any[], classes: any[], 
     return rst;
 }
 
-function generateAsciidocDocs(file: any, doc: any, functions: any[], classes: any[], options: DocOptions): string {
+function generateAsciidocDocs(file: { name: string; language: string }, doc: ParsedDoc, functions: DocEntity[], classes: DocEntity[], options: DocOptions): string {
     let adoc = `= ${file.name}\n:toc:\n:source-highlighter: highlight.js\n\n`;
 
     if (doc.summary) {
@@ -415,7 +455,7 @@ function generateAsciidocDocs(file: any, doc: any, functions: any[], classes: an
 
     if (classes.length > 0) {
         adoc += `== Classes\n\n`;
-        classes.forEach((cls: any) => {
+        classes.forEach((cls) => {
             adoc += `=== ${cls.name}\n\n`;
             if (cls.doc) adoc += `${cls.doc}\n\n`;
         });
@@ -423,7 +463,7 @@ function generateAsciidocDocs(file: any, doc: any, functions: any[], classes: an
 
     if (functions.length > 0) {
         adoc += `== Functions\n\n`;
-        functions.forEach((fn: any) => {
+        functions.forEach((fn) => {
             adoc += `=== \`${fn.name}()\`\n\n`;
             if (fn.doc) adoc += `${fn.doc}\n\n`;
         });
