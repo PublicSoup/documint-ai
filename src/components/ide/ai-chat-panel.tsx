@@ -885,8 +885,9 @@ export function AIChatPanel({
                         const isMentioned = mentionedFiles.includes(file.name);
                         const maxLength = isMentioned ? 10000 : 1000;
                         const prefix = isMentioned ? "--> MENTIONED FILE: " : "// FILE: ";
+                        const safeContent = typeof content === "string" ? content : "";
 
-                        return `${prefix}${file.name}\n${content.substring(0, maxLength)}${content.length > maxLength ? "..." : ""}`;
+                        return `${prefix}${file.name}\n${safeContent.slice(0, maxLength)}${safeContent.length > maxLength ? "..." : ""}`;
                     })
                     .join("\n\n")
                 : "";
