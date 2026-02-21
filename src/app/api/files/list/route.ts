@@ -1,31 +1,56 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { resolveUserId } from "@/lib/resolve-user";
+import { z } from "zod";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse, validateQuery } from "@/lib/api-utils";
+import { checkTeamPermission } from "@/lib/permissions";
 
-export async function GET(req: Request) {
-    const session = await getServerSession(authOptions);
+const querySchema = z.object({
+    teamId: z.string().trim().min(1).max(100).optional(),
+}).strict();
 
-    if (!session || !session.user) {
-        return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-    }
-
+/**
+ * GET /api/files/list
+ * Returns a list of files for the authenticated user, optionally filtered by team.
+ */
+export async function GET(request: NextRequest) {
     try {
-        const userId = await resolveUserId(session);
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
 
-        if (!userId) {
-            return NextResponse.json({ message: "User not found" }, { status: 404 });
+        // Rate limiting
+        await enforceRateLimit(session.user.id, "api");
+
+        const { searchParams } = new URL(request.url);
+        const { teamId } = validateQuery(searchParams, querySchema);
+
+        const where: any = {};
+
+        if (teamId) {
+            // Verify team access
+            const hasPermission = await checkTeamPermission(session.user.id, teamId, "view");
+            if (!hasPermission) {
+                return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+            }
+            where.teamId = teamId;
+        } else {
+            // Personal files only (no team)
+            where.userId = session.user.id;
+            where.teamId = null;
         }
 
         const files = await db.file.findMany({
-            where: {
-                userId: userId,
-            },
+            where,
             select: {
                 id: true,
                 name: true,
                 language: true,
+                createdAt: true,
+                size: true
             },
             orderBy: {
                 createdAt: "desc",
@@ -34,7 +59,6 @@ export async function GET(req: Request) {
 
         return NextResponse.json({ files });
     } catch (error) {
-        console.error("List files error:", error);
-        return NextResponse.json({ message: "Internal server error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
