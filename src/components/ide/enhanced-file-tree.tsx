@@ -377,10 +377,10 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
                                     const newName = (e.target as HTMLInputElement).value;
                                     if (newName && newName !== renamingItem.name) {
                                         try {
-                                            const res = await fetch(`/api/files/${renamingItem.id}/raw`, {
-                                                method: "PATCH",
+                                            const res = await fetch(`/api/files/move`, {
+                                                method: "POST",
                                                 headers: { "Content-Type": "application/json" },
-                                                body: JSON.stringify({ name: newName })
+                                                body: JSON.stringify({ fileId: renamingItem.id, newName })
                                             });
                                             if (res.ok) {
                                                 onRefresh?.();
@@ -408,10 +408,10 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
                                     const newName = input.value;
                                     if (newName && newName !== renamingItem.name) {
                                         try {
-                                            const res = await fetch(`/api/files/${renamingItem.id}/raw`, {
-                                                method: "PATCH",
+                                            const res = await fetch(`/api/files/move`, {
+                                                method: "POST",
                                                 headers: { "Content-Type": "application/json" },
-                                                body: JSON.stringify({ name: newName })
+                                                body: JSON.stringify({ fileId: renamingItem.id, newName })
                                             });
                                             if (res.ok) {
                                                 onRefresh?.();

@@ -523,10 +523,10 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
             const newName = prompt("Enter new file name:", file?.name || "");
             if (!newName || newName === file?.name) return;
             try {
-                const res = await fetch(`/api/files/${fileId}/raw`, {
-                    method: "PATCH",
+                const res = await fetch(`/api/files/move`, {
+                    method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ name: newName })
+                    body: JSON.stringify({ fileId, newName })
                 });
                 if (res.ok) {
                     setFiles(prev => prev.map(f => f.id === fileId ? { ...f, name: newName, language: getLanguageFromFileName(newName) } : f));
