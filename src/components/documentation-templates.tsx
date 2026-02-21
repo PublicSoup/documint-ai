@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from "react";
 import {
-    Layout, Sparkles, Crown, Check, ArrowRight,
+    Layout, Sparkles, Crown, ArrowRight,
     Loader2, Download, Code, FileText,
-    Globe, Terminal, Book
+    Globe, Terminal, Book, AlertTriangle
 } from "lucide-react";
+import { useToast } from "./toast";
 
 interface Template {
     id: string;
@@ -79,39 +80,76 @@ const CUSTOM_CATEGORY = "Custom";
 interface DocumentationTemplatesProps {
     fileId: string;
     fileName: string;
+    teamId?: string;
     onApply?: (template: string) => void;
 }
 
-export default function DocumentationTemplates({ fileId, fileName, onApply }: DocumentationTemplatesProps) {
+interface ApiDocTemplate {
+    id: string;
+    name: string;
+    description: string | null;
+    content: string | null;
+}
+
+export default function DocumentationTemplates({ fileId, fileName, teamId, onApply }: DocumentationTemplatesProps) {
+    const { toast } = useToast();
     const [isOpen, setIsOpen] = useState(false);
     const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
     const [generating, setGenerating] = useState(false);
     const [preview, setPreview] = useState<string | null>(null);
     const [selectedCategory, setSelectedCategory] = useState<string>("all");
     const [customTemplates, setCustomTemplates] = useState<Template[]>([]);
+    const [templatesLoading, setTemplatesLoading] = useState(false);
+    const [templatesError, setTemplatesError] = useState("");
 
     useEffect(() => {
-        if (isOpen) {
-            // Fetch custom templates
-            fetch("/api/templates")
-                .then(res => res.json())
-                .then(data => {
-                    if (data.templates) {
-                        const formatted = data.templates.map((t: any) => ({
-                            id: t.id,
-                            name: t.name,
-                            description: t.description || "Custom template",
-                            icon: "layout",
-                            preview: t.content,
-                            premium: true,
-                            category: CUSTOM_CATEGORY
-                        }));
-                        setCustomTemplates(formatted);
-                    }
-                })
-                .catch(err => console.error("Failed to load templates", err));
+        if (!isOpen) {
+            return;
         }
-    }, [isOpen]);
+
+        const controller = new AbortController();
+
+        const fetchTemplates = async () => {
+            setTemplatesLoading(true);
+            setTemplatesError("");
+
+            try {
+                const url = teamId ? `/api/templates?teamId=${teamId}` : "/api/templates";
+                const res = await fetch(url, { signal: controller.signal });
+                const data = await res.json().catch(() => ({}));
+
+                if (!res.ok) {
+                    throw new Error(data.error || "Failed to load templates");
+                }
+
+                const apiTemplates: ApiDocTemplate[] = Array.isArray(data.templates) ? data.templates : [];
+                const formatted = apiTemplates.map((template) => ({
+                    id: template.id,
+                    name: template.name,
+                    description: template.description || "Custom template",
+                    icon: "layout",
+                    preview: template.content || "",
+                    premium: true,
+                    category: CUSTOM_CATEGORY,
+                }));
+
+                setCustomTemplates(formatted);
+            } catch (error: unknown) {
+                if (!controller.signal.aborted) {
+                    const message = error instanceof Error ? error.message : "Failed to load templates";
+                    setTemplatesError(message);
+                    toast(message, "error");
+                }
+            } finally {
+                if (!controller.signal.aborted) {
+                    setTemplatesLoading(false);
+                }
+            }
+        };
+
+        fetchTemplates();
+        return () => controller.abort();
+    }, [isOpen, teamId, toast]);
 
     const allTemplates = [...TEMPLATES, ...customTemplates];
 
@@ -135,17 +173,25 @@ export default function DocumentationTemplates({ fileId, fileName, onApply }: Do
                         template: selectedTemplate.id,
                         format: "markdown",
                         generateSummary: true,
-                        includeExamples: true
-                    }
-                })
+                        includeExamples: true,
+                    },
+                }),
             });
 
-            if (res.ok) {
-                const data = await res.json();
-                setPreview(data.documentation);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.error || "Failed to generate documentation");
             }
-        } catch (e) {
-            console.error(e);
+
+            const documentation = typeof data.documentation === "string" ? data.documentation : "";
+            setPreview(documentation);
+
+            if (documentation && onApply) {
+                onApply(documentation);
+            }
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to generate documentation";
+            toast(message, "error");
         } finally {
             setGenerating(false);
         }
@@ -170,8 +216,6 @@ export default function DocumentationTemplates({ fileId, fileName, onApply }: Do
             case "terminal": return <Terminal className="w-5 h-5" />;
             case "book": return <Book className="w-5 h-5" />;
             case "code": return <Code className="w-5 h-5" />;
-            case "filetext": return <FileText className="w-5 h-5" />;
-            case "sparkles": return <Sparkles className="w-5 h-5" />;
             case "filetext": return <FileText className="w-5 h-5" />;
             case "sparkles": return <Sparkles className="w-5 h-5" />;
             case "layout": return <Layout className="w-5 h-5" />;
@@ -230,34 +274,54 @@ export default function DocumentationTemplates({ fileId, fileName, onApply }: Do
                         ))}
                     </div>
 
+                    {templatesLoading && (
+                        <div className="mb-4 text-xs text-zinc-400 flex items-center gap-2">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Loading custom templates...
+                        </div>
+                    )}
+
+                    {templatesError && (
+                        <div className="mb-4 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 flex items-center gap-2">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                            {templatesError}
+                        </div>
+                    )}
+
                     {/* Templates Grid */}
-                    <div className="grid md:grid-cols-2 gap-4">
-                        {filteredTemplates.map(template => (
-                            <button
-                                key={template.id}
-                                onClick={() => setSelectedTemplate(template)}
-                                className={`p-4 rounded-xl border-2 text-left transition-all relative ${selectedTemplate?.id === template.id
-                                    ? "border-purple-500 bg-purple-500/10"
-                                    : "border-white/10 hover:border-white/20"
-                                    }`}
-                            >
-                                {template.premium && (
-                                    <Crown className="w-4 h-4 text-amber-500 absolute top-3 right-3" />
-                                )}
-                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-3 ${selectedTemplate?.id === template.id
-                                    ? "bg-purple-500 text-white"
-                                    : "bg-white/5 text-zinc-400"
-                                    }`}>
-                                    {getIcon(template.icon)}
-                                </div>
-                                <h3 className="font-semibold text-zinc-100">{template.name}</h3>
-                                <p className="text-sm text-gray-500 mt-1">{template.description}</p>
-                                <span className="inline-block mt-2 px-2 py-0.5 text-xs bg-white/5 text-zinc-400 rounded">
-                                    {template.category}
-                                </span>
-                            </button>
-                        ))}
-                    </div>
+                    {filteredTemplates.length === 0 ? (
+                        <div className="text-sm text-zinc-500 border border-white/10 rounded-xl px-4 py-6 text-center">
+                            No templates found for this category.
+                        </div>
+                    ) : (
+                        <div className="grid md:grid-cols-2 gap-4">
+                            {filteredTemplates.map(template => (
+                                <button
+                                    key={template.id}
+                                    onClick={() => setSelectedTemplate(template)}
+                                    className={`p-4 rounded-xl border-2 text-left transition-all relative ${selectedTemplate?.id === template.id
+                                        ? "border-purple-500 bg-purple-500/10"
+                                        : "border-white/10 hover:border-white/20"
+                                        }`}
+                                >
+                                    {template.premium && (
+                                        <Crown className="w-4 h-4 text-amber-500 absolute top-3 right-3" />
+                                    )}
+                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-3 ${selectedTemplate?.id === template.id
+                                        ? "bg-purple-500 text-white"
+                                        : "bg-white/5 text-zinc-400"
+                                        }`}>
+                                        {getIcon(template.icon)}
+                                    </div>
+                                    <h3 className="font-semibold text-zinc-100">{template.name}</h3>
+                                    <p className="text-sm text-gray-500 mt-1">{template.description}</p>
+                                    <span className="inline-block mt-2 px-2 py-0.5 text-xs bg-white/5 text-zinc-400 rounded">
+                                        {template.category}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
 
                     {/* Preview */}
                     {selectedTemplate && (
