@@ -1,7 +1,3 @@
-"use client";
-
-import React from 'react';
-import { motion } from 'framer-motion';
 import {
   Zap,
   Shield,
@@ -10,19 +6,14 @@ import {
   Globe,
   Github,
   ArrowRight,
-  Terminal,
-  FileCode,
   Sparkles,
   Command,
-  CheckCircle2,
-  Menu,
-  X
+  CheckCircle2
 } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { PLANS } from '@/config/plans';
-import { useState } from 'react';
 
 const jsonLd = {
   "@context": "https://schema.org",
@@ -38,22 +29,7 @@ const jsonLd = {
   }
 };
 
-const fadeInUp = {
-  initial: { opacity: 0, y: 20 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.5 }
-};
-
-const staggerContainer = {
-  animate: {
-    transition: {
-      staggerChildren: 0.1
-    }
-  }
-};
-
 export default function LandingPage() {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   return (
     <div className="min-h-screen bg-[#030014] text-white selection:bg-primary/30 overflow-hidden">
       <script
@@ -84,85 +60,45 @@ export default function LandingPage() {
             <Link href="#pricing" className="hover:text-primary transition-colors">Pricing</Link>
           </nav>
 
-          <div className="flex items-center gap-4">
-            <Link href="/auth/login" className="hidden md:block">
+          <div className="flex items-center gap-3">
+            <Link href="/auth/login">
               <Button variant="ghost" className="hover:bg-white/5">Log in</Button>
             </Link>
-            <Link href="/auth/register" className="hidden md:block">
-              <Button className="bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 rounded-full px-6">
+            <Link href="/auth/register">
+              <Button className="bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 rounded-full px-5 md:px-6">
                 Get Started <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </Link>
-            <button
-              className="md:hidden p-2 text-white/70 hover:text-white"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            >
-              {mobileMenuOpen ? <X /> : <Menu />}
-            </button>
           </div>
         </div>
-
-        {/* Mobile Menu Overlay */}
-        {mobileMenuOpen && (
-          <div className="md:hidden fixed inset-0 top-20 bg-[#030014]/95 backdrop-blur-lg z-40 p-6 flex flex-col gap-6 animate-in slide-in-from-top-5">
-            <nav className="flex flex-col gap-4 text-lg font-medium text-white/70">
-              <Link href="#features" className="hover:text-primary transition-colors" onClick={() => setMobileMenuOpen(false)}>Features</Link>
-              <Link href="#solutions" className="hover:text-primary transition-colors" onClick={() => setMobileMenuOpen(false)}>Solutions</Link>
-              <Link href="#pricing" className="hover:text-primary transition-colors" onClick={() => setMobileMenuOpen(false)}>Pricing</Link>
-            </nav>
-            <div className="h-px bg-white/10" />
-            <div className="flex flex-col gap-4">
-              <Link href="/auth/login" onClick={() => setMobileMenuOpen(false)}>
-                <Button variant="ghost" className="w-full justify-start hover:bg-white/5">Log in</Button>
-              </Link>
-              <Link href="/auth/register" onClick={() => setMobileMenuOpen(false)}>
-                <Button className="w-full bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 rounded-full">
-                  Get Started <ArrowRight className="w-4 h-4 ml-2" />
-                </Button>
-              </Link>
-            </div>
-          </div>
-        )}
       </header>
 
       {/* Hero Section */}
       <section className="pt-40 pb-20 px-6 relative">
         <div className="max-w-7xl mx-auto text-center">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5 }}
+          <div
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-primary-foreground/80 text-sm font-medium mb-8"
           >
             <Zap className="w-4 h-4 text-primary" />
             <span>The future of AI-powered development is here</span>
-          </motion.div>
+          </div>
 
-          <motion.h1
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.1 }}
+          <h1
             className="text-6xl md:text-8xl font-black tracking-tighter mb-8 leading-[1.1]"
           >
             Automate Your <br />
             <span className="bg-gradient-to-r from-primary via-purple-400 to-indigo-400 bg-clip-text text-transparent">
               Workflow Magic.
             </span>
-          </motion.h1>
+          </h1>
 
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
+          <p
             className="text-xl text-white/50 max-w-2xl mx-auto mb-12 leading-relaxed"
           >
             DocuMint AI is the ultimate productivity suite for developers. AI-generated docs, real-time code analysis, and a built-in intelligent IDE.
-          </motion.p>
+          </p>
 
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.3 }}
+          <div
             className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
             <Link href="/auth/register">
@@ -175,14 +111,11 @@ export default function LandingPage() {
                 <Github className="w-5 h-5 mr-2" /> View on GitHub
               </Button>
             </Link>
-          </motion.div>
+          </div>
         </div>
 
         {/* Hero Preview */}
-        <motion.div
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.4 }}
+        <div
           className="mt-24 max-w-6xl mx-auto relative group"
         >
           <div className="absolute -inset-4 bg-gradient-to-r from-primary/30 to-purple-600/30 blur-3xl opacity-20 group-hover:opacity-40 transition-opacity" />
@@ -229,7 +162,7 @@ export default function LandingPage() {
               </div>
             </div>
           </div>
-        </motion.div>
+        </div>
       </section>
 
       {/* Features Grid */}
@@ -238,15 +171,11 @@ export default function LandingPage() {
           <div className="text-center mb-20">
             <h2 className="text-4xl md:text-5xl font-bold mb-6 italic italic-accent">Engineered for Excellence</h2>
             <p className="text-white/40 text-lg max-w-2xl mx-auto">
-              We've built all the tools you need to build faster, smarter, and with complete visibility.
+              We&apos;ve built all the tools you need to build faster, smarter, and with complete visibility.
             </p>
           </div>
 
-          <motion.div
-            variants={staggerContainer}
-            initial="initial"
-            whileInView="animate"
-            viewport={{ once: true }}
+          <div
             className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
           >
             {[
@@ -305,7 +234,7 @@ export default function LandingPage() {
                 shadow: "shadow-rose-500/20"
               }
             ].map((feature, i) => (
-              <motion.div key={i} variants={fadeInUp}>
+              <div key={i}>
                 <Card className="glass-card h-full border-white/5 hover:border-primary/30 group">
                   <CardContent className="p-8">
                     <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-500 ${feature.bg} ${feature.color} border ${feature.border} shadow-lg ${feature.shadow}`}>
@@ -315,9 +244,9 @@ export default function LandingPage() {
                     <p className="text-white/40 leading-relaxed">{feature.description}</p>
                   </CardContent>
                 </Card>
-              </motion.div>
+              </div>
             ))}
-          </motion.div>
+          </div>
         </div>
       </section>
 
