@@ -20,8 +20,14 @@ const registerSchema = z.object({
 export async function POST(req: Request) {
     try {
         // Rate limit: 5 registration attempts per 15 minutes per IP
-        const clientIp = getClientIP(req);
+        const clientIp = await getClientIP(req);
         await enforceRateLimit(clientIp, "auth");
+
+        // Additional Security: Rate limit per email (5 per hour)
+        const body = await req.clone().json();
+        if (body.email) {
+            await enforceRateLimit(body.email.trim().toLowerCase(), "security");
+        }
 
         // Validate request body
         const { email, name, password } = await validateBody(req, registerSchema);
@@ -46,6 +52,18 @@ export async function POST(req: Request) {
                 password: hashedPassword
             }
         });
+
+        // Audit Logging
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: newUser.id,
+                action: "SIGN_UP",
+                entity: "User",
+                entityId: newUser.id,
+                details: { method: "credentials", email: newUser.email }
+            });
+        } catch (e) {}
 
         // Send welcome email (non-blocking)
         sendEmail({

@@ -45,9 +45,10 @@ export async function GET(request: NextRequest) {
         if (action) where.action = action;
         if (entity) where.entity = entity;
         if (startDate || endDate) {
-            where.createdAt = {};
-            if (startDate) where.createdAt.gte = new Date(startDate);
-            if (endDate) where.createdAt.lte = new Date(endDate);
+            const createdAt: Prisma.DateTimeFilter = {};
+            if (startDate) createdAt.gte = new Date(startDate);
+            if (endDate) createdAt.lte = new Date(endDate);
+            where.createdAt = createdAt;
         }
 
         // 5. Execute paginated transaction
@@ -103,8 +104,12 @@ export async function POST(request: NextRequest) {
             where.userId = targetUserId;
         }
 
-        if (startDate) where.createdAt = { ...where.createdAt, gte: new Date(startDate) };
-        if (endDate) where.createdAt = { ...where.createdAt, lte: new Date(endDate) };
+        if (startDate || endDate) {
+            const createdAt: Prisma.DateTimeFilter = {};
+            if (startDate) createdAt.gte = new Date(startDate);
+            if (endDate) createdAt.lte = new Date(endDate);
+            where.createdAt = createdAt;
+        }
 
         const logs = await db.auditLog.findMany({
             where,

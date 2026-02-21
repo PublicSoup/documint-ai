@@ -4,6 +4,7 @@ import { hash } from "bcryptjs";
 import { z } from "zod";
 import { randomBytes } from "crypto";
 import { sendEmail, emailTemplates } from "@/lib/email";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 const resetRequestSchema = z.object({
     email: z.string().email(),
@@ -17,8 +18,11 @@ const resetConfirmSchema = z.object({
 // Generate a password reset token
 export async function POST(req: Request) {
     try {
-        const body = await req.json();
+        const body = await req.clone().json();
         const { email } = resetRequestSchema.parse(body);
+
+        // Security: Rate limit reset attempts per email
+        await enforceRateLimit(email.trim().toLowerCase(), "security");
 
         // Find user by email
         const user = await db.user.findUnique({
@@ -107,6 +111,18 @@ export async function PUT(req: Request) {
             where: { id: resetToken.userId },
             data: { password: hashedPassword },
         });
+
+        // Log audit event for password reset
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: resetToken.userId,
+                action: "RESET_PASSWORD",
+                entity: "User",
+                entityId: resetToken.userId,
+                details: { method: "forgot-password-flow" }
+            });
+        } catch (e) {}
 
         // Delete reset token
         await db.passwordResetToken.delete({

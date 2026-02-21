@@ -37,11 +37,11 @@ export async function GET(req: NextRequest) {
             where.userId = targetUserId;
         }
 
-        if (startDate) {
-            where.createdAt = { ...where.createdAt, gte: new Date(startDate) };
-        }
-        if (endDate) {
-            where.createdAt = { ...where.createdAt, lte: new Date(endDate) };
+        if (startDate || endDate) {
+            const createdAt: Prisma.DateTimeFilter = {};
+            if (startDate) createdAt.gte = new Date(startDate);
+            if (endDate) createdAt.lte = new Date(endDate);
+            where.createdAt = createdAt;
         }
         if (action) {
             where.action = action;

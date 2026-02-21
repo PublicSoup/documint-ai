@@ -85,6 +85,18 @@ export async function POST(req: Request) {
             }
         });
 
+        // Audit Logging
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: session.user.id,
+                action: "CREATE_FILE",
+                entity: "File",
+                entityId: file.id,
+                details: { name: file.name, language: file.language, size: file.size }
+            });
+        } catch (e) {}
+
         return NextResponse.json(file);
     } catch (error) {
         console.error("[FILE_CREATE]", error);

@@ -121,6 +121,23 @@ export async function POST(req: Request) {
         if (!prRes.ok) throw new Error("Failed to create PR");
         const prData = await prRes.json();
 
+        // Audit Logging
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: session.user.id,
+                action: "EXPORT_GITHUB_PR",
+                entity: "Documentation",
+                entityId: fileId,
+                details: { 
+                    repoFullName, 
+                    fileName: file.name,
+                    branch: branchName,
+                    prUrl: prData.html_url
+                }
+            });
+        } catch (e) {}
+
         return NextResponse.json({
             success: true,
             prUrl: prData.html_url

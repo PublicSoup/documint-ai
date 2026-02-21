@@ -51,6 +51,22 @@ export async function POST(req: NextRequest) {
 
         const repoData = await gitRes.json();
 
+        // Audit Logging
+        try {
+            const { logAudit } = await import("../../../../lib/audit-logger");
+            await logAudit({
+                userId: session.user.id,
+                action: "GITHUB_CREATE_REPO",
+                entity: "GitHubRepository",
+                entityId: repoData.id.toString(),
+                details: { 
+                    name: repoData.name, 
+                    fullName: repoData.full_name,
+                    private: repoData.private
+                }
+            });
+        } catch (e) {}
+
         return NextResponse.json({
             message: "Repository created successfully",
             repo: {

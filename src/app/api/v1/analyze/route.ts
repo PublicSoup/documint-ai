@@ -26,6 +26,17 @@ export async function POST(req: Request) {
         // Validate API key
         const userId = await validateApiKey(apiKey);
         if (!userId) {
+            // Audit Logging
+            try {
+                const { logAudit } = await import("@/lib/audit-logger");
+                await logAudit({
+                    action: "API_AUTH_FAILURE",
+                    entity: "ApiKey",
+                    entityId: "REDACTED",
+                    details: { keyPreview: apiKey.substring(0, 4) + "..." }
+                });
+            } catch (e) {}
+
             return NextResponse.json({
                 error: "Invalid API key",
                 message: "The provided API key is not valid"
@@ -53,6 +64,18 @@ export async function POST(req: Request) {
         // Parse request body
         const body = await req.json();
         const { code, language, filename } = analyzeSchema.parse(body);
+
+        // Audit Logging - API Use
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: userId,
+                action: "API_ANALYZE",
+                entity: "PublicApi",
+                entityId: filename || "unnamed",
+                details: { method: "v1-analyze", language }
+            });
+        } catch (e) {}
 
         // Detect language if not provided
         const detectedLanguage = language || detectLanguage(filename || "", code);

@@ -181,6 +181,24 @@ export async function POST(req: NextRequest) {
                 }
             }
 
+            // Audit Logging
+            try {
+                const { logAudit } = await import("../../../../lib/audit-logger");
+                await logAudit({
+                    userId: userId,
+                    action: "GITHUB_IMPORT",
+                    entity: "Repository",
+                    entityId: `${owner}/${repo}`,
+                    details: { 
+                        owner, 
+                        repo, 
+                        branch, 
+                        importedCount: successfulImports,
+                        totalRequested: limit
+                    }
+                });
+            } catch (e) {}
+
             yield encoder.encode(JSON.stringify({ status: "complete", imported: successfulImports, total: limit }) + "\n");
 
         } catch (error) {

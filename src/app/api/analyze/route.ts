@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import { resolveUserId } from "@/lib/resolve-user";
 import { parseCode, CodeEntity } from "@/lib/parsing/tree-sitter";
 import { analyzeCodeQuality } from "@/lib/parsing/code-quality";
 import { generateDocumentation } from "@/lib/ai";
 import { uploadFile } from "@/lib/supabase/storage";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions);
@@ -16,16 +18,20 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-        const formData = await req.formData();
-        const files = formData.getAll("files") as unknown as File[];
-        const teamId = formData.get("teamId") as string | null;
-
         const userId = await resolveUserId(session);
 
         if (!userId) {
             console.error("Analysis: User not found in DB for session", session.user.email);
             return NextResponse.json({ message: "User not found in database" }, { status: 404 });
         }
+
+        // 1. Enforce Rate Limit: 10 analyzes per minute
+        await enforceRateLimit(userId, "upload");
+
+        const formData = await req.formData();
+        const files = formData.getAll("files") as unknown as File[];
+        const teamId = formData.get("teamId") as string | null;
+        let styleGuide = "";
 
         // Check plan limits
         const { canUploadFile } = await import("@/lib/subscription");
@@ -103,19 +109,31 @@ export async function POST(req: NextRequest) {
                 const limitedEntities = entities.slice(0, 10);
                 const entityDocs = [];
 
+                if (teamId) {
+                    const teamConfig = await db.integration.findFirst({
+                        where: { teamId, type: "TEAM_CONFIG" }
+                    });
+                    styleGuide = (teamConfig?.config as { styleGuide?: string } | null)?.styleGuide || "";
+                }
+
                 for (const entity of limitedEntities) {
                     try {
                         // Add a small delay for local LLM stability
                         await new Promise(r => setTimeout(r, 200));
-                        const doc = await generateDocumentation(entity.code, extension, entity.type as any);
+                        const doc = await generateDocumentation(
+                            entity.code, 
+                            extension, 
+                            entity.type as 'file' | 'function' | 'class' | 'complex_logic', 
+                            styleGuide
+                        );
                         entityDocs.push({ ...entity, doc });
                     } catch (err) {
                         console.warn(`Doc gen failed for entity ${entity.name}`, err);
-                        entityDocs.push({ ...entity, doc: "Documentation generation pending..." });
+                        entityDocs.push({ ...entity, doc: "Documentation pending..." });
                     }
                 }
 
-                const fileSummary = await generateDocumentation(content.substring(0, 3000), extension, "file")
+                const fileSummary = await generateDocumentation(content.substring(0, 3000), extension, "file", styleGuide)
                     .catch(() => "Summary generation pending.");
 
                 const documentationContent = JSON.stringify({
@@ -132,13 +150,42 @@ export async function POST(req: NextRequest) {
                     }
                 });
 
-                await db.documentation.create({
+                const docRecord = await db.documentation.create({
                     data: {
                         fileId: dbFile.id,
                         content: documentationContent,
-                        metadata: analysisResult as any
+                        metadata: analysisResult as unknown as Prisma.InputJsonValue
                     }
                 });
+
+                // Create initial version
+                await db.docVersion.create({
+                    data: {
+                        documentationId: docRecord.id,
+                        content: documentationContent,
+                        version: 1,
+                        message: "Initial analysis and generation",
+                        createdById: userId
+                    }
+                });
+
+                // Log the creation
+                try {
+                    const { logAudit } = await import("@/lib/audit-logger");
+                    await logAudit({
+                        action: "ANALYZE",
+                        entity: "Documentation",
+                        entityId: docRecord.id,
+                        userId: userId,
+                        details: {
+                            fileId: dbFile.id,
+                            fileName: name,
+                            score: analysisResult.qualityScore
+                        }
+                    });
+                } catch {
+                    // Ignore audit logging errors
+                }
 
                 results.push({
                     fileId: dbFile.id,
@@ -150,13 +197,14 @@ export async function POST(req: NextRequest) {
                     status: "success"
                 });
 
-            } catch (fileError: any) {
+            } catch (fileError: unknown) {
+                const message = fileError instanceof Error ? fileError.message : "Internal processing error";
                 console.error(`Error processing file ${name}:`, fileError);
                 results.push({
                     fileId: "error",
                     name,
                     qualityScore: 0,
-                    securityInsights: [fileError.message || "Internal processing error"],
+                    securityInsights: [message],
                     status: "error"
                 });
             }
