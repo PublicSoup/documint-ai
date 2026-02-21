@@ -1,77 +1,89 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { stripe } from "@/lib/stripe";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
-export async function POST(request: Request) {
+function resolveOrigin(request: NextRequest): string {
+    const origin = request.headers.get("origin");
+    if (origin) return origin;
+    if (env.NEXT_PUBLIC_APP_URL) return env.NEXT_PUBLIC_APP_URL;
+    return "http://localhost:3000";
+}
+
+export async function POST(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id || !session?.user?.email) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const origin = request.headers.get("origin") || env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+        await enforceRateLimit(session.user.id, "api");
 
-        // First, check the database for a stored customer ID
+        let customerId: string | null = null;
+
         const subscription = await db.subscription.findUnique({
-            where: { userId: session.user.id }
+            where: { userId: session.user.id },
+            select: { stripeCustomerId: true },
         });
 
-        let customerId = subscription?.stripeCustomerId;
-
-        // Fallback: search by email in Stripe if not in DB
-        if (!customerId) {
+        if (subscription?.stripeCustomerId) {
+            customerId = subscription.stripeCustomerId;
+        } else {
             const customers = await stripe.customers.list({
                 email: session.user.email,
                 limit: 1,
             });
-            customerId = customers.data[0]?.id;
 
-            // Self-heal: If found in Stripe but not in DB, update DB
-            if (customerId) {
-                console.log(`Self-healing: Found Stripe Customer ID ${customerId} for user ${session.user.email}`);
+            const discoveredCustomerId = customers.data[0]?.id;
+            if (discoveredCustomerId) {
+                customerId = discoveredCustomerId;
+
                 await db.subscription.upsert({
                     where: { userId: session.user.id },
                     create: {
                         userId: session.user.id,
-                        stripeCustomerId: customerId,
-                        status: "tea_pot", // Placeholder status until webhook updates it
-                        plan: "free"
+                        stripeCustomerId: discoveredCustomerId,
+                        status: "inactive",
+                        plan: "free",
                     },
                     update: {
-                        stripeCustomerId: customerId
-                    }
+                        stripeCustomerId: discoveredCustomerId,
+                    },
                 });
             }
         }
 
         if (!customerId) {
-            // If the user is in Dev Pro mode, we should explain why the portal is unavailable
-            const isDevPro = env.NEXT_PUBLIC_DEV_PRO === "true";
-            const message = isDevPro
-                ? "You are currently in Developer Pro mode (local override). You don't have a real Stripe subscription yet. Upgrade to a real plan to enable the billing portal."
-                : "No active billing account found. Please upgrade to a plan first.";
-
             return NextResponse.json(
-                { error: message },
+                { error: "No billing account found. Upgrade to a paid plan first." },
                 { status: 400 }
             );
         }
 
-        // Create portal session
         const portalSession = await stripe.billingPortal.sessions.create({
             customer: customerId,
-            return_url: `${origin}/dashboard/billing`,
+            return_url: `${resolveOrigin(request)}/dashboard/billing`,
         });
 
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: session.user.id,
+                action: "CREATE_BILLING_PORTAL_SESSION",
+                entity: "Subscription",
+                entityId: session.user.id,
+                details: { customerId },
+            });
+        } catch {
+            // Non-blocking
+        }
+
         return NextResponse.json({ url: portalSession.url });
-    } catch (error: any) {
+    } catch (error) {
         console.error("Portal error:", error);
-        return NextResponse.json(
-            { error: error.message || "Failed to create portal session" },
-            { status: 500 }
-        );
+        return NextResponse.json({ error: "Failed to create billing portal session" }, { status: 500 });
     }
 }
