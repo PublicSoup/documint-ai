@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
         const results = [];
 
         for (const integration of integrations) {
-            const config = integration.config as any;
+            const config = integration.config as { retentionDays?: number } | null;
             const retentionDays = config?.retentionDays;
             
             if (!retentionDays || retentionDays <= 0) continue;

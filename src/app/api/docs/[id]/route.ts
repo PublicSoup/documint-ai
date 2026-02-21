@@ -1,11 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { sendNotification } from "@/lib/notifications";
+
+const updateDocSchema = z.object({
+    content: z.string().min(1),
+    baseVersion: z.number().int().min(0).optional(),
+    status: z.enum(["DRAFT", "REVIEW", "APPROVED"]).optional(),
+    message: z.string().trim().max(500).optional(),
+}).strict();
+
+const paramsSchema = z.object({
+    id: z.string().min(1),
+}).strict();
 
 export async function PUT(
     req: NextRequest,
@@ -16,18 +28,21 @@ export async function PUT(
         return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
-    const { id } = await params;
-
     try {
+        const parsedParams = paramsSchema.safeParse(await params);
+        if (!parsedParams.success) {
+            return NextResponse.json({ error: "Invalid file id" }, { status: 400 });
+        }
+        const { id } = parsedParams.data;
+
         // Enforce rate limit (300 requests per minute by default for API tier)
         await enforceRateLimit(session.user.id, "api");
 
-        const body = await req.json();
-        const { content } = body;
-
-        if (!content) {
-            return NextResponse.json({ message: "Content is required" }, { status: 400 });
+        const parsedBody = updateDocSchema.safeParse(await req.json());
+        if (!parsedBody.success) {
+            return NextResponse.json({ error: "Invalid payload", details: parsedBody.error.flatten() }, { status: 400 });
         }
+        const { content, baseVersion, status: bodyStatus, message } = parsedBody.data;
 
         // Check if user has permission to edit the file (which owns the documentation)
         const hasPermission = await checkFilePermission(session.user.id, id, "edit");
@@ -77,7 +92,6 @@ export async function PUT(
 
         // 0. Optimistic Locking Check
         const currentVersion = doc.versions[0]?.version || 0;
-        const baseVersion = body.baseVersion;
         
         if (baseVersion !== undefined && baseVersion !== currentVersion) {
             return NextResponse.json({ 
@@ -133,7 +147,7 @@ export async function PUT(
         }
 
         // 3. Handle explicit transition request to REVIEW
-        if (body.status === "REVIEW" && newStatus === "DRAFT") {
+        if (bodyStatus === "REVIEW" && newStatus === "DRAFT") {
             newStatus = "REVIEW";
         }
 
@@ -158,7 +172,7 @@ export async function PUT(
                     content: JSON.stringify(content),
                     version: nextVersion,
                     createdById: session.user.id,
-                    message: body.message || `Updated via editor (v${nextVersion})`
+                    message: message || `Updated via editor (v${nextVersion})`
                 }
             });
 
@@ -273,9 +287,13 @@ export async function DELETE(
         return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
-    const { id } = await params;
-
     try {
+        const parsedParams = paramsSchema.safeParse(await params);
+        if (!parsedParams.success) {
+            return NextResponse.json({ error: "Invalid file id" }, { status: 400 });
+        }
+        const { id } = parsedParams.data;
+
         // 1. Enforce rate limit
         await enforceRateLimit(session.user.id, "api");
 

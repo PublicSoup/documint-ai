@@ -11,7 +11,7 @@ import { PLANS_CONFIG } from "../../../../config/plans";
 const SUPPORTED_EXTENSIONS = ["py", "js", "ts", "tsx", "jsx", "go", "rs", "java", "cs", "cpp", "c", "rb", "php"];
 
 // Helper to create stream
-function iteratorToStream(iterator: any) {
+function iteratorToStream(iterator: AsyncGenerator<Uint8Array, void, unknown>) {
     return new ReadableStream({
         async pull(controller) {
             const { value, done } = await iterator.next();
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
             const files = Array.isArray(contents) ? contents : [contents];
 
             // Filter code files
-            const codeFiles = files.filter((file: any) => {
+            const codeFiles = files.filter((file: { type: string; name: string; download_url: string; path: string }) => {
                 if (file.type !== "file") return false;
                 const ext = file.name.split(".").pop()?.toLowerCase();
                 return ext && SUPPORTED_EXTENSIONS.includes(ext);
@@ -130,9 +130,14 @@ export async function POST(req: NextRequest) {
                     });
 
                     // Parse and document
-                    let entities: any[] = [];
+                    interface CodeEntity {
+                        type: 'file' | 'function' | 'class' | 'complex_logic';
+                        name: string;
+                        code: string;
+                    }
+                    let entities: CodeEntity[] = [];
                     try {
-                        entities = await parseCode(content, extension);
+                        entities = await parseCode(content, extension) as CodeEntity[];
                     } catch (e) {
                         console.warn(`Parsing failed for ${file.name}`);
                     }
@@ -145,7 +150,7 @@ export async function POST(req: NextRequest) {
                         analysisResult = analyzeCodeQuality(content, entities, extension);
                     } catch (e) { }
 
-                    const docPromises = entities.map((entity: any) =>
+                    const docPromises = entities.map((entity: CodeEntity) =>
                         generateDocumentation(entity.code, extension, entity.type)
                             .then((doc: string) => ({ ...entity, doc }))
                     );

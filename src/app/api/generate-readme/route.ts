@@ -85,7 +85,7 @@ const DEFAULT_OPTIONS: ReadmeOptions = {
     aiEnhanced: true,
 };
 
-function generateBadges(options: ReadmeOptions, projectInfo: any): string {
+function generateBadges(options: ReadmeOptions, projectInfo: { languages: string[] }): string {
     if (!options.badges.enabled) return "";
 
     const style = options.badges.style;
@@ -121,7 +121,7 @@ function generateBadges(options: ReadmeOptions, projectInfo: any): string {
     return badges.join(" ") + "\n\n";
 }
 
-function generateDefaultFeatures(projectInfo: any): string {
+function generateDefaultFeatures(projectInfo: { languages: string[], functions: { name: string, doc: string }[], classes: { name: string, doc: string }[] }): string {
     let features = "";
     const lang = projectInfo.languages[0] || "code";
     const funcCount = projectInfo.functions.length;
@@ -227,7 +227,7 @@ export async function POST(request: NextRequest) {
         const projectInfo = {
             fileCount: files.length,
             languages: [...new Set(files.map(f => f.language))],
-            totalLines: files.reduce((a, f: any) => a + (f.content?.split("\n").length || 0), 0),
+            totalLines: files.reduce((a, f: { content?: string | null }) => a + (f.content?.split("\n").length || 0), 0),
             functions: [] as { name: string; doc: string }[],
             classes: [] as { name: string; doc: string }[],
             dependencies: [] as string[],
