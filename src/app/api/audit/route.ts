@@ -1,14 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { Prisma } from "@prisma/client";
+import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { requireFeature } from "@/lib/feature-gate";
 import { validateAdmin } from "@/lib/admin-auth";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse, validateQuery, validateBody } from "@/lib/api-utils";
 
+const querySchema = z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    action: z.string().optional(),
+    entity: z.string().optional(),
+    userId: z.string().optional(),
+    startDate: z.string().datetime().optional(),
+    endDate: z.string().datetime().optional(),
+});
+
+const exportSchema = z.object({
+    format: z.enum(["csv", "json"]).default("csv"),
+    startDate: z.string().datetime().optional(),
+    endDate: z.string().datetime().optional(),
+    userId: z.string().optional(),
+});
+
+/**
+ * GET /api/audit
+ * Returns paginated audit logs for the authenticated user or all users if admin.
+ */
 export async function GET(request: NextRequest) {
     try {
-        // 1. Check feature access (Standard Schema enforcement)
+        // 1. Check feature access
         const gateError = await requireFeature("auditLog");
         if (gateError) return gateError;
 
@@ -18,40 +42,36 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const { searchParams } = new URL(request.url);
-        const page = parseInt(searchParams.get("page") || "1");
-        const limit = parseInt(searchParams.get("limit") || "50");
-        const action = searchParams.get("action");
-        const entity = searchParams.get("entity");
-        const filterUserId = searchParams.get("userId");
-        const startDate = searchParams.get("startDate");
-        const endDate = searchParams.get("endDate");
+        // 3. Rate Limiting
+        await enforceRateLimit(session.user.id, "api");
 
-        // 3. Determine permissions via unified validator
+        // 4. Validate Query Params
+        const { searchParams } = new URL(request.url);
+        const { page, limit, action, entity, userId: filterUserId, startDate, endDate } = validateQuery(searchParams, querySchema);
+
+        // 5. Determine permissions
         const adminCheck = await validateAdmin();
         const isAdmin = adminCheck.authorized;
 
-        // 4. Build access-controlled query
+        // 6. Build access-controlled query
         const where: Prisma.AuditLogWhereInput = {};
 
         if (!isAdmin) {
-            // Non-admins can strictly only see their own logs
             where.userId = session.user.id;
         } else if (filterUserId) {
-            // Admins can filter by specific user
             where.userId = filterUserId;
         }
 
         if (action) where.action = action;
         if (entity) where.entity = entity;
         if (startDate || endDate) {
-            const createdAt: Prisma.DateTimeFilter = {};
-            if (startDate) createdAt.gte = new Date(startDate);
-            if (endDate) createdAt.lte = new Date(endDate);
-            where.createdAt = createdAt;
+            where.createdAt = {
+                ...(startDate && { gte: new Date(startDate) }),
+                ...(endDate && { lte: new Date(endDate) }),
+            };
         }
 
-        // 5. Execute paginated transaction
+        // 7. Execute paginated transaction
         const [logs, total] = await db.$transaction([
             db.auditLog.findMany({
                 where,
@@ -77,12 +97,14 @@ export async function GET(request: NextRequest) {
             }
         });
     } catch (error) {
-        console.error("[AuditLog_API] Error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
-// POST: Standard export with access control
+/**
+ * POST /api/audit
+ * Exports audit logs in CSV or JSON format.
+ */
 export async function POST(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
@@ -90,11 +112,12 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
+        await enforceRateLimit(session.user.id, "api");
+
         const adminCheck = await validateAdmin();
         const isAdmin = adminCheck.authorized;
 
-        const body = await request.json().catch(() => ({}));
-        const { format = "csv", startDate, endDate, userId: targetUserId } = body;
+        const { format, startDate, endDate, userId: targetUserId } = await validateBody(request, exportSchema);
 
         // Build where clause
         const where: Prisma.AuditLogWhereInput = {};
@@ -105,10 +128,10 @@ export async function POST(request: NextRequest) {
         }
 
         if (startDate || endDate) {
-            const createdAt: Prisma.DateTimeFilter = {};
-            if (startDate) createdAt.gte = new Date(startDate);
-            if (endDate) createdAt.lte = new Date(endDate);
-            where.createdAt = createdAt;
+            where.createdAt = {
+                ...(startDate && { gte: new Date(startDate) }),
+                ...(endDate && { lte: new Date(endDate) }),
+            };
         }
 
         const logs = await db.auditLog.findMany({
@@ -134,7 +157,6 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ logs });
     } catch (error) {
-        console.error("[AuditExport_API] Error:", error);
-        return NextResponse.json({ error: "Export Failed" }, { status: 500 });
+        return errorResponse(error);
     }
 }
