@@ -1,29 +1,43 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { hasFeatureAccess } from "@/lib/subscription";
+import { z } from "zod";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse, validateQuery, ApiErrors } from "@/lib/api-utils";
 
-export async function GET(req: Request) {
+const querySchema = z.object({
+    type: z.enum(["overview", "files", "usage"]).default("overview"),
+}).strict();
+
+/**
+ * GET /api/analytics/export
+ * Exports analytics data in CSV format. Premium feature.
+ */
+export async function GET(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return errorResponse(ApiErrors.unauthorized());
         }
 
-        // Check feature access
+        // 1. Feature Gate check
         const hasAccess = await hasFeatureAccess(session.user.id, "analytics");
         if (!hasAccess) {
-            return NextResponse.json({ error: "Pro required" }, { status: 403 });
+            return errorResponse(ApiErrors.forbidden("Analytics export requires a Pro plan subscription."));
         }
 
-        const { searchParams } = new URL(req.url);
-        const type = searchParams.get("type") || "overview"; // overview, files, usage
+        // 2. Enforce rate limit
+        await enforceRateLimit(session.user.id, "api");
+
+        const { searchParams } = new URL(request.url);
+        const { type } = validateQuery(searchParams, querySchema);
 
         let csv = "";
 
+        // 3. Process Export based on type
         if (type === "files") {
-            // Export file analytics
             const files = await db.file.findMany({
                 where: { userId: session.user.id },
                 include: {
@@ -48,11 +62,10 @@ export async function GET(req: Request) {
             });
 
         } else if (type === "usage") {
-            // Export usage data
             const logs = await db.auditLog.findMany({
                 where: { userId: session.user.id },
                 orderBy: { createdAt: 'desc' },
-                take: 500
+                take: 1000 // Performance bound
             });
 
             csv = "Date,Action,Entity,Details\n";
@@ -67,22 +80,16 @@ export async function GET(req: Request) {
 
         } else {
             // Overview export
-            const fileCount = await db.file.count({ where: { userId: session.user.id } });
-            const docCount = await db.documentation.count({
-                where: { file: { userId: session.user.id } }
-            });
-            const viewCount = await db.docView.count({
-                where: { file: { userId: session.user.id } }
-            });
-            const reviewCount = await db.reviewRequest.count({
-                where: { requesterId: session.user.id }
-            });
-
-            // Get quality scores
-            const docs = await db.documentation.findMany({
-                where: { file: { userId: session.user.id } },
-                select: { content: true }
-            });
+            const [fileCount, docCount, viewCount, reviewCount, docs] = await Promise.all([
+                db.file.count({ where: { userId: session.user.id } }),
+                db.documentation.count({ where: { file: { userId: session.user.id } } }),
+                db.docView.count({ where: { file: { userId: session.user.id } } }),
+                db.reviewRequest.count({ where: { requesterId: session.user.id } }),
+                db.documentation.findMany({
+                    where: { file: { userId: session.user.id } },
+                    select: { content: true }
+                })
+            ]);
 
             let totalScore = 0;
             let scoreCount = 0;
@@ -93,7 +100,9 @@ export async function GET(req: Request) {
                         totalScore += parsed.qualityScore;
                         scoreCount++;
                     }
-                } catch { }
+                } catch { 
+                    // Non-critical parsing failure
+                }
             });
 
             const avgScore = scoreCount > 0 ? Math.round(totalScore / scoreCount) : 0;
@@ -116,7 +125,6 @@ export async function GET(req: Request) {
         });
 
     } catch (error) {
-        console.error("Analytics Export Error:", error);
-        return NextResponse.json({ error: "Export failed" }, { status: 500 });
+        return errorResponse(error);
     }
 }

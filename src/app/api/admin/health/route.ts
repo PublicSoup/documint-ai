@@ -5,7 +5,8 @@ import { db } from "@/lib/db";
 import { createHash } from "crypto";
 import { validateAdmin } from "@/lib/admin-auth";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { errorResponse } from "@/lib/api-utils";
+import { errorResponse, ApiErrors } from "@/lib/api-utils";
+import { z } from "zod";
 
 /**
  * GET /api/admin/health
@@ -15,12 +16,12 @@ export async function GET() {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return errorResponse(ApiErrors.unauthorized());
         }
 
         const adminCheck = await validateAdmin();
         if (!adminCheck.authorized) {
-            return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 });
+            return errorResponse(ApiErrors.forbidden("Admin access required"));
         }
 
         // Rate limit admin user
