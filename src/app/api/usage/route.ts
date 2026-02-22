@@ -1,32 +1,45 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { getUserSubscription } from "@/lib/subscription";
 import { db } from "@/lib/db";
-import { requireAuth } from "@/lib/auth-guards";
-import { errorResponse, successResponse } from "@/lib/api-utils";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse, ApiErrors } from "@/lib/api-utils";
 
+/**
+ * GET /api/usage
+ * Returns detailed usage statistics and plan limits for the current user.
+ */
 export async function GET() {
     try {
-        const user = await requireAuth();
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            return errorResponse(ApiErrors.unauthorized());
+        }
 
-        // Get user's subscription
-        const subscription = await getUserSubscription(user.id);
+        // 1. Enforce Rate Limit
+        await enforceRateLimit(session.user.id, "api");
 
-        // Get user's file count for this month
+        // 2. Get user's subscription and limits
+        const subscription = await getUserSubscription(session.user.id);
+
+        // 3. Get usage stats (current month)
         const now = new Date();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-        const filesThisMonth = await db.file.count({
-            where: {
-                userId: user.id,
-                createdAt: { gte: startOfMonth },
-            },
-        });
+        const [filesThisMonth, totalFiles] = await Promise.all([
+            db.file.count({
+                where: {
+                    userId: session.user.id,
+                    createdAt: { gte: startOfMonth },
+                },
+            }),
+            db.file.count({
+                where: { userId: session.user.id },
+            })
+        ]);
 
-        // Get total files
-        const totalFiles = await db.file.count({
-            where: { userId: user.id },
-        });
-
-        // Calculate valid until date
+        // 4. Formatting for UI
         const validUntil = subscription.currentPeriodEnd
             ? subscription.currentPeriodEnd.toLocaleDateString("en-US", {
                 month: "short",
@@ -39,10 +52,9 @@ export async function GET() {
                 year: "numeric",
             });
 
-        // Format plan name for display
         const planDisplay = subscription.plan.charAt(0).toUpperCase() + subscription.plan.slice(1);
 
-        return successResponse({
+        return NextResponse.json({
             // Usage stats
             filesProcessed: filesThisMonth,
             filesLimit: subscription.limits.filesPerMonth === -1 ? "Unlimited" : subscription.limits.filesPerMonth,
@@ -66,21 +78,21 @@ export async function GET() {
             upgradePlan: subscription.plan === "free" ? "starter" : subscription.plan === "starter" ? "pro" : "team",
         });
     } catch (error) {
+        // Return a valid fallback structure so UI doesn't crash on auth/limit errors
         console.error("Usage API Error:", error);
-        // Return a valid empty structure so UI doesn't break
-        return successResponse({
+        return NextResponse.json({
             filesProcessed: 0,
             filesLimit: 10,
             totalFiles: 0,
-            totalFilesLimit: 100,
+            totalFilesLimit: 25,
             plan: "Free",
             planId: "free",
             status: "active",
             isActive: true,
-            validUntil: "Forever",
+            validUntil: "N/A",
             cancelAtPeriodEnd: false,
             isDevMode: false,
-            features: [],
+            features: {},
             canUpgrade: true,
             upgradePlan: "starter"
         });
