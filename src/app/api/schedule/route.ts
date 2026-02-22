@@ -115,13 +115,15 @@ export async function PUT(req: NextRequest) {
         };
 
         // 3. Update DB
+        const nextSettings: Prisma.JsonObject = {
+            ...currentSettings,
+            docSchedule: updatedSchedule as unknown as Prisma.JsonObject,
+        };
+
         await db.user.update({
             where: { id: session.user.id },
             data: {
-                settings: {
-                    ...currentSettings,
-                    docSchedule: updatedSchedule,
-                } as Prisma.InputJsonValue,
+                settings: nextSettings,
             },
         });
 
