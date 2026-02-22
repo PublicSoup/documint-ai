@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { sendNotification } from "@/lib/notifications";
 import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse, validateBody, validateQuery, ApiErrors } from "@/lib/api-utils";
 
 const createCommentSchema = z.object({
     content: z.string().trim().min(1).max(5000),
@@ -26,40 +27,29 @@ const deleteCommentQuerySchema = z.object({
     id: z.string().min(1),
 }).strict();
 
-async function resolveUserId(
-    session: { user?: { id?: string | null; email?: string | null } } | null
-): Promise<string | null> {
-    if (session?.user?.id) return session.user.id;
-    if (!session?.user?.email) return null;
-
-    const user = await db.user.findUnique({
-        where: { email: session.user.email },
-        select: { id: true },
-    });
-
-    return user?.id ?? null;
-}
-
+/**
+ * POST /api/comments
+ * Creates a new comment or reply for a document.
+ */
 export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
-        const userId = await resolveUserId(session);
-        if (!userId) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        if (!session?.user?.id) {
+            return errorResponse(ApiErrors.unauthorized());
         }
 
+        const userId = session.user.id;
+
+        // 1. Enforce Rate Limit
         await enforceRateLimit(userId, "api");
 
-        const parsed = createCommentSchema.safeParse(await req.json());
-        if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid comment payload" }, { status: 400 });
-        }
+        // 2. Validate Body
+        const { content, fileId, parentId } = await validateBody(req, createCommentSchema);
 
-        const { content, fileId, parentId } = parsed.data;
-
-        const canView = await checkFilePermission(userId, fileId, "view");
-        if (!canView) {
-            return NextResponse.json({ error: "Access denied" }, { status: 403 });
+        // 3. Check permissions
+        const hasPermission = await checkFilePermission(userId, fileId, "view");
+        if (!hasPermission) {
+            return errorResponse(ApiErrors.forbidden("You do not have permission to comment on this file."));
         }
 
         const file = await db.file.findUnique({
@@ -68,7 +58,7 @@ export async function POST(req: NextRequest) {
         });
 
         if (!file) {
-            return NextResponse.json({ error: "File not found" }, { status: 404 });
+            return errorResponse(ApiErrors.notFound("File"));
         }
 
         if (parentId) {
@@ -77,10 +67,11 @@ export async function POST(req: NextRequest) {
                 select: { fileId: true },
             });
             if (!parent || parent.fileId !== fileId) {
-                return NextResponse.json({ error: "Invalid parent comment" }, { status: 400 });
+                return errorResponse(ApiErrors.badRequest("Invalid parent comment reference."));
             }
         }
 
+        // 4. Create Comment
         const comment = await db.comment.create({
             data: {
                 content,
@@ -97,6 +88,7 @@ export async function POST(req: NextRequest) {
 
         const requesterName = session?.user?.name || session?.user?.email || "A developer";
 
+        // 5. Trigger Notifications (Owner and Mentions)
         if (file.userId && file.userId !== userId) {
             await sendNotification({
                 userId: file.userId,
@@ -143,6 +135,7 @@ export async function POST(req: NextRequest) {
             }
         }
 
+        // 6. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -158,36 +151,36 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json({ comment });
     } catch (error) {
-        console.error("Create comment error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
+/**
+ * GET /api/comments?fileId=xxx
+ * Lists all top-level comments and their replies for a file.
+ */
 export async function GET(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
-        const userId = await resolveUserId(session);
-        if (!userId) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        if (!session?.user?.id) {
+            return errorResponse(ApiErrors.unauthorized());
         }
 
+        const userId = session.user.id;
+
+        // 1. Enforce Rate Limit
         await enforceRateLimit(userId, "api");
 
-        const parsedQuery = getCommentsQuerySchema.safeParse({
-            fileId: new URL(req.url).searchParams.get("fileId") ?? "",
-        });
+        // 2. Validate Query
+        const { fileId } = validateQuery(new URL(req.url).searchParams, getCommentsQuerySchema);
 
-        if (!parsedQuery.success) {
-            return NextResponse.json({ error: "fileId is required" }, { status: 400 });
+        // 3. Check permissions
+        const hasPermission = await checkFilePermission(userId, fileId, "view");
+        if (!hasPermission) {
+            return errorResponse(ApiErrors.forbidden("You do not have permission to view comments for this file."));
         }
 
-        const { fileId } = parsedQuery.data;
-
-        const canView = await checkFilePermission(userId, fileId, "view");
-        if (!canView) {
-            return NextResponse.json({ error: "Access denied" }, { status: 403 });
-        }
-
+        // 4. Fetch Comments
         const comments = await db.comment.findMany({
             where: { fileId },
             include: {
@@ -209,46 +202,50 @@ export async function GET(req: NextRequest) {
         const topLevelComments = comments.filter((comment) => !comment.parentId);
         return NextResponse.json({ comments: topLevelComments });
     } catch (error) {
-        console.error("Get comments error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
+/**
+ * PATCH /api/comments
+ * Updates the content of an existing comment.
+ */
 export async function PATCH(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
-        const userId = await resolveUserId(session);
-        if (!userId) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        if (!session?.user?.id) {
+            return errorResponse(ApiErrors.unauthorized());
         }
 
+        const userId = session.user.id;
+
+        // 1. Enforce Rate Limit
         await enforceRateLimit(userId, "api");
 
-        const parsed = updateCommentSchema.safeParse(await req.json());
-        if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid comment update payload" }, { status: 400 });
-        }
+        // 2. Validate Body
+        const { id, content } = await validateBody(req, updateCommentSchema);
 
-        const { id, content } = parsed.data;
-
+        // 3. Check ownership
         const comment = await db.comment.findUnique({
             where: { id },
             select: { userId: true },
         });
 
         if (!comment) {
-            return NextResponse.json({ error: "Comment not found" }, { status: 404 });
+            return errorResponse(ApiErrors.notFound("Comment"));
         }
 
         if (comment.userId !== userId) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+            return errorResponse(ApiErrors.forbidden("You can only edit your own comments."));
         }
 
+        // 4. Update
         const updated = await db.comment.update({
             where: { id },
             data: { content, updatedAt: new Date() },
         });
 
+        // 5. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -264,38 +261,37 @@ export async function PATCH(req: NextRequest) {
 
         return NextResponse.json({ comment: updated });
     } catch (error) {
-        console.error("Update comment error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
+/**
+ * DELETE /api/comments?id=xxx
+ * Deletes a comment. Owners of the document or team admins can also delete comments.
+ */
 export async function DELETE(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
-        const userId = await resolveUserId(session);
-        if (!userId) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        if (!session?.user?.id) {
+            return errorResponse(ApiErrors.unauthorized());
         }
 
+        const userId = session.user.id;
+
+        // 1. Enforce Rate Limit
         await enforceRateLimit(userId, "api");
 
-        const parsedQuery = deleteCommentQuerySchema.safeParse({
-            id: new URL(req.url).searchParams.get("id") ?? "",
-        });
+        // 2. Validate Query
+        const { id } = validateQuery(new URL(req.url).searchParams, deleteCommentQuerySchema);
 
-        if (!parsedQuery.success) {
-            return NextResponse.json({ error: "ID required" }, { status: 400 });
-        }
-
-        const { id } = parsedQuery.data;
-
+        // 3. Check permissions
         const comment = await db.comment.findUnique({
             where: { id },
             include: { file: true },
         });
 
         if (!comment) {
-            return NextResponse.json({ error: "Comment not found" }, { status: 404 });
+            return errorResponse(ApiErrors.notFound("Comment"));
         }
 
         let canDelete = comment.userId === userId || comment.file.userId === userId;
@@ -317,11 +313,13 @@ export async function DELETE(req: NextRequest) {
         }
 
         if (!canDelete) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+            return errorResponse(ApiErrors.forbidden("You do not have permission to delete this comment."));
         }
 
+        // 4. Delete
         await db.comment.delete({ where: { id } });
 
+        // 5. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -337,7 +335,6 @@ export async function DELETE(req: NextRequest) {
 
         return NextResponse.json({ success: true });
     } catch (error) {
-        console.error("Delete comment error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
