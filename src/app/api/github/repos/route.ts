@@ -2,16 +2,35 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../../../lib/auth";
 import { db } from "../../../../lib/db";
+import { z } from "zod";
+import { enforceRateLimit } from "../../../../lib/rate-limit";
+import { errorResponse, validateQuery, ApiErrors } from "../../../../lib/api-utils";
+import { decrypt } from "../../../../lib/security/encryption";
 
-// List user's GitHub repositories
+const querySchema = z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    per_page: z.coerce.number().int().min(1).max(100).default(20),
+}).strict();
+
+/**
+ * GET /api/github/repos
+ * Lists the authenticated user's GitHub repositories.
+ */
 export async function GET(req: NextRequest) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     try {
-        // Fetch token from DB
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            return errorResponse(ApiErrors.unauthorized());
+        }
+
+        // 1. Enforce Rate Limit
+        await enforceRateLimit(session.user.id, "api");
+
+        // 2. Validate Query Params
+        const { searchParams } = new URL(req.url);
+        const { page, per_page } = validateQuery(searchParams, querySchema);
+
+        // 3. Fetch token from DB and decrypt
         const connection = await db.gitHubConnection.findUnique({
             where: { userId: session.user.id }
         });
@@ -23,23 +42,28 @@ export async function GET(req: NextRequest) {
             });
         }
 
-        const { searchParams } = new URL(req.url);
-        const page = searchParams.get("page") || "1";
-        const perPage = searchParams.get("per_page") || "20";
+        let decryptedToken: string;
+        try {
+            decryptedToken = decrypt(connection.accessToken);
+        } catch (e) {
+            console.error("Token decryption failed:", e);
+            return errorResponse(ApiErrors.internalError("Failed to access GitHub credentials."));
+        }
 
-        const res = await fetch(`https://api.github.com/user/repos?sort=updated&per_page=${perPage}&page=${page}`, {
+        // 4. Fetch from GitHub API
+        const res = await fetch(`https://api.github.com/user/repos?sort=updated&per_page=${per_page}&page=${page}`, {
             headers: {
-                Authorization: `Bearer ${connection.accessToken}`,
+                Authorization: `Bearer ${decryptedToken}`,
                 Accept: "application/vnd.github.v3+json",
             },
         });
 
         if (!res.ok) {
-            // Handle token expiry or revocation (could optionally delete connection here)
             if (res.status === 401) {
-                return NextResponse.json({ error: "GitHub token invalid" }, { status: 401 });
+                return errorResponse(ApiErrors.unauthorized("GitHub token is invalid or expired."));
             }
-            return NextResponse.json({ error: "Failed to fetch repos" }, { status: res.status });
+            const errorData = await res.json().catch(() => ({}));
+            return NextResponse.json({ error: errorData.message || "Failed to fetch repositories from GitHub" }, { status: res.status });
         }
 
         const repos = (await res.json()) as Array<{
@@ -67,7 +91,6 @@ export async function GET(req: NextRequest) {
             connected: true
         });
     } catch (error) {
-        console.error("GitHub repos error:", error);
-        return NextResponse.json({ error: "Failed to fetch repositories" }, { status: 500 });
+        return errorResponse(error);
     }
 }

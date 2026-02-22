@@ -1,55 +1,82 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { safeJsonParse } from "@/lib/utils";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
+import { decrypt } from "@/lib/security/encryption";
 
-export async function POST(req: Request) {
+const createPrSchema = z.object({
+    fileId: z.string().trim().min(1).max(100),
+    repoFullName: z.string().trim().min(3).max(200),
+}).strict();
+
+interface DocEntity {
+    name: string;
+    type: string;
+    doc: string;
+    code: string;
+}
+
+interface DocContent {
+    summary: string;
+    entities?: DocEntity[];
+}
+
+/**
+ * POST /api/github/pr
+ * Generates markdown documentation and creates a GitHub Pull Request with the file.
+ */
+export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return errorResponse(ApiErrors.unauthorized());
         }
 
-        const body = await req.json();
-        const { fileId, repoFullName } = body;
+        // 1. Enforce Rate Limit
+        await enforceRateLimit(session.user.id, "pro");
 
-        if (!fileId || !repoFullName) {
-            return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-        }
+        // 2. Validate Body
+        const { fileId, repoFullName } = await validateBody(req, createPrSchema);
 
-        // 1. Get GitHub Token
+        // 3. Get GitHub Token and Decrypt
         const connection = await db.gitHubConnection.findUnique({
             where: { userId: session.user.id }
         });
 
-        if (!connection?.accessToken) {
-            return NextResponse.json({ error: "GitHub not connected" }, { status: 400 });
+        if (!connection || !connection.accessToken) {
+            return errorResponse(ApiErrors.badRequest("GitHub account not connected."));
         }
 
-        const token = connection.accessToken;
+        let decryptedToken: string;
+        try {
+            decryptedToken = decrypt(connection.accessToken);
+        } catch (e) {
+            console.error("Token decryption failed:", e);
+            return errorResponse(ApiErrors.internalError("Failed to access GitHub credentials."));
+        }
 
-        // 2. Fetch File and Documentation
+        // 4. Fetch File and Documentation
         const file = await db.file.findUnique({
             where: { id: fileId },
             include: { documentation: true }
         });
 
         if (!file || !file.documentation) {
-            return NextResponse.json({ error: "File or documentation not found" }, { status: 404 });
+            return errorResponse(ApiErrors.notFound("Documentation"));
         }
 
-        // 3. Generate Markdown Content
-        interface DocEntity {
-            name: string;
-            type: string;
-            doc: string;
-            code: string;
+        // Check permissions (User must own or have access to file)
+        const { checkFilePermission } = await import("@/lib/permissions");
+        const hasPermission = await checkFilePermission(session.user.id, fileId, "view");
+        if (!hasPermission) {
+            return errorResponse(ApiErrors.forbidden("You do not have permission to export this file."));
         }
-        interface DocContent {
-            summary: string;
-            entities?: DocEntity[];
-        }
+
+        // 5. Generate Markdown Content
         const docContent = safeJsonParse<DocContent>(file.documentation.content, { summary: "" });
         let md = `# ${file.name}\n\n`;
         md += `**Language:** ${file.language}\n`;
@@ -70,23 +97,27 @@ export async function POST(req: Request) {
         const branchName = `documint-${file.name.replace(/\./g, '-')}-${Date.now()}`;
 
         const headers = {
-            "Authorization": `Bearer ${token}`,
+            "Authorization": `Bearer ${decryptedToken}`,
             "Accept": "application/vnd.github.v3+json",
             "Content-Type": "application/json"
         };
 
-        // 4. Get Default Branch (and its SHA)
+        // 6. Get Default Branch via GitHub API
         const repoRes = await fetch(`https://api.github.com/repos/${repoFullName}`, { headers });
-        if (!repoRes.ok) throw new Error("Failed to fetch repo info");
+        if (!repoRes.ok) {
+            const errData = await repoRes.json().catch(() => ({}));
+            throw new Error(`Failed to fetch repo info: ${errData.message || repoRes.statusText}`);
+        }
         const repoData = await repoRes.json();
         const defaultBranch = repoData.default_branch;
 
+        // 7. Get Base SHA
         const refRes = await fetch(`https://api.github.com/repos/${repoFullName}/git/ref/heads/${defaultBranch}`, { headers });
-        if (!refRes.ok) throw new Error("Failed to fetch default branch ref");
+        if (!refRes.ok) throw new Error("Failed to fetch default branch ref from GitHub.");
         const refData = await refRes.json();
         const baseSha = refData.object.sha;
 
-        // 5. Create New Branch
+        // 8. Create New Branch
         const createBranchRes = await fetch(`https://api.github.com/repos/${repoFullName}/git/refs`, {
             method: "POST",
             headers,
@@ -95,9 +126,12 @@ export async function POST(req: Request) {
                 sha: baseSha
             })
         });
-        if (!createBranchRes.ok) throw new Error("Failed to create branch");
+        if (!createBranchRes.ok) {
+            const errData = await createBranchRes.json().catch(() => ({}));
+            throw new Error(`Failed to create branch: ${errData.message || createBranchRes.statusText}`);
+        }
 
-        // 6. Create File (Commit)
+        // 9. Create File (Commit)
         const fileContentEncoded = Buffer.from(md).toString('base64');
         const createFileRes = await fetch(`https://api.github.com/repos/${repoFullName}/contents/${filePath}`, {
             method: "PUT",
@@ -110,12 +144,11 @@ export async function POST(req: Request) {
         });
 
         if (!createFileRes.ok) {
-            // Handle case where file exists? For now assume valid new file path or overwrite
-            const err = await createFileRes.json();
-            throw new Error(`Failed to create file: ${err.message}`);
+            const errData = await createFileRes.json().catch(() => ({}));
+            throw new Error(`Failed to commit file: ${errData.message || createFileRes.statusText}`);
         }
 
-        // 7. Create Pull Request
+        // 10. Create Pull Request
         const prRes = await fetch(`https://api.github.com/repos/${repoFullName}/pulls`, {
             method: "POST",
             headers,
@@ -127,10 +160,13 @@ export async function POST(req: Request) {
             })
         });
 
-        if (!prRes.ok) throw new Error("Failed to create PR");
+        if (!prRes.ok) {
+            const errData = await prRes.json().catch(() => ({}));
+            throw new Error(`Failed to create PR on GitHub: ${errData.message || prRes.statusText}`);
+        }
         const prData = await prRes.json();
 
-        // Audit Logging
+        // 11. Audit Logging
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -145,16 +181,16 @@ export async function POST(req: Request) {
                     prUrl: prData.html_url
                 }
             });
-        } catch (e) {}
+        } catch {
+            // Non-blocking
+        }
 
         return NextResponse.json({
             success: true,
             prUrl: prData.html_url
-        });
+        }, { status: 201 });
 
-    } catch (error: unknown) {
-        console.error("Create PR error:", error);
-        const message = error instanceof Error ? error.message : "Internal Server Error";
-        return NextResponse.json({ error: message }, { status: 500 });
+    } catch (error) {
+        return errorResponse(error);
     }
 }
