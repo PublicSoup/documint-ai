@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getUserSubscription } from "@/lib/subscription";
 import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
+import { errorResponse } from "@/lib/api-utils";
 
 /**
  * GET /api/user/subscription
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
             isActive: sub.isActive,
         });
     } catch (error) {
-        // Log error but return a safe fallback for UI resilience
+        // Return a valid fallback structure so UI doesn't crash on auth/limit errors
         console.error("Subscription API Error:", error);
         return NextResponse.json({
             plan: "free",
