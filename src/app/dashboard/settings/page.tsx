@@ -28,8 +28,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GitHubSettings } from "@/components/github-settings";
 import { ApiKeySettings } from "@/components/api-key-settings";
 import TeamManagement from "@/components/team-management";
+import { useToast } from "@/components/toast";
 
 export default function SettingsPage() {
+    const { toast } = useToast();
     const router = useRouter();
     const { data: session, update: updateSession } = useSession();
     const [activeTab, setActiveTab] = useState("profile");
@@ -58,6 +60,7 @@ export default function SettingsPage() {
     const [autoRegenerate, setAutoRegenerate] = useState(false);
     const [loadingSettings, setLoadingSettings] = useState(true);
     const [settingsError, setSettingsError] = useState("");
+    const [subscription, setSubscription] = useState<{ plan: string } | null>(null);
 
     useEffect(() => {
         if (session?.user?.name) {
@@ -71,20 +74,27 @@ export default function SettingsPage() {
             setSettingsError("");
 
             try {
-                const res = await fetch("/api/webhooks/notify", { signal: controller.signal });
-                const data = await res.json().catch(() => ({}));
+                const [notifyRes, subRes] = await Promise.all([
+                    fetch("/api/webhooks/notify", { signal: controller.signal }),
+                    fetch("/api/user/subscription", { signal: controller.signal })
+                ]);
 
-                if (!res.ok) {
-                    throw new Error(data.error || "Failed to load notification settings");
+                const notifyData = await notifyRes.json().catch(() => ({}));
+                const subData = await subRes.json().catch(() => ({}));
+
+                if (notifyRes.ok) {
+                    setEmailNotifications(Boolean(notifyData.notifications?.onDocChange ?? true));
+                    setCommentNotifications(Boolean(notifyData.notifications?.onComment ?? true));
+                    setMentionNotifications(Boolean(notifyData.notifications?.onMention ?? true));
+                    setAutoRegenerate(Boolean(notifyData.notifications?.autoRegenerate ?? false));
                 }
 
-                setEmailNotifications(Boolean(data.notifications?.onDocChange ?? true));
-                setCommentNotifications(Boolean(data.notifications?.onComment ?? true));
-                setMentionNotifications(Boolean(data.notifications?.onMention ?? true));
-                setAutoRegenerate(Boolean(data.notifications?.autoRegenerate ?? false));
+                if (subRes.ok) {
+                    setSubscription(subData);
+                }
             } catch (e: unknown) {
                 if (!controller.signal.aborted) {
-                    const message = e instanceof Error ? e.message : "Failed to load notification settings";
+                    const message = e instanceof Error ? e.message : "Failed to load preferences";
                     setSettingsError(message);
                 }
             } finally {
@@ -523,12 +533,28 @@ export default function SettingsPage() {
                             <div className="space-y-2">
                                 <h3 className="text-xl font-bold text-white">Billing Information</h3>
                                 <p className="text-sm text-muted-foreground max-w-sm">
-                                    You are currently on the <strong className="text-primary uppercase tracking-wider">Free</strong> plan. Upgrade to unlock unlimited documentation and team features.
+                                    You are currently on the <strong className="text-primary uppercase tracking-wider">{subscription?.plan || "Free"}</strong> plan. 
+                                    {subscription?.plan?.toLowerCase() === "free" ? " Upgrade to unlock unlimited documentation and team features." : " Manage your subscription and payment methods below."}
                                 </p>
                             </div>
-                            <Button className="h-12 px-10 rounded-xl bg-primary hover:bg-primary/90 text-white font-black uppercase tracking-widest" onClick={() => router.push("/dashboard/billing")}>
-                                View Plans
-                            </Button>
+                            <div className="flex flex-col gap-3">
+                                <Button className="h-12 px-10 rounded-xl bg-primary hover:bg-primary/90 text-white font-black uppercase tracking-widest" onClick={() => router.push("/dashboard/billing")}>
+                                    {subscription?.plan?.toLowerCase() === "free" ? "View Plans" : "Change Plan"}
+                                </Button>
+                                {subscription?.plan?.toLowerCase() !== "free" && (
+                                    <Button variant="outline" className="h-11 rounded-xl font-bold" onClick={async () => {
+                                        try {
+                                            const res = await fetch("/api/customer-portal", { method: "POST" });
+                                            const data = await res.json();
+                                            if (data.url) window.location.href = data.url;
+                                        } catch (e) {
+                                            toast("Failed to open billing portal", "error");
+                                        }
+                                    }}>
+                                        Manage Billing Portal
+                                    </Button>
+                                )}
+                            </div>
                         </CardContent>
                     </Card>
                 </TabsContent>
