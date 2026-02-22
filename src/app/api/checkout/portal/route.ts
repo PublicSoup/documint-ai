@@ -5,6 +5,7 @@ import { stripe } from "@/lib/stripe";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse, ApiErrors } from "@/lib/api-utils";
 
 function resolveOrigin(request: NextRequest): string {
     const origin = request.headers.get("origin");
@@ -13,29 +14,37 @@ function resolveOrigin(request: NextRequest): string {
     return "http://localhost:3000";
 }
 
+/**
+ * POST /api/checkout/portal
+ * Creates a Stripe Customer Portal session for the authenticated user.
+ */
 export async function POST(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
-        if (!session?.user?.id || !session?.user?.email) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        if (!session?.user?.id) {
+            return errorResponse(ApiErrors.unauthorized());
         }
 
+        // 1. Enforce Rate Limit
         await enforceRateLimit(session.user.id, "api");
 
+        // 2. Fetch User and Subscription
         const user = await db.user.findUnique({
             where: { id: session.user.id },
             include: { subscription: true },
         });
 
         if (!user?.subscription?.stripeCustomerId) {
-            return NextResponse.json({ error: "No billing account found" }, { status: 400 });
+            return errorResponse(ApiErrors.badRequest("No active billing account found. Please subscribe first."));
         }
 
+        // 3. Create Portal Session
         const portalSession = await stripe.billingPortal.sessions.create({
             customer: user.subscription.stripeCustomerId,
-            return_url: `${resolveOrigin(request)}/dashboard/billing`,
+            return_url: `${resolveOrigin(request)}/dashboard/settings?tab=billing`,
         });
 
+        // 4. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -51,7 +60,6 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ url: portalSession.url });
     } catch (error) {
-        console.error("Checkout portal error:", error);
-        return NextResponse.json({ error: "Failed to create billing portal session" }, { status: 500 });
+        return errorResponse(error);
     }
 }
