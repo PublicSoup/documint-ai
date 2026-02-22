@@ -8,9 +8,10 @@ import { getFileContent } from "@/lib/files";
 import { getAICompletion } from "@/lib/ai";
 import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
 
 const paramsSchema = z.object({
-    id: z.string().min(1),
+    id: z.string().trim().min(1).max(100),
 }).strict();
 
 const regenerateBodySchema = z.object({
@@ -34,17 +35,24 @@ const generatedDocSchema = z.object({
 
 type GeneratedDoc = z.infer<typeof generatedDocSchema>;
 
+/**
+ * Robustly parses and validates AI-generated JSON content.
+ */
 function parseGeneratedDoc(rawContent: string): GeneratedDoc {
-    const jsonMatch =
-        rawContent.match(/```json\n?([\s\S]*?)\n?```/) ||
-        rawContent.match(/```\n?([\s\S]*?)\n?```/);
+    try {
+        const jsonMatch =
+            rawContent.match(/```json\n?([\s\S]*?)\n?```/) ||
+            rawContent.match(/```\n?([\s\S]*?)\n?```/);
 
-    const jsonText = (jsonMatch?.[1] || rawContent || "").trim();
-    const parsed = JSON.parse(jsonText) as unknown;
+        const jsonText = (jsonMatch?.[1] || rawContent || "").trim();
+        const parsed = JSON.parse(jsonText) as unknown;
 
-    const validated = generatedDocSchema.safeParse(parsed);
-    if (validated.success) {
-        return validated.data;
+        const validated = generatedDocSchema.safeParse(parsed);
+        if (validated.success) {
+            return validated.data;
+        }
+    } catch (e) {
+        // Fallback for non-JSON or partial responses
     }
 
     return {
@@ -53,6 +61,10 @@ function parseGeneratedDoc(rawContent: string): GeneratedDoc {
     };
 }
 
+/**
+ * POST /api/regenerate/[id]
+ * Re-runs AI analysis and documentation generation for a specific file.
+ */
 export async function POST(
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
@@ -60,56 +72,54 @@ export async function POST(
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return errorResponse(ApiErrors.unauthorized());
         }
 
+        // 1. Enforce rate limit
         await enforceRateLimit(session.user.id, "api");
 
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid file id" }, { status: 400 });
+            return errorResponse(ApiErrors.badRequest("Invalid file ID"));
         }
-
-        const parsedBody = regenerateBodySchema.safeParse(await request.json().catch(() => ({})));
-        if (!parsedBody.success) {
-            return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
-        }
-
         const { id: fileId } = parsedParams.data;
-        const { preview = false, draft = false } = parsedBody.data;
 
+        const { preview = false, draft = false } = await validateBody(request, regenerateBodySchema);
+
+        // 2. Check permissions
         const requiredPermission = preview ? "view" : "edit";
         const hasPermission = await checkFilePermission(session.user.id, fileId, requiredPermission);
         if (!hasPermission) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+            return errorResponse(ApiErrors.forbidden("You do not have permission to regenerate documentation for this file."));
         }
 
+        // 3. Fetch file details
         const file = await db.file.findUnique({
             where: { id: fileId },
             select: { id: true, name: true, language: true, teamId: true },
         });
 
         if (!file) {
-            return NextResponse.json({ error: "File not found" }, { status: 404 });
+            return errorResponse(ApiErrors.notFound("File"));
         }
 
         const content = await getFileContent(fileId);
         if (!content) {
-            return NextResponse.json({ error: "File content not found" }, { status: 404 });
+            return errorResponse(ApiErrors.notFound("File content"));
         }
 
         let styleGuide = "";
         if (file.teamId) {
-            const teamConfig = await db.integration.findFirst({
+            const teamConfigRecord = await db.integration.findFirst({
                 where: { teamId: file.teamId, type: "TEAM_CONFIG" },
                 select: { config: true },
             });
-            styleGuide =
-                (teamConfig?.config as { styleGuide?: string } | null)?.styleGuide?.trim() || "";
+            const config = (teamConfigRecord?.config && typeof teamConfigRecord.config === "object" ? teamConfigRecord.config : {}) as { styleGuide?: string };
+            styleGuide = config.styleGuide?.trim() || "";
         }
 
+        // 4. AI Analysis Execution
         const prompt = `You are an expert code documentation assistant.
-
 Analyze this ${file.language || "code"} source file and generate comprehensive documentation.
 
 Return ONLY valid JSON with this exact structure:
@@ -147,13 +157,13 @@ ${content}
         );
 
         if (!aiResult?.content) {
-            return NextResponse.json({ error: "AI generation failed" }, { status: 500 });
+            return errorResponse(ApiErrors.internalError("AI generation failed."));
         }
 
         const docContent = parseGeneratedDoc(aiResult.content);
-
         let currentContent: GeneratedDoc | null = null;
 
+        // 5. Update Management
         if (draft) {
             const existingDoc = await db.documentation.findUnique({
                 where: { fileId },
@@ -187,8 +197,6 @@ ${content}
 
             const metadata = (existingDoc?.metadata as Record<string, unknown> | null) || {};
             const { proposedContent, proposedAt, ...metadataWithoutProposal } = metadata;
-            void proposedContent;
-            void proposedAt;
 
             await db.documentation.upsert({
                 where: { fileId },
@@ -211,14 +219,14 @@ ${content}
             });
             if (currentDoc?.content) {
                 try {
-                    const parsedCurrent = parseGeneratedDoc(currentDoc.content);
-                    currentContent = parsedCurrent;
+                    currentContent = JSON.parse(currentDoc.content) as GeneratedDoc;
                 } catch {
                     currentContent = null;
                 }
             }
         }
 
+        // 6. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -241,7 +249,6 @@ ${content}
             currentContent,
         });
     } catch (error) {
-        console.error("Regenerate error:", error);
-        return NextResponse.json({ error: "Failed to regenerate documentation" }, { status: 500 });
+        return errorResponse(error);
     }
 }

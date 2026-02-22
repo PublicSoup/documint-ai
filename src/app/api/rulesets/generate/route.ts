@@ -6,6 +6,7 @@ import { generateText } from "@/lib/ai";
 import { requireFeature } from "@/lib/feature-gate";
 import { db } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
 
 const rulesetSchema = z.object({
     type: z.enum(["cursor", "cline", "gemini"]),
@@ -14,25 +15,27 @@ const rulesetSchema = z.object({
     teamId: z.string().min(1).optional(),
 }).strict();
 
+/**
+ * POST /api/rulesets/generate
+ * Generates custom AI instructions (rulesets) for IDE agents like Cursor or Cline 
+ * based on local project context and documentation style.
+ */
 export async function POST(req: NextRequest) {
-    const gateResponse = await requireFeature("rulesetGenerator");
-    if (gateResponse) return gateResponse;
-
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const gateError = await requireFeature("rulesetGenerator");
+    if (gateError) return gateError;
 
     try {
-        await enforceRateLimit(session.user.id, "api");
-
-        const parsed = rulesetSchema.safeParse(await req.json());
-        if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            return errorResponse(ApiErrors.unauthorized());
         }
 
-        const { type, context, requirements, teamId } = parsed.data;
+        // 1. Enforce rate limit
+        await enforceRateLimit(session.user.id, "api");
 
+        const { type, context, requirements, teamId } = await validateBody(req, rulesetSchema);
+
+        // 2. Extract local documentation styles to maintain consistency
         let documentationStyles = "";
         const docs = await db.documentation.findMany({
             where: teamId
@@ -63,7 +66,7 @@ export async function POST(req: NextRequest) {
                     documentationStyles += `Sample Doc Summary: ${parsedDoc.summary}\n`;
                 }
             } catch {
-                // Ignore malformed entries.
+                // Non-critical parsing failure
             }
         }
 
@@ -91,15 +94,17 @@ Include sections for:
 Output ONLY the content of the ruleset/prompt.
 `.trim();
 
+        // 3. AI Generation Call
         const result = await generateText(systemPrompt, userPrompt, {
             temperature: 0.2,
             maxTokens: 2500,
         });
 
-        if (!result.trim()) {
-            return NextResponse.json({ error: "Failed to generate ruleset" }, { status: 500 });
+        if (!result?.trim()) {
+            return errorResponse(ApiErrors.internalError("Failed to generate ruleset: No output from AI."));
         }
 
+        // 4. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -120,7 +125,6 @@ Output ONLY the content of the ruleset/prompt.
 
         return NextResponse.json({ ruleset: result });
     } catch (error) {
-        console.error("Ruleset generation error:", error);
-        return NextResponse.json({ error: "Failed to generate ruleset" }, { status: 500 });
+        return errorResponse(error);
     }
 }
