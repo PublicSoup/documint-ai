@@ -6,10 +6,13 @@ import { stripe } from "@/lib/stripe";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse, ApiErrors, validateQuery } from "@/lib/api-utils";
 
-const tierSchema = z.enum(["starter", "pro", "team"]);
+const tierSchema = z.object({
+    tier: z.enum(["starter", "pro", "team"]),
+}).strict();
 
-const PRICE_IDS: Record<z.infer<typeof tierSchema>, string> = {
+const PRICE_IDS: Record<z.infer<typeof tierSchema>["tier"], string> = {
     starter: env.STRIPE_PRICE_ID_STARTER,
     pro: env.STRIPE_PRICE_ID_PRO,
     team: env.STRIPE_PRICE_ID_TEAM,
@@ -22,37 +25,39 @@ function resolveOrigin(request: NextRequest): string {
     return "http://localhost:3000";
 }
 
+/**
+ * POST /api/checkout?tier=starter|pro|team
+ * Creates a Stripe Checkout Session for subscription upgrades.
+ */
 export async function POST(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id || !session?.user?.email) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return errorResponse(ApiErrors.unauthorized());
         }
 
+        // 1. Enforce Rate Limit
         await enforceRateLimit(session.user.id, "api");
 
-        const tierResult = tierSchema.safeParse(new URL(request.url).searchParams.get("tier"));
-        if (!tierResult.success) {
-            return NextResponse.json({ error: "Invalid tier" }, { status: 400 });
-        }
+        // 2. Validate Query Params
+        const { searchParams } = new URL(request.url);
+        const { tier } = validateQuery(searchParams, tierSchema);
 
-        const tier = tierResult.data;
         const priceId = PRICE_IDS[tier];
 
         if (!priceId || priceId.includes("placeholder")) {
-            return NextResponse.json(
-                { error: "Billing is not fully configured. Missing Stripe price IDs." },
-                { status: 503 }
-            );
+            return errorResponse(ApiErrors.serviceUnavailable("Billing system is not fully configured. Please contact support."));
         }
 
         const origin = resolveOrigin(request);
 
+        // 3. Fetch User Subscription Context
         const userSubscription = await db.subscription.findUnique({
             where: { userId: session.user.id },
             select: { stripeCustomerId: true },
         });
 
+        // 4. Create Stripe Checkout Session
         const checkoutSession = await stripe.checkout.sessions.create({
             mode: "subscription",
             payment_method_types: ["card"],
@@ -73,6 +78,7 @@ export async function POST(request: NextRequest) {
                     : undefined,
         });
 
+        // 5. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -88,7 +94,6 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ url: checkoutSession.url });
     } catch (error) {
-        console.error("Checkout error:", error);
-        return NextResponse.json({ error: "Failed to create checkout session" }, { status: 500 });
+        return errorResponse(error);
     }
 }
