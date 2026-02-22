@@ -7,6 +7,7 @@ import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { sendNotification } from "@/lib/notifications";
+import { errorResponse, validateBody, validateQuery, ApiErrors } from "@/lib/api-utils";
 
 const updateDocSchema = z.object({
     content: z.string().min(1),
@@ -19,39 +20,92 @@ const paramsSchema = z.object({
     id: z.string().min(1),
 }).strict();
 
+/**
+ * GET /api/docs/[id]
+ * Fetch documentation for a specific file.
+ */
+export async function GET(
+    request: NextRequest,
+    { params }: { params: Promise<{ id: string }> }
+) {
+    try {
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            return errorResponse(ApiErrors.unauthorized());
+        }
+
+        const parsedParams = paramsSchema.safeParse(await params);
+        if (!parsedParams.success) {
+            return errorResponse(ApiErrors.badRequest("Invalid file ID"));
+        }
+        const { id: fileId } = parsedParams.data;
+
+        // 1. Enforce rate limit
+        await enforceRateLimit(session.user.id, "api");
+
+        // 2. Check permissions
+        const hasPermission = await checkFilePermission(session.user.id, fileId, "view");
+        if (!hasPermission) {
+            return errorResponse(ApiErrors.forbidden());
+        }
+
+        // 3. Fetch Documentation
+        const doc = await db.documentation.findUnique({
+            where: { fileId },
+            include: {
+                file: {
+                    select: { name: true, language: true }
+                },
+                versions: {
+                    orderBy: { version: 'desc' },
+                    take: 1
+                }
+            }
+        });
+
+        if (!doc) {
+            return errorResponse(ApiErrors.notFound("Documentation"));
+        }
+
+        return NextResponse.json({ doc });
+    } catch (error) {
+        return errorResponse(error);
+    }
+}
+
+/**
+ * PUT /api/docs/[id]
+ * Update documentation content and manage status transitions.
+ */
 export async function PUT(
     req: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
-    const session = await getServerSession(authOptions);
-    if (!session || !session.user?.id) {
-        return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-    }
-
     try {
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            return errorResponse(ApiErrors.unauthorized());
+        }
+
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid file id" }, { status: 400 });
+            return errorResponse(ApiErrors.badRequest("Invalid file ID"));
         }
         const { id } = parsedParams.data;
 
-        // Enforce rate limit (300 requests per minute by default for API tier)
+        // 1. Enforce rate limit
         await enforceRateLimit(session.user.id, "api");
 
-        const parsedBody = updateDocSchema.safeParse(await req.json());
-        if (!parsedBody.success) {
-            return NextResponse.json({ error: "Invalid payload", details: parsedBody.error.flatten() }, { status: 400 });
-        }
-        const { content, baseVersion, status: bodyStatus, message } = parsedBody.data;
+        // 2. Validate Body
+        const { content, baseVersion, status: bodyStatus, message } = await validateBody(req, updateDocSchema);
 
-        // Check if user has permission to edit the file (which owns the documentation)
+        // 3. Check if user has permission to edit the file
         const hasPermission = await checkFilePermission(session.user.id, id, "edit");
-
         if (!hasPermission) {
-            return NextResponse.json({ message: "Access denied" }, { status: 403 });
+            return errorResponse(ApiErrors.forbidden("You do not have permission to edit this documentation"));
         }
 
-        // Find the current documentation record and original file
+        // 4. Find the current documentation record and original file
         const file = await db.file.findUnique({
             where: { id: id },
             include: {
@@ -63,7 +117,7 @@ export async function PUT(
                             },
                             include: {
                                 user: {
-                                    select: { email: true, name: true }
+                                    select: { email: true, name: true, id: true }
                                 }
                             }
                         },
@@ -87,10 +141,10 @@ export async function PUT(
         });
 
         if (!doc) {
-            return NextResponse.json({ message: "Documentation not found" }, { status: 404 });
+            return errorResponse(ApiErrors.notFound("Documentation"));
         }
 
-        // 0. Optimistic Locking Check
+        // 5. Optimistic Locking Check
         const currentVersion = doc.versions[0]?.version || 0;
         
         if (baseVersion !== undefined && baseVersion !== currentVersion) {
@@ -102,23 +156,19 @@ export async function PUT(
             }, { status: 409 });
         }
 
-        // 0.1 Check Team Policy: Lock Approved Docs
+        // 6. Check Team Policy: Lock Approved Docs
         if (file?.teamId && file.team) {
-            const config = (file.team.integrations[0]?.config as { lockApproved?: boolean } | null) || {};
+            const teamConfigRaw = file.team.integrations[0]?.config;
+            const config = (teamConfigRaw && typeof teamConfigRaw === "object" ? teamConfigRaw : {}) as { lockApproved?: boolean };
             
             if (config.lockApproved && doc.status === "APPROVED") {
-                // We already have members filtered to OWNER/ADMIN in the include, 
-                // but that's for notification. We need to check the CURRENT user.
                 const userMembership = await db.teamMember.findUnique({
                     where: { teamId_userId: { teamId: file.teamId, userId: session.user.id } }
                 });
                 const isManagement = userMembership?.role === "OWNER" || userMembership?.role === "ADMIN";
                 
                 if (!isManagement) {
-                    return NextResponse.json({ 
-                        error: "Locked", 
-                        message: "This documentation is APPROVED and locked by team policy. Only administrators can modify it." 
-                    }, { status: 423 });
+                    return errorResponse(ApiErrors.forbidden("This documentation is APPROVED and locked by team policy. Only administrators can modify it."));
                 }
             }
         }
@@ -131,7 +181,8 @@ export async function PUT(
         let verifiedById = doc.verifiedById;
 
         // Fetch team policy
-        const teamConfig = (file?.team?.integrations[0]?.config as { requireApproval?: boolean } | null) || {};
+        const teamConfigRaw = file?.team?.integrations[0]?.config;
+        const teamConfig = (teamConfigRaw && typeof teamConfigRaw === "object" ? teamConfigRaw : {}) as { requireApproval?: boolean };
         const isMandatoryReview = teamConfig.requireApproval === true;
 
         // 1. Demote if already approved (content change requires re-verification)
@@ -159,7 +210,7 @@ export async function PUT(
             const updated = await tx.documentation.update({
                 where: { fileId: id },
                 data: {
-                    content: JSON.stringify(content),
+                    content: content, // Already JSON string or plain text depending on frontend
                     status: newStatus,
                     verifiedAt,
                     verifiedById
@@ -169,7 +220,7 @@ export async function PUT(
             await tx.docVersion.create({
                 data: {
                     documentationId: doc.id,
-                    content: JSON.stringify(content),
+                    content: content,
                     version: nextVersion,
                     createdById: session.user.id,
                     message: message || `Updated via editor (v${nextVersion})`
@@ -179,12 +230,13 @@ export async function PUT(
             return updated;
         });
 
-        // 3. Trigger Review Notifications and create Review Request
+        // 7. Trigger Review Notifications and create Review Request
         if (transitioningToReview && file) {
-            const reviewUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/dashboard?docId=${id}`;
+            const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+            const reviewUrl = `${appUrl}/dashboard?docId=${id}`;
             const requesterName = session.user.name || session.user.email || "A developer";
 
-            // 3.0. Create review request record with deterministic reviewer assignment
+            // Create review request record with deterministic reviewer assignment
             let assignedReviewerId: string | null = null;
             if (file.teamId && file.team) {
                 const potentialReviewers = file.team.members.filter(m => m.userId !== session.user.id);
@@ -214,9 +266,8 @@ export async function PUT(
                 }
             });
 
-            // 3.1. Email Notifications
+            // Email Notifications
             if (file.teamId && file.team) {
-                // If we assigned a specific reviewer, notify them. Otherwise notify all admins.
                 const targetMembers = assignedReviewerId 
                     ? file.team.members.filter(m => m.userId === assignedReviewerId)
                     : file.team.members.filter(m => m.userId !== session.user.id);
@@ -236,7 +287,7 @@ export async function PUT(
                 await Promise.allSettled(emailPromises);
             }
 
-            // 3.2. Webhook Notifications (Slack/Discord)
+            // Webhook Notifications (Slack/Discord)
             try {
                 await sendNotification({
                     userId: session.user.id,
@@ -247,12 +298,12 @@ export async function PUT(
                     fileName: file.name,
                     teamId: file.teamId || undefined
                 });
-            } catch {
-                console.error("Failed to trigger webhook notification");
+            } catch (e) {
+                console.error("Failed to trigger webhook notification", e);
             }
         }
 
-        // Log the action for audit trail
+        // 8. Log the action for audit trail
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -273,34 +324,37 @@ export async function PUT(
 
         return NextResponse.json(updatedDoc);
     } catch (error) {
-        console.error("Failed to update documentation", error);
-        return NextResponse.json({ message: "Internal server error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
+/**
+ * DELETE /api/docs/[id]
+ * Delete documentation for a file.
+ */
 export async function DELETE(
     req: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
-    const session = await getServerSession(authOptions);
-    if (!session || !session.user?.id) {
-        return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-    }
-
     try {
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            return errorResponse(ApiErrors.unauthorized());
+        }
+
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid file id" }, { status: 400 });
+            return errorResponse(ApiErrors.badRequest("Invalid file ID"));
         }
         const { id } = parsedParams.data;
 
         // 1. Enforce rate limit
         await enforceRateLimit(session.user.id, "api");
 
-        // 2. Check permissions (Documentation deletion usually requires same as file deletion or higher)
+        // 2. Check permissions
         const hasPermission = await checkFilePermission(session.user.id, id, "delete");
         if (!hasPermission) {
-            return NextResponse.json({ message: "Access denied: You do not have permission to delete this documentation" }, { status: 403 });
+            return errorResponse(ApiErrors.forbidden("You do not have permission to delete this documentation"));
         }
 
         // 3. Fetch doc info for logging
@@ -310,7 +364,7 @@ export async function DELETE(
         });
 
         if (!doc) {
-            return NextResponse.json({ message: "Documentation not found" }, { status: 404 });
+            return errorResponse(ApiErrors.notFound("Documentation"));
         }
 
         // 4. Perform Deletion
@@ -318,7 +372,7 @@ export async function DELETE(
             where: { fileId: id }
         });
 
-        // 5. Audit Log (High Integrity)
+        // 5. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -336,9 +390,7 @@ export async function DELETE(
         }
 
         return NextResponse.json({ success: true, message: "Documentation deleted successfully" });
-
     } catch (error) {
-        console.error("[DeleteDoc_API] Error:", error);
-        return NextResponse.json({ error: "Failed to delete documentation" }, { status: 500 });
+        return errorResponse(error);
     }
 }

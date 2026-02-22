@@ -5,6 +5,12 @@ import { db } from "@/lib/db";
 import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { sendNotification } from "@/lib/notifications";
+import { z } from "zod";
+import { errorResponse } from "@/lib/api-utils";
+
+const paramsSchema = z.object({
+    id: z.string().trim().min(1).max(100),
+}).strict();
 
 /**
  * POST /api/docs/[id]/approve
@@ -21,18 +27,24 @@ export async function POST(
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const { id: fileId } = await params;
-
         // 1. Enforce rate limit
         await enforceRateLimit(session.user.id, "api");
 
-        // 2. Check permissions
+        // 2. Validate Params
+        const parsedParams = paramsSchema.safeParse(await params);
+        if (!parsedParams.success) {
+            return NextResponse.json({ error: "Invalid file ID" }, { status: 400 });
+        }
+
+        const { id: fileId } = parsedParams.data;
+
+        // 3. Check permissions
         const hasPermission = await checkFilePermission(session.user.id, fileId, "approve");
         if (!hasPermission) {
             return NextResponse.json({ error: "Forbidden: You do not have permission to approve documentation" }, { status: 403 });
         }
 
-        // 3. Fetch Documentation
+        // 4. Fetch Documentation
         const doc = await db.documentation.findUnique({
             where: { fileId },
             include: { file: true }
@@ -42,7 +54,7 @@ export async function POST(
             return NextResponse.json({ error: "Documentation not found" }, { status: 404 });
         }
 
-        // 4. Update documentation status in a transaction
+        // 5. Update documentation status in a transaction
         const updatedDoc = await db.$transaction(async (tx) => {
             // Update the main doc record
             const updated = await tx.documentation.update({
@@ -69,7 +81,7 @@ export async function POST(
             return updated;
         });
 
-        // 5. Audit Log (High Integrity)
+        // 6. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -84,10 +96,10 @@ export async function POST(
                 }
             });
         } catch {
-            // Ignore audit logging errors
+            // Keep mutation resilient if audit logging fails
         }
 
-        // 6. Trigger Auto-GitHub Sync if configured
+        // 7. Trigger Auto-GitHub Sync if configured
         if (doc.file.teamId) {
             try {
                 const teamConfig = await db.integration.findFirst({
@@ -95,7 +107,7 @@ export async function POST(
                 });
                 const config = (teamConfig?.config as { autoGithubSync?: boolean; githubRepo?: string } | null) || {};
 
-                // 6.1. Slack/Discord Announcement for Approval
+                // 7.1. Slack/Discord Announcement for Approval
                 await sendNotification({
                     userId: session.user.id,
                     type: "DOC_APPROVED",
@@ -106,7 +118,7 @@ export async function POST(
                     teamId: doc.file.teamId || undefined
                 });
 
-                // 6.2. GitHub PR Export
+                // 7.2. GitHub PR Export
                 if (config.autoGithubSync && config.githubRepo) {
                     const host = req.headers.get("host");
                     if (host) {
@@ -138,7 +150,6 @@ export async function POST(
         });
 
     } catch (error) {
-        console.error("[ApproveDoc_API] Error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
