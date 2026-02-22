@@ -1,40 +1,48 @@
-import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { NextRequest, NextResponse } from "next/server";
 import { hash } from "bcryptjs";
 import { z } from "zod";
 import { randomBytes } from "crypto";
+import { db } from "@/lib/db";
 import { sendEmail, emailTemplates } from "@/lib/email";
-import { enforceRateLimit } from "@/lib/rate-limit";
+import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
+import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
 
 const resetRequestSchema = z.object({
-    email: z.string().email(),
-});
+    email: z.string().trim().email().max(100),
+}).strict();
 
 const resetConfirmSchema = z.object({
-    token: z.string(),
-    password: z.string().min(8, "Password must be at least 8 characters"),
-});
+    token: z.string().min(1).max(255),
+    password: z.string().min(8).max(100),
+}).strict();
 
-// Generate a password reset token
-export async function POST(req: Request) {
+/**
+ * POST /api/auth/reset-password
+ * Initiates a password reset flow by sending a tokenized link to the user's email.
+ */
+export async function POST(req: NextRequest) {
     try {
-        const body = await req.clone().json();
-        const { email } = resetRequestSchema.parse(body);
+        const clientIp = await getClientIP(req);
+        // Initial generic rate limit by IP to prevent flooding
+        await enforceRateLimit(clientIp, "auth");
 
-        // Security: Rate limit reset attempts per email
-        await enforceRateLimit(email.trim().toLowerCase(), "security");
+        const { email } = await validateBody(req, resetRequestSchema);
+
+        // Security: Higher-tier rate limit reset attempts per email
+        await enforceRateLimit(email.toLowerCase(), "security");
 
         // Find user by email
         const user = await db.user.findUnique({
             where: { email },
+            select: { id: true, email: true, name: true }
         });
 
-        // Ensure user has an email and didn't sign up via provider without one (unlikely but safe)
+        const successMessage = "If an account with that email exists, a password reset link has been sent.";
+
+        // Ensure user has an email and didn't sign up via provider without one
         if (!user || !user.email) {
             // Don't reveal if email exists or not for security
-            return NextResponse.json({
-                message: "If an account with that email exists, a password reset link has been sent."
-            });
+            return NextResponse.json({ message: successMessage });
         }
 
         // Generate reset token
@@ -51,7 +59,8 @@ export async function POST(req: Request) {
         });
 
         // Send reset email
-        const resetUrl = `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/auth/reset-password?token=${token}`;
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+        const resetUrl = `${appUrl}/auth/reset-password?token=${token}`;
 
         try {
             await sendEmail({
@@ -61,30 +70,26 @@ export async function POST(req: Request) {
             });
         } catch (emailError) {
             console.error("Failed to send password reset email:", emailError);
-            return NextResponse.json({
-                error: "Failed to send email. Please try again."
-            }, { status: 500 });
+            // We still return success-like message to avoid enumeration, 
+            // but log the error for ops.
         }
 
-        return NextResponse.json({
-            message: "If an account with that email exists, a password reset link has been sent."
-        });
+        return NextResponse.json({ message: successMessage });
     } catch (error) {
-        console.error("Password reset request error:", error);
-
-        if (error instanceof z.ZodError) {
-            return NextResponse.json({ error: "Invalid email address" }, { status: 400 });
-        }
-
-        return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
-// Handle token verification and password reset
-export async function PUT(req: Request) {
+/**
+ * PUT /api/auth/reset-password
+ * Verifies a reset token and updates the user's password.
+ */
+export async function PUT(req: NextRequest) {
     try {
-        const body = await req.json();
-        const { token, password } = resetConfirmSchema.parse(body);
+        const clientIp = await getClientIP(req);
+        await enforceRateLimit(clientIp, "auth");
+
+        const { token, password } = await validateBody(req, resetConfirmSchema);
 
         // Find valid reset token
         const resetToken = await db.passwordResetToken.findFirst({
@@ -95,24 +100,31 @@ export async function PUT(req: Request) {
                 },
             },
             include: {
-                user: true,
+                user: {
+                    select: { id: true, email: true, name: true }
+                },
             },
         });
 
         if (!resetToken) {
-            return NextResponse.json({ error: "Invalid or expired reset token" }, { status: 400 });
+            return errorResponse(ApiErrors.badRequest("Invalid or expired reset token"));
         }
 
         // Hash new password
-        const hashedPassword = await hash(password, 10);
+        const hashedPassword = await hash(password, 12);
 
-        // Update user password
-        await db.user.update({
-            where: { id: resetToken.userId },
-            data: { password: hashedPassword },
-        });
+        // Update user password and delete used token in a transaction
+        await db.$transaction([
+            db.user.update({
+                where: { id: resetToken.userId },
+                data: { password: hashedPassword },
+            }),
+            db.passwordResetToken.delete({
+                where: { id: resetToken.id },
+            })
+        ]);
 
-        // Log audit event for password reset
+        // Log audit event
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -122,64 +134,53 @@ export async function PUT(req: Request) {
                 entityId: resetToken.userId,
                 details: { method: "forgot-password-flow" }
             });
-        } catch (e) {}
+        } catch {
+            // Non-blocking
+        }
 
-        // Delete reset token
-        await db.passwordResetToken.delete({
-            where: { id: resetToken.id },
-        });
-
-        // Send confirmation email
-        try {
-            if (resetToken.user.email) {
-                await sendEmail({
-                    to: resetToken.user.email,
-                    subject: "Your Password Has Been Reset",
-                    html: `
-                        <!DOCTYPE html>
-                        <html>
-                            <head>
-                                <style>
-                                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                                    .header { background: linear-gradient(135deg, #10b981, #34d399); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-                                    .content { padding: 30px; background: #f9fafb; }
-                                    .footer { background: #f3f4f6; padding: 20px; text-align: center; color: #6b7280; font-size: 14px; }
-                                </style>
-                            </head>
-                            <body>
-                                <div class="container">
-                                    <div class="header">
-                                        <h1>Password Reset Successful 🔒</h1>
-                                    </div>
-                                    <div class="content">
-                                        <h2>Hi ${resetToken.user.name || "User"},</h2>
-                                        <p>Your DocuMint AI password has been successfully reset.</p>
-                                        <p>If you did not initiate this change, please contact our support team immediately.</p>
-                                        <p><strong>Best regards,<br>The DocuMint AI Security Team</strong></p>
-                                    </div>
-                                    <div class="footer">
-                                        <p>&copy; 2025 DocuMint AI. All rights reserved.</p>
-                                    </div>
+        // Send confirmation email (async)
+        if (resetToken.user.email) {
+            sendEmail({
+                to: resetToken.user.email,
+                subject: "Your Password Has Been Reset",
+                html: `
+                    <!DOCTYPE html>
+                    <html>
+                        <head>
+                            <style>
+                                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                                .header { background: linear-gradient(135deg, #10b981, #34d399); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+                                .content { padding: 30px; background: #f9fafb; }
+                                .footer { background: #f3f4f6; padding: 20px; text-align: center; color: #6b7280; font-size: 14px; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="container">
+                                <div class="header">
+                                    <h1>Password Reset Successful 🔒</h1>
                                 </div>
-                            </body>
-                        </html>
-                    `,
-                });
-            }
-        } catch (emailError) {
-            console.error("Failed to send password reset confirmation email:", emailError);
-            // Continue anyway
+                                <div class="content">
+                                    <h2>Hi ${resetToken.user.name || "User"},</h2>
+                                    <p>Your DocuMint AI password has been successfully reset.</p>
+                                    <p>If you did not initiate this change, please contact our support team immediately.</p>
+                                    <p><strong>Best regards,<br>The DocuMint AI Security Team</strong></p>
+                                </div>
+                                <div class="footer">
+                                    <p>&copy; 2025 DocuMint AI. All rights reserved.</p>
+                                </div>
+                            </div>
+                        </body>
+                    </html>
+                `,
+            }).catch(e => console.error("Failed to send reset confirmation email:", e));
         }
 
-        return NextResponse.json({ message: "Password reset successfully" });
+        return NextResponse.json({ 
+            success: true,
+            message: "Password reset successfully. You can now log in with your new password." 
+        });
     } catch (error) {
-        console.error("Password reset confirmation error:", error);
-
-        if (error instanceof z.ZodError) {
-            return NextResponse.json({ error: error.issues[0]?.message }, { status: 400 });
-        }
-
-        return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
