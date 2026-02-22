@@ -7,6 +7,7 @@ import { getFileContent } from "@/lib/files";
 import { getAICompletion } from "@/lib/ai";
 import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
 
 const archaeologySchema = z.object({
     fileId: z.string().min(1),
@@ -20,41 +21,45 @@ const archaeologyReportSchema = z.object({
     refactoringPlan: z.array(z.string()).min(1).max(10),
 }).strict();
 
+/**
+ * POST /api/archaeology
+ * Performs a "code archaeology" analysis to identify historical debt, 
+ * coding styles, and a modernization roadmap.
+ */
 export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return errorResponse(ApiErrors.unauthorized());
         }
 
+        // 1. Enforce rate limit
         await enforceRateLimit(session.user.id, "api");
 
-        const parsed = archaeologySchema.safeParse(await req.json());
-        if (!parsed.success) {
-            return NextResponse.json({ error: "File ID is required" }, { status: 400 });
+        const { fileId } = await validateBody(req, archaeologySchema);
+
+        // 2. Check permissions
+        const hasPermission = await checkFilePermission(session.user.id, fileId, "view");
+        if (!hasPermission) {
+            return errorResponse(ApiErrors.forbidden("You do not have permission to analyze this file."));
         }
 
-        const { fileId } = parsed.data;
-
-        const canView = await checkFilePermission(session.user.id, fileId, "view");
-        if (!canView) {
-            return NextResponse.json({ error: "Access denied" }, { status: 403 });
-        }
-
+        // 3. Fetch file details
         const file = await db.file.findUnique({
             where: { id: fileId },
             select: { name: true, language: true },
         });
 
         if (!file) {
-            return NextResponse.json({ error: "File not found" }, { status: 404 });
+            return errorResponse(ApiErrors.notFound("File"));
         }
 
         const content = await getFileContent(fileId);
         if (!content) {
-            return NextResponse.json({ error: "File content not found" }, { status: 404 });
+            return errorResponse(ApiErrors.notFound("File content"));
         }
 
+        // 4. Run AI Analysis
         const prompt = `You are a Code Archaeologist. Analyze this ${file.language || "code"} file like an archaeological dig site.
 
 PERFORM A DEEP HISTORICAL & STRATIGRAPHIC ANALYSIS:
@@ -90,17 +95,22 @@ Return ONLY valid JSON with this exact shape:
         );
 
         if (!aiResult?.content) {
-            return NextResponse.json({ error: "Excavation failed" }, { status: 500 });
+            return errorResponse(ApiErrors.internalError("Excavation failed: No response from AI."));
         }
 
-        const parsedReport = archaeologyReportSchema.safeParse(JSON.parse(aiResult.content));
+        let rawReport;
+        try {
+            rawReport = JSON.parse(aiResult.content);
+        } catch (e) {
+            return errorResponse(ApiErrors.internalError("Excavation failed: AI returned invalid JSON."));
+        }
+
+        const parsedReport = archaeologyReportSchema.safeParse(rawReport);
         if (!parsedReport.success) {
-            return NextResponse.json(
-                { error: "Failed to validate archaeology report", details: parsedReport.error.flatten() },
-                { status: 500 }
-            );
+            return errorResponse(ApiErrors.internalError("Excavation failed: Analysis schema validation failed."));
         }
 
+        // 5. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -120,10 +130,6 @@ Return ONLY valid JSON with this exact shape:
 
         return NextResponse.json(parsedReport.data);
     } catch (error) {
-        console.error("Archaeology error:", error);
-        return NextResponse.json(
-            { error: "Excavation failed", details: "Could not analyze code history." },
-            { status: 500 }
-        );
+        return errorResponse(error);
     }
 }

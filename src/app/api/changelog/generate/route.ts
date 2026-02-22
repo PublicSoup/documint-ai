@@ -7,6 +7,7 @@ import { generateText } from "@/lib/ai";
 import { requireFeature } from "@/lib/feature-gate";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { checkFilePermission } from "@/lib/permissions";
+import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
 
 const changelogRequestSchema = z.object({
     fileIds: z.array(z.string().min(1)).min(1).max(100),
@@ -27,6 +28,10 @@ interface ParsedDoc {
     securityInsights?: string[];
 }
 
+/**
+ * POST /api/changelog/generate
+ * Generates an automated changelog entry based on current file documentation.
+ */
 export async function POST(request: NextRequest) {
     const gateError = await requireFeature("changelog");
     if (gateError) return gateError;
@@ -34,32 +39,30 @@ export async function POST(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return errorResponse(ApiErrors.unauthorized());
         }
 
+        // 1. Enforce rate limit
         await enforceRateLimit(session.user.id, "api");
 
-        const parsed = changelogRequestSchema.safeParse(await request.json());
-        if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
-        }
+        const { fileIds, format, includeDetails } = await validateBody(request, changelogRequestSchema);
 
-        const { fileIds, format, includeDetails } = parsed.data;
-
+        // 2. Fetch files with documentation
         const allFiles = await db.file.findMany({
             where: { id: { in: fileIds } },
             include: { documentation: true },
             orderBy: { updatedAt: "desc" },
         });
 
-        const accessibleFiles = [] as typeof allFiles;
+        // 3. Filter for accessible files
+        const accessibleFiles = [];
         for (const file of allFiles) {
             const canView = await checkFilePermission(session.user.id, file.id, "view");
             if (canView) accessibleFiles.push(file);
         }
 
         if (accessibleFiles.length === 0) {
-            return NextResponse.json({ error: "No accessible files found" }, { status: 404 });
+            return errorResponse(ApiErrors.notFound("Accessible files"));
         }
 
         const changes: ChangeItem[] = [];
@@ -68,9 +71,10 @@ export async function POST(request: NextRequest) {
             if (!file.documentation?.content) return;
 
             try {
+                // Documentation content is stored as stringified JSON
                 const doc = JSON.parse(file.documentation.content) as ParsedDoc;
 
-                if (Array.isArray(doc.entities) && doc.entities.length > 0) {
+                if (Array.isArray(doc.entities)) {
                     doc.entities.slice(0, 5).forEach((entity) => {
                         changes.push({
                             type: "added",
@@ -81,7 +85,7 @@ export async function POST(request: NextRequest) {
                     });
                 }
 
-                if (Array.isArray(doc.securityInsights) && doc.securityInsights.length > 0) {
+                if (Array.isArray(doc.securityInsights)) {
                     doc.securityInsights.forEach((insight) => {
                         changes.push({
                             type: "security",
@@ -92,7 +96,7 @@ export async function POST(request: NextRequest) {
                     });
                 }
             } catch {
-                // Ignore malformed docs.
+                // Ignore malformed documentation content.
             }
         });
 
@@ -104,7 +108,7 @@ export async function POST(request: NextRequest) {
                         const doc = JSON.parse(file.documentation.content) as ParsedDoc;
                         summary = doc.summary || "";
                     } catch {
-                        // Ignore malformed docs.
+                        // Resilient to malformed docs
                     }
                 }
                 return `- ${file.name} (${file.language || "unknown"}): ${summary.slice(0, 120)}`;
@@ -143,6 +147,7 @@ Output ONLY markdown changelog content.`;
 
         const changelog = aiChangelog.trim() || generateFallbackChangelog(accessibleFiles, changes);
 
+        // 4. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -168,8 +173,7 @@ Output ONLY markdown changelog content.`;
             },
         });
     } catch (error) {
-        console.error("Changelog generation error:", error);
-        return NextResponse.json({ error: "Failed to generate changelog" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
@@ -206,12 +210,15 @@ function generateFallbackChangelog(files: { name: string }[], changes: ChangeIte
     return markdown;
 }
 
-// GET available changelog formats/options
+/**
+ * GET /api/changelog/generate
+ * Returns available changelog configuration options.
+ */
 export async function GET() {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return errorResponse(ApiErrors.unauthorized());
         }
 
         await enforceRateLimit(session.user.id, "api");
@@ -228,7 +235,6 @@ export async function GET() {
             ],
         });
     } catch (error) {
-        console.error("Changelog formats error:", error);
-        return NextResponse.json({ error: "Failed to load changelog options" }, { status: 500 });
+        return errorResponse(error);
     }
 }

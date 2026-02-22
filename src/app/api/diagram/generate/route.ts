@@ -8,6 +8,7 @@ import { generateText } from "@/lib/ai";
 import { requireFeature } from "@/lib/feature-gate";
 import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
 
 const DIAGRAM_SYSTEM_PROMPT = `You are a software architect expert in Mermaid.js.
 Your task is to analyze code and generate a diagram in Mermaid syntax.
@@ -23,9 +24,13 @@ const generateDiagramSchema = z.object({
     type: z.enum(["class", "sequence", "flowchart", "state", "er"]).default("class"),
 }).strict();
 
+/**
+ * Normalizes and cleans AI-generated Mermaid code to ensure rendering reliability.
+ */
 function normalizeMermaidOutput(code: string, type: z.infer<typeof generateDiagramSchema>["type"]): string {
     let cleanedCode = code.replace(/```mermaid/g, "").replace(/```/g, "").trim();
 
+    // Fix AI-generated "one-line" Mermaid if detected
     if (!cleanedCode.includes("\n")) {
         if (type === "sequence") {
             cleanedCode = cleanedCode
@@ -52,42 +57,44 @@ function normalizeMermaidOutput(code: string, type: z.infer<typeof generateDiagr
     return cleanedCode;
 }
 
+/**
+ * POST /api/diagram/generate
+ * Analyzes a file and generates a Mermaid architecture diagram using AI.
+ */
 export async function POST(request: NextRequest) {
-    const gateResponse = await requireFeature("diagramGenerator");
-    if (gateResponse) return gateResponse;
-
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const gateError = await requireFeature("diagramGenerator");
+    if (gateError) return gateError;
 
     try {
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            return errorResponse(ApiErrors.unauthorized());
+        }
+
+        // 1. Enforce rate limit
         await enforceRateLimit(session.user.id, "api");
 
-        const parsed = generateDiagramSchema.safeParse(await request.json());
-        if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+        const { fileId, type } = await validateBody(request, generateDiagramSchema);
+
+        // 2. Check permissions
+        const hasPermission = await checkFilePermission(session.user.id, fileId, "view");
+        if (!hasPermission) {
+            return errorResponse(ApiErrors.forbidden("You do not have permission to view this file."));
         }
 
-        const { fileId, type } = parsed.data;
-
-        const canView = await checkFilePermission(session.user.id, fileId, "view");
-        if (!canView) {
-            return NextResponse.json({ error: "Access denied" }, { status: 403 });
-        }
-
+        // 3. Fetch file and content
         const file = await db.file.findUnique({
             where: { id: fileId },
             select: { name: true, language: true },
         });
 
         if (!file) {
-            return NextResponse.json({ error: "File not found" }, { status: 404 });
+            return errorResponse(ApiErrors.notFound("File"));
         }
 
         const content = await getFileContent(fileId);
         if (!content) {
-            return NextResponse.json({ error: "File content not found" }, { status: 404 });
+            return errorResponse(ApiErrors.notFound("File content"));
         }
 
         const isJson = file.language === "json" || file.name.endsWith(".json");
@@ -128,17 +135,19 @@ export async function POST(request: NextRequest) {
 
         const userPrompt = `${specificPrompt}\n\n${isJson ? "JSON" : "Code"} to analyze:\n\`\`\`${file.language || "text"}\n${content.slice(0, 12000)}\n\`\`\``;
 
+        // 4. Run AI generation
         const mermaidCode = await generateText(DIAGRAM_SYSTEM_PROMPT, userPrompt, {
             temperature: 0.2,
             maxTokens: 2500,
         });
 
-        if (!mermaidCode.trim()) {
-            return NextResponse.json({ error: "Diagram generation failed" }, { status: 500 });
+        if (!mermaidCode?.trim()) {
+            return errorResponse(ApiErrors.internalError("Diagram generation failed: No output from AI."));
         }
 
         const cleanedCode = normalizeMermaidOutput(mermaidCode, type);
 
+        // 5. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -157,7 +166,6 @@ export async function POST(request: NextRequest) {
             type,
         });
     } catch (error) {
-        console.error("Diagram generation failed:", error);
-        return NextResponse.json({ error: "Failed to generate diagram" }, { status: 500 });
+        return errorResponse(error);
     }
 }

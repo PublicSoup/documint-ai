@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { safeJsonParse } from "@/lib/utils";
+import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
 
 interface ExportedFile {
     name: string;
@@ -24,22 +25,24 @@ interface ParsedDocumentation {
     metadata?: Record<string, unknown>;
 }
 
+/**
+ * POST /api/docs/export
+ * Aggregates documentation for multiple files and returns them in a structured batch.
+ */
 export async function POST(req: NextRequest) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     try {
-        await enforceRateLimit(session.user.id, "api");
-
-        const parsedBody = exportBodySchema.safeParse(await req.json());
-        if (!parsedBody.success) {
-            return NextResponse.json({ error: "fileIds array is required" }, { status: 400 });
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            return errorResponse(ApiErrors.unauthorized());
         }
 
-        const requestedFileIds = Array.from(new Set(parsedBody.data.fileIds));
+        // 1. Enforce rate limit
+        await enforceRateLimit(session.user.id, "api");
 
+        const { fileIds } = await validateBody(req, exportBodySchema);
+        const requestedFileIds = Array.from(new Set(fileIds));
+
+        // 2. Fetch all requested files
         const files = await db.file.findMany({
             where: { id: { in: requestedFileIds } },
             include: { documentation: true },
@@ -47,6 +50,7 @@ export async function POST(req: NextRequest) {
 
         const exportData: Record<string, ExportedFile> = {};
 
+        // 3. Process each file with permission checks
         for (const file of files) {
             const canView = await checkFilePermission(session.user.id, file.id, "view");
             if (!canView) {
@@ -87,6 +91,7 @@ export async function POST(req: NextRequest) {
             };
         }
 
+        // 4. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -105,7 +110,6 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json({ files: exportData });
     } catch (error) {
-        console.error("Batch export error:", error);
-        return NextResponse.json({ error: "Failed to fetch files" }, { status: 500 });
+        return errorResponse(error);
     }
 }

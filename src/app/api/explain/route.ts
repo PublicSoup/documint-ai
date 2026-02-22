@@ -8,6 +8,7 @@ import { getAICompletion } from "@/lib/ai";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { requireFeature } from "@/lib/feature-gate";
 import { checkFilePermission } from "@/lib/permissions";
+import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
 
 const explainSchema = z.object({
     fileId: z.string().min(1),
@@ -46,44 +47,47 @@ Cover main logic and key functions.
 Keep total response under 120 words.`,
 };
 
+/**
+ * POST /api/explain
+ * Generates a persona-based explanation for a specific code file.
+ */
 export async function POST(request: NextRequest) {
-    const gateResponse = await requireFeature("codeExplain");
-    if (gateResponse) return gateResponse;
+    const gateError = await requireFeature("codeExplain");
+    if (gateError) return gateError;
 
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return errorResponse(ApiErrors.unauthorized());
         }
 
+        // 1. Enforce rate limit (Free tier allowed)
         await enforceRateLimit(session.user.id, "free");
 
-        const parsed = explainSchema.safeParse(await request.json());
-        if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+        const { fileId, persona } = await validateBody(request, explainSchema);
+
+        // 2. Check permissions
+        const hasPermission = await checkFilePermission(session.user.id, fileId, "view");
+        if (!hasPermission) {
+            return errorResponse(ApiErrors.forbidden("You do not have permission to view this file."));
         }
 
-        const { fileId, persona } = parsed.data;
-
-        const canView = await checkFilePermission(session.user.id, fileId, "view");
-        if (!canView) {
-            return NextResponse.json({ error: "Access denied" }, { status: 403 });
-        }
-
+        // 3. Fetch file details
         const file = await db.file.findUnique({
             where: { id: fileId },
             select: { name: true, language: true },
         });
 
         if (!file) {
-            return NextResponse.json({ error: "File not found" }, { status: 404 });
+            return errorResponse(ApiErrors.notFound("File"));
         }
 
         const content = await getFileContent(fileId);
         if (!content) {
-            return NextResponse.json({ error: "File content not found" }, { status: 404 });
+            return errorResponse(ApiErrors.notFound("File content"));
         }
 
+        // 4. Run AI generation
         const personaPrompt = PERSONA_PROMPTS[persona] || PERSONA_PROMPTS.default;
         const prompt = `${personaPrompt}
 
@@ -107,9 +111,10 @@ Provide a concise explanation in this persona's style.`;
         );
 
         if (!aiResult?.content) {
-            return NextResponse.json({ error: "AI generation failed" }, { status: 500 });
+            return errorResponse(ApiErrors.internalError("AI generation failed."));
         }
 
+        // 5. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -134,7 +139,6 @@ Provide a concise explanation in this persona's style.`;
             language: file.language,
         });
     } catch (error) {
-        console.error("Persona explanation error:", error);
-        return NextResponse.json({ error: "Failed to generate explanation" }, { status: 500 });
+        return errorResponse(error);
     }
 }

@@ -6,81 +6,82 @@ import { db } from "@/lib/db";
 import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { env } from "@/lib/env";
+import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
 
 const paramsSchema = z.object({
-    id: z.string().min(1),
+    id: z.string().trim().min(1).max(100),
 }).strict();
 
 const shareBodySchema = z.object({
     isPublic: z.boolean(),
 }).strict();
 
+/**
+ * POST /api/docs/[id]/share
+ * Updates the public sharing status of a document.
+ */
 export async function POST(
     req: NextRequest,
-    context: { params: Promise<{ id: string }> }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return errorResponse(ApiErrors.unauthorized());
         }
 
+        // 1. Enforce rate limit
         await enforceRateLimit(session.user.id, "api");
 
-        const parsedParams = paramsSchema.safeParse(await context.params);
+        // 2. Validate Params and Body
+        const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid file id" }, { status: 400 });
+            return errorResponse(ApiErrors.badRequest("Invalid file ID"));
         }
-
-        const parsedBody = shareBodySchema.safeParse(await req.json());
-        if (!parsedBody.success) {
-            return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
-        }
-
         const { id: fileId } = parsedParams.data;
-        const { isPublic } = parsedBody.data;
 
+        const { isPublic } = await validateBody(req, shareBodySchema);
+
+        // 3. Check permissions
         const hasPermission = await checkFilePermission(session.user.id, fileId, "manage");
         if (!hasPermission) {
-            return NextResponse.json({ error: "Access denied" }, { status: 403 });
+            return errorResponse(ApiErrors.forbidden("You do not have permission to manage sharing for this document."));
         }
 
+        // 4. Fetch file and documentation
         const file = await db.file.findUnique({
             where: { id: fileId },
             include: { documentation: true },
         });
 
         if (!file) {
-            return NextResponse.json({ error: "File not found" }, { status: 404 });
+            return errorResponse(ApiErrors.notFound("File"));
         }
 
         if (!file.documentation) {
-            return NextResponse.json({ error: "Documentation not generated yet" }, { status: 400 });
+            return errorResponse(ApiErrors.badRequest("Documentation not generated yet."));
         }
 
+        // 5. Enforce Team Policy: Require approval for public sharing
         if (isPublic && file.teamId) {
-            const teamConfig = await db.integration.findFirst({
+            const teamConfigRecord = await db.integration.findFirst({
                 where: { teamId: file.teamId, type: "TEAM_CONFIG" },
                 select: { config: true },
             });
-            const config = (teamConfig?.config as { requireApproval?: boolean } | null) || {};
+            const config = (teamConfigRecord?.config && typeof teamConfigRecord.config === "object" ? teamConfigRecord.config : {}) as { requireApproval?: boolean };
 
             if (config.requireApproval && file.documentation.status !== "APPROVED") {
-                return NextResponse.json(
-                    {
-                        error: "Policy Violation",
-                        message: "Team policy requires APPROVED documentation before public sharing.",
-                    },
-                    { status: 403 }
-                );
+                return errorResponse(ApiErrors.forbidden("Team policy requires APPROVED documentation before public sharing."));
             }
         }
 
+        // 6. Update document
         const updatedDoc = await db.documentation.update({
             where: { fileId },
             data: { isPublic },
         });
 
+        // 7. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -98,15 +99,14 @@ export async function POST(
             // Non-blocking
         }
 
-        const baseUrl = env.NEXT_PUBLIC_APP_URL || "";
+        const appUrl = env.NEXT_PUBLIC_APP_URL || "";
 
         return NextResponse.json({
             success: true,
             isPublic: updatedDoc.isPublic,
-            url: `${baseUrl}/share/${fileId}`,
+            url: `${appUrl}/share/${fileId}`,
         });
     } catch (error) {
-        console.error("Share error:", error);
-        return NextResponse.json({ error: "Internal Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
