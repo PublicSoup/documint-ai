@@ -3,6 +3,9 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
+import { Prisma } from "@prisma/client";
 
 const scheduleTypeSchema = z.enum(["daily", "weekly", "monthly"]);
 
@@ -42,19 +45,26 @@ const defaultSchedule: UserSchedule = {
     },
 };
 
+/**
+ * GET /api/schedule
+ * Returns the documentation update schedule settings for the current user.
+ */
 export async function GET() {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return errorResponse(ApiErrors.unauthorized());
         }
+
+        // 1. Enforce Rate Limit
+        await enforceRateLimit(session.user.id, "api");
 
         const user = await db.user.findUnique({
             where: { id: session.user.id },
             select: { settings: true },
         });
 
-        const settings = (user?.settings ?? {}) as { docSchedule?: Partial<UserSchedule> };
+        const settings = (user?.settings && typeof user.settings === "object" ? user.settings : {}) as { docSchedule?: Partial<UserSchedule> };
         const schedule = {
             ...defaultSchedule,
             ...(settings.docSchedule || {}),
@@ -66,24 +76,26 @@ export async function GET() {
 
         return NextResponse.json({ schedule });
     } catch (error) {
-        console.error("Get Schedule Error:", error);
-        return NextResponse.json({ error: "Failed to fetch schedule" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
+/**
+ * PUT /api/schedule
+ * Updates the documentation update schedule settings.
+ */
 export async function PUT(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return errorResponse(ApiErrors.unauthorized());
         }
 
-        const parsed = updateScheduleSchema.safeParse(await req.json());
-        if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid schedule payload" }, { status: 400 });
-        }
+        // 1. Enforce Rate Limit
+        await enforceRateLimit(session.user.id, "api");
 
-        const { enabled, type, options } = parsed.data;
+        // 2. Validate Body
+        const { enabled, type, options } = await validateBody(req, updateScheduleSchema);
         const nextRun = calculateNextRun(type);
 
         const user = await db.user.findUnique({
@@ -91,53 +103,77 @@ export async function PUT(req: NextRequest) {
             select: { settings: true },
         });
 
-        const currentSettings = (user?.settings ?? {}) as { docSchedule?: UserSchedule };
+        const currentSettings = (user?.settings && typeof user.settings === "object" ? user.settings : {}) as Record<string, unknown>;
+        const currentSchedule = (currentSettings.docSchedule || {}) as Partial<UserSchedule>;
 
+        const updatedSchedule: UserSchedule = {
+            enabled,
+            type,
+            lastRun: currentSchedule.lastRun || null,
+            nextRun: nextRun.toISOString(),
+            options,
+        };
+
+        // 3. Update DB
         await db.user.update({
             where: { id: session.user.id },
             data: {
                 settings: {
                     ...currentSettings,
-                    docSchedule: {
-                        enabled,
-                        type,
-                        lastRun: currentSettings.docSchedule?.lastRun || null,
-                        nextRun: nextRun.toISOString(),
-                        options,
-                    } satisfies UserSchedule,
-                },
+                    docSchedule: updatedSchedule,
+                } as Prisma.InputJsonValue,
             },
         });
+
+        // 4. Audit Log
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: session.user.id,
+                action: "UPDATE_DOC_SCHEDULE",
+                entity: "User",
+                entityId: session.user.id,
+                details: { enabled, type },
+            });
+        } catch {
+            // Non-blocking
+        }
 
         return NextResponse.json({
             message: "Schedule updated",
             nextRun: nextRun.toISOString(),
         });
     } catch (error) {
-        console.error("Update Schedule Error:", error);
-        return NextResponse.json({ error: "Failed to update schedule" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
-// POST: trigger regeneration now based on current schedule settings
+/**
+ * POST /api/schedule
+ * Manually triggers a documentation update run based on current settings.
+ */
 export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return errorResponse(ApiErrors.unauthorized());
         }
+
+        // 1. Enforce Rate Limit
+        await enforceRateLimit(session.user.id, "api");
 
         const user = await db.user.findUnique({
             where: { id: session.user.id },
             select: { settings: true },
         });
 
-        const settings = (user?.settings ?? {}) as { docSchedule?: UserSchedule };
-        const config = settings.docSchedule || defaultSchedule;
+        const settings = (user?.settings && typeof user.settings === "object" ? user.settings : {}) as Record<string, unknown>;
+        const config = (settings.docSchedule || defaultSchedule) as UserSchedule;
 
         const staleThreshold = new Date();
         staleThreshold.setDate(staleThreshold.getDate() - config.options.staleThresholdDays);
 
+        // 2. Fetch target files
         const files = await db.file.findMany({
             where: {
                 userId: session.user.id,
@@ -152,14 +188,19 @@ export async function POST(req: NextRequest) {
             orderBy: { updatedAt: "asc" },
         });
 
+        if (files.length === 0) {
+            return NextResponse.json({ message: "No files require regeneration based on settings.", queued: 0 });
+        }
+
         const host = req.headers.get("host");
         if (!host) {
-            return NextResponse.json({ error: "Missing request host" }, { status: 400 });
+            return errorResponse(ApiErrors.badRequest("Missing request host."));
         }
 
         const protocol = host.includes("localhost") ? "http" : "https";
         const baseUrl = `${protocol}://${host}`;
 
+        // 3. Trigger regeneration (Background)
         const results = await Promise.allSettled(
             files.map((file) =>
                 fetch(`${baseUrl}/api/regenerate/${file.id}`, {
@@ -175,19 +216,34 @@ export async function POST(req: NextRequest) {
 
         const succeeded = results.filter((r) => r.status === "fulfilled").length;
 
+        // 4. Update status in settings
         await db.user.update({
             where: { id: session.user.id },
             data: {
                 settings: {
-                    ...(settings || {}),
+                    ...settings,
                     docSchedule: {
                         ...config,
                         lastRun: new Date().toISOString(),
                         nextRun: calculateNextRun(config.type).toISOString(),
                     },
-                },
+                } as Prisma.InputJsonValue,
             },
         });
+
+        // 5. Audit Log
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: session.user.id,
+                action: "TRIGGER_SCHEDULE_RUN",
+                entity: "User",
+                entityId: session.user.id,
+                details: { filesCount: files.length, succeededCount: succeeded },
+            });
+        } catch {
+            // Non-blocking
+        }
 
         return NextResponse.json({
             message: "Regeneration triggered",
@@ -196,8 +252,7 @@ export async function POST(req: NextRequest) {
             files: files.map((f) => f.name),
         });
     } catch (error) {
-        console.error("Trigger Regeneration Error:", error);
-        return NextResponse.json({ error: "Failed to trigger regeneration" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
