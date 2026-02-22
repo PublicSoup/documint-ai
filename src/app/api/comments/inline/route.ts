@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { sendNotification } from "@/lib/notifications";
 import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse, validateBody, validateQuery, ApiErrors } from "@/lib/api-utils";
 
 const highlightSchema = z.object({
     startLine: z.number().int().min(1),
@@ -26,31 +27,30 @@ const inlineQuerySchema = z.object({
     fileId: z.string().min(1),
 }).strict();
 
-// GET: inline/top-level comments with highlight metadata
+/**
+ * GET /api/comments/inline?fileId=xxx
+ * Lists inline comments for a document, including highlight metadata.
+ */
 export async function GET(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return errorResponse(ApiErrors.unauthorized());
         }
 
+        // 1. Enforce Rate Limit
         await enforceRateLimit(session.user.id, "api");
 
-        const parsedQuery = inlineQuerySchema.safeParse({
-            fileId: new URL(req.url).searchParams.get("fileId") ?? "",
-        });
+        // 2. Validate Query
+        const { fileId } = validateQuery(req.nextUrl.searchParams, inlineQuerySchema);
 
-        if (!parsedQuery.success) {
-            return NextResponse.json({ error: "fileId required" }, { status: 400 });
+        // 3. Check permissions
+        const hasPermission = await checkFilePermission(session.user.id, fileId, "view");
+        if (!hasPermission) {
+            return errorResponse(ApiErrors.forbidden("You do not have permission to view comments for this file."));
         }
 
-        const { fileId } = parsedQuery.data;
-
-        const canView = await checkFilePermission(session.user.id, fileId, "view");
-        if (!canView) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-        }
-
+        // 4. Fetch Comments
         const comments = await db.comment.findMany({
             where: {
                 fileId,
@@ -70,40 +70,41 @@ export async function GET(req: NextRequest) {
 
         return NextResponse.json({ comments });
     } catch (error) {
-        console.error("Get inline comments error:", error);
-        return NextResponse.json({ error: "Failed to fetch comments" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
-// POST: create inline comment with optional highlight metadata
+/**
+ * POST /api/comments/inline
+ * Creates a new inline comment with optional highlight metadata.
+ */
 export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return errorResponse(ApiErrors.unauthorized());
         }
 
+        // 1. Enforce Rate Limit
         await enforceRateLimit(session.user.id, "api");
 
-        const parsed = createInlineCommentSchema.safeParse(await req.json());
-        if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid inline comment payload" }, { status: 400 });
+        // 2. Validate Body
+        const { fileId, content, parentId, highlight } = await validateBody(req, createInlineCommentSchema);
+
+        // 3. Check permissions
+        const hasPermission = await checkFilePermission(session.user.id, fileId, "view");
+        if (!hasPermission) {
+            return errorResponse(ApiErrors.forbidden("You do not have permission to comment on this file."));
         }
 
-        const { fileId, content, parentId, highlight } = parsed.data;
-
-        const canView = await checkFilePermission(session.user.id, fileId, "view");
-        if (!canView) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-        }
-
+        // 4. Fetch file details
         const file = await db.file.findUnique({
             where: { id: fileId },
             select: { id: true, userId: true, name: true, teamId: true },
         });
 
         if (!file) {
-            return NextResponse.json({ error: "File not found" }, { status: 404 });
+            return errorResponse(ApiErrors.notFound("File"));
         }
 
         if (parentId) {
@@ -112,7 +113,7 @@ export async function POST(req: NextRequest) {
                 select: { fileId: true },
             });
             if (!parent || parent.fileId !== fileId) {
-                return NextResponse.json({ error: "Invalid parent comment" }, { status: 400 });
+                return errorResponse(ApiErrors.badRequest("Invalid parent comment reference."));
             }
         }
 
@@ -120,6 +121,7 @@ export async function POST(req: NextRequest) {
             ? JSON.stringify({ text: content, highlight })
             : content;
 
+        // 5. Create Comment
         const comment = await db.comment.create({
             data: {
                 content: encodedContent,
@@ -132,6 +134,7 @@ export async function POST(req: NextRequest) {
             },
         });
 
+        // 6. Trigger Notification
         if (file.userId && file.userId !== session.user.id) {
             await sendNotification({
                 userId: file.userId,
@@ -144,6 +147,7 @@ export async function POST(req: NextRequest) {
             });
         }
 
+        // 7. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -162,7 +166,6 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json({ comment });
     } catch (error) {
-        console.error("Create inline comment error:", error);
-        return NextResponse.json({ error: "Failed to create comment" }, { status: 500 });
+        return errorResponse(error);
     }
 }
