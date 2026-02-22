@@ -1,18 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { validateAdmin } from "@/lib/admin-auth";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse, validateBody, validateQuery, ApiErrors } from "@/lib/api-utils";
 
-export async function GET(req: NextRequest) {
-    const adminCheck = await validateAdmin();
-    if (!adminCheck.authorized) return adminCheck.response;
+const querySchema = z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    search: z.string().optional(),
+}).strict();
 
-    const { searchParams } = new URL(req.url);
-    const page = parseInt(searchParams.get("page") || "1");
-    const limit = parseInt(searchParams.get("limit") || "20");
-    const search = searchParams.get("search") || "";
+const updateRoleSchema = z.object({
+    userId: z.string().min(1),
+    role: z.enum(["USER", "ADMIN", "EDITOR"]), // Based on your Prisma schema roles
+}).strict();
 
+/**
+ * GET /api/admin/users
+ * Returns a paginated list of all users. Admin only.
+ */
+export async function GET(request: NextRequest) {
     try {
+        const adminCheck = await validateAdmin();
+        if (!adminCheck.authorized) return adminCheck.response!;
+
+        // Rate limiting for admin requests
+        if (adminCheck.session?.user?.id) {
+            await enforceRateLimit(adminCheck.session.user.id, "api");
+        }
+
+        const { searchParams } = new URL(request.url);
+        const { page, limit, search } = validateQuery(searchParams, querySchema);
+
         const where: Prisma.UserWhereInput = {};
         if (search) {
             where.OR = [
@@ -57,26 +78,28 @@ export async function GET(req: NextRequest) {
         });
 
     } catch (error) {
-        console.error("Admin user fetch error:", error);
-        return NextResponse.json({ error: "Failed to fetch users" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
+/**
+ * PATCH /api/admin/users
+ * Update a user's role. Admin only.
+ */
 export async function PATCH(req: NextRequest) {
-    const adminCheck = await validateAdmin();
-    if (!adminCheck.authorized) return adminCheck.response;
-
     try {
-        const { userId, role } = await req.json();
+        const adminCheck = await validateAdmin();
+        if (!adminCheck.authorized) return adminCheck.response!;
 
-        if (!userId) return NextResponse.json({ error: "User ID required" }, { status: 400 });
+        if (adminCheck.session?.user?.id) {
+            await enforceRateLimit(adminCheck.session.user.id, "api");
+        }
 
-        const updateData: Prisma.UserUpdateInput = {};
-        if (role) updateData.role = role;
+        const { userId, role } = await validateBody(req, updateRoleSchema);
 
         const updatedUser = await db.user.update({
             where: { id: userId },
-            data: updateData,
+            data: { role },
             select: { id: true, email: true, role: true }
         });
 
@@ -90,12 +113,13 @@ export async function PATCH(req: NextRequest) {
                 entityId: userId,
                 details: { newRole: role }
             });
-        } catch {}
+        } catch {
+            // Non-blocking
+        }
 
         return NextResponse.json({ user: updatedUser });
 
     } catch (error) {
-        console.error("Admin user update error:", error);
-        return NextResponse.json({ error: "Update failed" }, { status: 500 });
+        return errorResponse(error);
     }
 }
