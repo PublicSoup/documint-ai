@@ -11,6 +11,7 @@ import { TeamIntegrations } from "./team-integrations";
 import { TeamActivityFeed } from "./team-activity-feed";
 import { TeamHealthPDFExport } from "./team-health-pdf";
 import { TeamGeneralSettings } from "./team-general-settings";
+import { TeamAnalytics } from "./team-analytics";
 import { cn } from "@/lib/utils";
 
 interface Team {
@@ -40,7 +41,7 @@ export default function TeamManagement() {
 
     const [revoking, setRevoking] = useState<Record<string, boolean>>({});
     const [updatingRole, setUpdatingRole] = useState<Record<string, boolean>>({});
-    const [activeTab, setActiveTab] = useState<Record<string, "members" | "integrations" | "settings">>({});
+    const [activeTab, setActiveTab] = useState<Record<string, "members" | "analytics" | "integrations" | "settings">>({});
 
     useEffect(() => {
         fetchTeams();
@@ -339,6 +340,12 @@ export default function TeamManagement() {
                                             Members
                                         </button>
                                         <button 
+                                            onClick={() => setActiveTab(prev => ({ ...prev, [team.id]: "analytics" }))}
+                                            className={cn("text-[10px] font-black uppercase tracking-widest transition-colors", activeTab[team.id] === "analytics" ? "text-primary" : "text-zinc-500 hover:text-zinc-300")}
+                                        >
+                                            Analytics
+                                        </button>
+                                        <button 
                                             onClick={() => setActiveTab(prev => ({ ...prev, [team.id]: "integrations" }))}
                                             className={cn("text-[10px] font-black uppercase tracking-widest transition-colors", activeTab[team.id] === "integrations" ? "text-primary" : "text-zinc-500 hover:text-zinc-300")}
                                         >
@@ -551,6 +558,12 @@ export default function TeamManagement() {
                                                 <p className="text-[9px] text-zinc-500 italic px-1 tracking-tight">Embed this dynamic coverage badge in your README or internal docs.</p>
                                             </div>
                                         </>
+                                    )}
+
+                                    {activeTab[team.id] === "analytics" && (
+                                        <div className="animate-in fade-in duration-300">
+                                            <TeamAnalytics teamId={team.id} />
+                                        </div>
                                     )}
 
                                     {activeTab[team.id] === "integrations" && (
