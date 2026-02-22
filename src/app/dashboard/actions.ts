@@ -7,6 +7,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
+import { unstable_cache } from "next/cache";
 
 export async function getProjectGraphMermaid(teamId?: string) {
     try {
@@ -117,14 +118,28 @@ function calculateFileRisk(name: string, content: string, imports: string[]): nu
     return Math.min(Math.round(slocFactor + dependencyFactor + densityFactor + encapsulationFactor), 100);
 }
 
-export async function getPriorityActions(teamId?: string) {
-    try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id) return { actions: [], hotspots: [] };
+interface PriorityAction {
+    id: string;
+    type: "MISSING_DOCS" | "DRIFT";
+    priority: "CRITICAL" | "HIGH" | "MEDIUM";
+    label: string;
+    fileId: string;
+    fileName: string;
+    riskScore: number;
+}
 
-        const whereClause: Prisma.FileWhereInput = teamId 
-            ? { teamId } 
-            : { userId: session.user.id, teamId: null };
+interface PriorityHotspot {
+    id: string;
+    name: string;
+    riskScore: number;
+    isDocumented: boolean;
+}
+
+const getCachedPriorityActions = unstable_cache(
+    async (userId: string, teamId: string | null): Promise<{ actions: PriorityAction[]; hotspots: PriorityHotspot[] }> => {
+        const whereClause: Prisma.FileWhereInput = teamId
+            ? { teamId }
+            : { userId, teamId: null };
 
         const files = await db.file.findMany({
             where: whereClause,
@@ -133,27 +148,26 @@ export async function getPriorityActions(teamId?: string) {
                     select: { status: true, updatedAt: true }
                 }
             },
-            orderBy: { updatedAt: 'desc' },
+            orderBy: { updatedAt: "desc" },
             take: 100
         });
 
-        const actions = [];
-        const hotspots = [];
+        const actions: PriorityAction[] = [];
+        const hotspots: PriorityHotspot[] = [];
         const DRIFT_BUFFER_MS = 300000;
 
         for (const file of files) {
-            // Extract imports for risk calculation
             const importRegex = /import\s+(?:[\s\S]*?)\s+from\s+['"]([^'"]+)['"]/g;
             const imports: string[] = [];
-            let match;
+            let match: RegExpExecArray | null;
             const content = file.content || "";
+
             while ((match = importRegex.exec(content)) !== null) {
                 imports.push(match[1]);
             }
 
             const riskScore = calculateFileRisk(file.name, content, imports);
 
-            // 1. Detection: Missing Documentation
             if (!file.documentation) {
                 actions.push({
                     id: file.id,
@@ -162,14 +176,12 @@ export async function getPriorityActions(teamId?: string) {
                     label: `Documentation missing for ${file.name}`,
                     fileId: file.id,
                     fileName: file.name,
-                    riskScore
+                    riskScore,
                 });
-            } 
-            // 2. Detection: Documentation Drift
-            else {
+            } else {
                 const fileUpdated = new Date(file.updatedAt).getTime();
                 const docUpdated = new Date(file.documentation.updatedAt).getTime();
-                
+
                 if (fileUpdated > docUpdated + DRIFT_BUFFER_MS) {
                     actions.push({
                         id: file.id,
@@ -178,7 +190,7 @@ export async function getPriorityActions(teamId?: string) {
                         label: `Drift detected in ${file.name}`,
                         fileId: file.id,
                         fileName: file.name,
-                        riskScore
+                        riskScore,
                     });
                 }
             }
@@ -188,25 +200,51 @@ export async function getPriorityActions(teamId?: string) {
                     id: file.id,
                     name: file.name,
                     riskScore,
-                    isDocumented: !!file.documentation
+                    isDocumented: !!file.documentation,
                 });
             }
         }
 
-        // Sort actions by priority
-        const sortedActions = actions.sort((a, b) => {
-            const pMap: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2 };
-            return pMap[a.priority] - pMap[b.priority];
-        }).slice(0, 5);
+        const sortedActions = actions
+            .sort((a, b) => {
+                const pMap: Record<PriorityAction["priority"], number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2 };
+                return pMap[a.priority] - pMap[b.priority];
+            })
+            .slice(0, 5);
 
-        // Sort hotspots by risk
         const sortedHotspots = hotspots.sort((a, b) => b.riskScore - a.riskScore).slice(0, 3);
 
         return {
             actions: sortedActions,
-            hotspots: sortedHotspots
+            hotspots: sortedHotspots,
         };
+    },
+    ["dashboard-priority-actions"],
+    { revalidate: 60 }
+);
 
+export async function getPriorityActions(teamId?: string) {
+    try {
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) return { actions: [], hotspots: [] };
+
+        if (teamId) {
+            const membership = await db.teamMember.findUnique({
+                where: {
+                    teamId_userId: {
+                        teamId,
+                        userId: session.user.id,
+                    },
+                },
+                select: { teamId: true },
+            });
+
+            if (!membership) {
+                return { actions: [], hotspots: [] };
+            }
+        }
+
+        return await getCachedPriorityActions(session.user.id, teamId ?? null);
     } catch (error) {
         console.error("Failed to fetch priority actions:", error);
         return { actions: [], hotspots: [] };

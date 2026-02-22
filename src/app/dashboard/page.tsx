@@ -105,37 +105,37 @@ export default async function DashboardPage(props: {
         }
     }
 
-    // Fetch stats - with dev mode bypass
+    // Fetch dashboard data in parallel to reduce TTFB.
     let totalFilesCount = 0;
     let verifiedDocsCount = 0;
-
-    try {
-        totalFilesCount = await db.file.count({ where: whereClause });
-        verifiedDocsCount = await db.documentation.count({
-            where: {
-                file: whereClause,
-                verifiedAt: { not: null }
-            }
-        });
-    } catch (e) {
-        console.error("Failed to fetch stats:", e);
-    }
-
-    // Fetch files based on context
     let files: any[] = [];
+
     try {
-        files = await db.file.findMany({
-            where: whereClause,
-            take: 50,
-            orderBy: {
-                createdAt: 'desc'
-            },
-            include: {
-                documentation: true
-            }
-        });
+        const [totalFiles, verifiedDocs, fetchedFiles] = await Promise.all([
+            db.file.count({ where: whereClause }),
+            db.documentation.count({
+                where: {
+                    file: whereClause,
+                    verifiedAt: { not: null },
+                },
+            }),
+            db.file.findMany({
+                where: whereClause,
+                take: 50,
+                orderBy: {
+                    createdAt: "desc",
+                },
+                include: {
+                    documentation: true,
+                },
+            }),
+        ]);
+
+        totalFilesCount = totalFiles;
+        verifiedDocsCount = verifiedDocs;
+        files = fetchedFiles;
     } catch (e) {
-        console.error("Failed to fetch files:", e);
+        console.error("Failed to fetch dashboard data:", e);
     }
 
     interface FileWithDocs {
@@ -156,7 +156,7 @@ export default async function DashboardPage(props: {
 
     const typedFiles = files as unknown as FileWithDocs[];
 
-    // Fetch Priority Actions and Hotspots
+    // Fetch Priority Actions and Hotspots (cached for 60s in server action)
     const priorityData = await getPriorityActions(teamId);
     const priorityActions = priorityData.actions;
     const hotspots = priorityData.hotspots;
