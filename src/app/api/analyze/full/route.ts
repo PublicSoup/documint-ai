@@ -1,27 +1,44 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../../../../lib/auth";
-import { analyzeFullCodebase } from "../../../../lib/ai";
-import { hasFeatureAccess } from "../../../../lib/subscription";
+import { authOptions } from "@/lib/auth";
+import { analyzeFullCodebase } from "@/lib/ai";
+import { requireFeature } from "@/lib/feature-gate";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { errorResponse, ApiErrors } from "@/lib/api-utils";
 
-export async function POST(req: Request) {
+/**
+ * POST /api/analyze/full
+ * Performs a comprehensive codebase-wide AI analysis. Premium feature.
+ */
+export async function POST(_req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            return errorResponse(ApiErrors.unauthorized());
         }
 
-        // This is a premium feature
-        const hasAccess = await hasFeatureAccess(session.user.id, "analytics");
-        if (!hasAccess) {
-            return NextResponse.json({
-                error: "This feature requires a Pro subscription",
-                upgradeUrl: "/dashboard/settings?tab=billing"
-            }, { status: 403 });
-        }
+        // 1. Feature Gate: This is a premium/analytics feature
+        const gateError = await requireFeature("analytics");
+        if (gateError) return gateError;
 
-        // Perform full codebase analysis
+        // 2. Enforce Rate Limit (Lower tier limit for heavy AI tasks)
+        await enforceRateLimit(session.user.id, "upload");
+
+        // 3. Perform full codebase analysis
         const analysis = await analyzeFullCodebase(session.user.id);
+
+        // 4. Audit Log
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: session.user.id,
+                action: "ANALYZE_FULL_CODEBASE",
+                entity: "User",
+                entityId: session.user.id,
+            });
+        } catch {
+            // Non-blocking
+        }
 
         return NextResponse.json({
             analysis,
@@ -29,7 +46,6 @@ export async function POST(req: Request) {
         });
 
     } catch (error) {
-        console.error("Full Analysis Error:", error);
-        return NextResponse.json({ error: "Analysis failed" }, { status: 500 });
+        return errorResponse(error);
     }
 }
