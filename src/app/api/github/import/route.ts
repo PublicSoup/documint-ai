@@ -11,6 +11,7 @@ import { uploadFile } from "../../../../lib/supabase/storage";
 import { enforceRateLimit } from "../../../../lib/rate-limit";
 import { errorResponse, validateBody, ApiErrors } from "../../../../lib/api-utils";
 import { getUserSubscription } from "../../../../lib/subscription";
+import { decrypt } from "../../../../lib/security/encryption";
 
 const SUPPORTED_EXTENSIONS = ["py", "js", "ts", "tsx", "jsx", "go", "rs", "java", "cs", "cpp", "c", "rb", "php"];
 
@@ -56,16 +57,30 @@ export async function POST(req: NextRequest) {
         const body = await validateBody(req, githubImportSchema);
         const { owner, repo, branch, path, teamId } = body;
 
-        const githubToken = req.headers.get("x-github-token");
-        const headers: HeadersInit = {
-            Accept: "application/vnd.github.v3+json",
-        };
-        if (githubToken) {
-            headers.Authorization = `Bearer ${githubToken}`;
-        }
-
         const userId = await resolveUserId(session);
         if (!userId) return errorResponse(ApiErrors.notFound("User"));
+
+        // Fetch GitHub Connection and decrypt token
+        const connection = await db.gitHubConnection.findUnique({
+            where: { userId }
+        });
+
+        if (!connection || !connection.accessToken) {
+            return errorResponse(ApiErrors.badRequest("GitHub account not connected."));
+        }
+
+        let decryptedToken: string;
+        try {
+            decryptedToken = decrypt(connection.accessToken);
+        } catch (e) {
+            console.error("Token decryption failed:", e);
+            return errorResponse(ApiErrors.internalError("Failed to access GitHub credentials."));
+        }
+
+        const headers: HeadersInit = {
+            Accept: "application/vnd.github.v3+json",
+            Authorization: `Bearer ${decryptedToken}`,
+        };
 
         // 2. Verify Team Access if applicable
         if (teamId) {
@@ -123,7 +138,7 @@ export async function POST(req: NextRequest) {
                     }) + "\n");
 
                     try {
-                        const fileRes = await fetch(file.download_url);
+                        const fileRes = await fetch(file.download_url, { headers });
                         const content = await fileRes.text();
                         const extension = file.name.split(".").pop() || "";
 
