@@ -1,10 +1,20 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState, useEffect } from "react";
-import { DiagramViewer } from "@/components/diagram-viewer";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileCode2, GitBranch, Share2, Workflow, Activity } from "lucide-react";
+import { FileCode2, GitBranch, Share2, Workflow, Activity, Loader2 } from "lucide-react";
+
+const DiagramViewer = dynamic(() => import("@/components/diagram-viewer").then(mod => mod.DiagramViewer), {
+    ssr: false,
+    loading: () => (
+        <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-4 opacity-50 min-h-[500px]">
+            <Loader2 className="w-12 h-12 animate-spin" />
+            <p>Loading Visualization Engine...</p>
+        </div>
+    )
+});
 
 export default function DiagramsPage() {
     const [files, setFiles] = useState<any[]>([]);

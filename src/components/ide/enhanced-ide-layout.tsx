@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { SimpleEnhancedEditor, SimpleEnhancedEditorRef } from "./simple-enhanced-editor";
 import { Breadcrumbs } from "./breadcrumbs";
@@ -16,7 +17,6 @@ import { Button } from "../ui/button";
 import { AIChatPanel } from "./ai-chat-panel";
 import { EnhancedFileTree } from "./enhanced-file-tree";
 import { WebContainerManager } from "@/lib/web-container";
-import { Terminal } from "./terminal";
 import { Terminal as XTerm } from '@xterm/xterm';
 import { useExecutionEngine } from "@/hooks/use-execution-engine";
 import { RunnerConfigDialog } from "./runner-config-dialog";
@@ -27,13 +27,32 @@ import { SecretsManager } from "./secrets-manager";
 import { IDEStatusBar } from "./status-bar";
 import ReadmeGenerator from "../readme-generator";
 import { ContextualHeader } from "./contextual-header";
-import { DiagramViewer } from "../diagram-viewer";
 import { getProjectGraphMermaid } from "@/app/dashboard/actions";
 import { CommandPalette } from "../command-palette";
 import { DiffModal } from "./diff-modal";
 import { useIDESettings } from "@/hooks/use-ide-settings";
 import { loadTypesFromWebContainer } from "@/lib/monaco-type-loader";
 import type { Monaco } from "@monaco-editor/react";
+
+const DiagramViewer = dynamic(() => import("../diagram-viewer").then(mod => mod.DiagramViewer), {
+    ssr: false,
+    loading: () => (
+        <div className="flex items-center justify-center h-[300px] text-zinc-500">
+            <Loader2 className="w-6 h-6 animate-spin mr-2" />
+            Rendering Topology...
+        </div>
+    )
+});
+
+const Terminal = dynamic(() => import("./terminal").then(mod => mod.Terminal), {
+    ssr: false,
+    loading: () => (
+        <div className="flex items-center justify-center h-32 bg-[#020010] text-white/20 font-mono text-xs">
+            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            Connecting to Runtime...
+        </div>
+    )
+});
 
 // Auto-detect Monaco language from file name
 function getLanguageFromFileName(fileName: string): string {

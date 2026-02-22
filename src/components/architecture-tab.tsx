@@ -1,7 +1,7 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
-import { DiagramViewer } from "@/components/diagram-viewer";
 import { getProjectGraphMermaid, createDemoProject } from "@/app/dashboard/actions";
 import { useRouter } from "next/navigation";
 import { Loader2, Share2, Info, Upload, Sparkles, FileCode2 } from "lucide-react";
@@ -9,6 +9,16 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ProBadge } from "@/components/ui/pro-badge";
 import { FeatureGateOverlay } from "@/components/ui/feature-gate-overlay";
+
+const DiagramViewer = dynamic(() => import("@/components/diagram-viewer").then(mod => mod.DiagramViewer), {
+    ssr: false,
+    loading: () => (
+        <div className="flex flex-col items-center justify-center h-[500px] text-muted-foreground bg-zinc-950/20">
+            <Loader2 className="w-8 h-8 animate-spin mb-4 text-primary" />
+            <p className="text-sm">Loading Visualization Engine...</p>
+        </div>
+    )
+});
 
 export function ArchitectureTab({ teamId }: { teamId?: string }) {
     const router = useRouter();

@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState, useEffect, useRef } from "react";
 import { useToast } from "./toast";
 import { cn } from "@/lib/utils";
@@ -10,10 +11,19 @@ import CodeArchaeology from "./code-archaeology";
 import CommentsSection from "./comments-section";
 import DocumentationTemplates from "./documentation-templates";
 import DocSuggestions from "./doc-suggestions";
-import { DiagramViewer } from "./diagram-viewer";
 import { VerifiedBadge } from "./verified-badge";
 import { VersionHistory } from "./version-history";
 import { FileText, Edit2, Play, Users, Sparkles, Download, GitBranch, Github, Shovel, Loader2, Workflow, Globe, Save, X, RefreshCw, Headphones, ShieldCheck, Lock, Activity, Check, Trash2, History, Zap } from "lucide-react";
+
+const DiagramViewer = dynamic(() => import("./diagram-viewer").then(mod => mod.DiagramViewer), {
+    ssr: false,
+    loading: () => (
+        <div className="flex items-center justify-center p-8 text-zinc-500">
+            <Loader2 className="w-6 h-6 animate-spin mr-2" />
+            Loading Diagram Engine...
+        </div>
+    )
+});
 
 interface DocEntity {
     type: string;
