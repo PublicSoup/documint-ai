@@ -54,6 +54,7 @@ import { TeamSecurityAudit } from "@/components/analytics/team-security-audit";
 import { TeamAIAudit } from "@/components/team-ai-audit";
 import { CodeHealthIndex } from "@/components/analytics/health-index";
 import { GlobalSearch } from "@/components/global-search";
+import { TrackedLink } from "@/components/marketing/tracked-link";
 import { getPriorityActions } from "./actions";
 import { Network, Sparkles, BrainCircuit, Fingerprint } from "lucide-react";
 
@@ -236,13 +237,16 @@ export default async function DashboardPage(props: {
                                 Complete billing setup to unlock your Pro trial workspace features.
                             </p>
                         </div>
-                        <Link
+                        <TrackedLink
                             href={`/dashboard/billing${onboardingSource ? `?source=${encodeURIComponent(onboardingSource)}` : ""}`}
+                            eventName="trial_upgrade_cta_click"
+                            location="dashboard_trial_banner_upgrade"
+                            variant="trial_intent_v1"
                         >
                             <Button size="sm" className="bg-primary hover:bg-primary/90 text-white">
                                 Start Pro Trial <ArrowRight className="w-4 h-4 ml-2" />
                             </Button>
-                        </Link>
+                        </TrackedLink>
                     </CardContent>
                 </Card>
             )}

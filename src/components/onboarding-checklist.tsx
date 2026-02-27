@@ -5,7 +5,7 @@ import { CheckCircle2, Circle, X, PartyPopper, Share2, UploadCloud, CreditCard }
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import Link from "next/link";
+import { TrackedLink } from "@/components/marketing/tracked-link";
 
 interface OnboardingState {
     steps: {
@@ -115,7 +115,16 @@ export function OnboardingChecklist({ onboardingContext }: OnboardingChecklistPr
                 : "Unlock advanced AI analysis and team features.",
             completed: state.steps.hasUpgraded,
             icon: CreditCard,
-            action: <Link href={billingHref}><Button size="sm" variant="primary" className="h-7 text-xs border-0">Upgrade</Button></Link>
+            action: (
+                <TrackedLink
+                    href={billingHref}
+                    eventName="trial_upgrade_cta_click"
+                    location="onboarding_checklist_upgrade"
+                    variant={onboardingContext?.intent === "trial" ? "trial_intent_v1" : "control"}
+                >
+                    <Button size="sm" variant="primary" className="h-7 text-xs border-0">Upgrade</Button>
+                </TrackedLink>
+            )
         }
     ];
 
