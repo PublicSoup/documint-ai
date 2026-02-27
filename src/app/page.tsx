@@ -379,6 +379,64 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Conversion Assurance */}
+      <section className="px-6 pb-20">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
+            {[
+              {
+                title: 'Start risk-free',
+                body: 'Launch on a 14-day trial. Upgrade only when your team sees measurable value.'
+              },
+              {
+                title: 'No migration lock-in',
+                body: 'Export your generated docs and architecture artifacts whenever you need.'
+              },
+              {
+                title: 'Enterprise support path',
+                body: 'Move from self-serve to team onboarding with guided implementation help.'
+              }
+            ].map((item) => (
+              <Card key={item.title} className="glass-card border-white/10">
+                <CardContent className="p-6">
+                  <h3 className="font-bold text-white mb-2">{item.title}</h3>
+                  <p className="text-sm text-white/60 leading-relaxed">{item.body}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          <div className="glass-card rounded-3xl border border-primary/20 p-8 md:p-10">
+            <p className="text-[11px] uppercase tracking-[0.2em] text-primary mb-4 font-bold">Buyer objections handled upfront</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {[
+                {
+                  q: 'How fast can we see value?',
+                  a: 'Most teams generate production-ready docs and architecture maps in their first session.'
+                },
+                {
+                  q: 'Will this fit enterprise security standards?',
+                  a: 'DocuMint is built with strict validation, access controls, and auditable workflows by default.'
+                },
+                {
+                  q: 'Can we use it with our existing stack?',
+                  a: 'Yes — supports modern languages, team workflows, and integrates into current engineering delivery.'
+                },
+                {
+                  q: 'What if we outgrow our current plan?',
+                  a: 'Upgrade paths are immediate, with higher limits and collaboration controls for scaling teams.'
+                }
+              ].map((faq) => (
+                <div key={faq.q} className="rounded-2xl border border-white/10 bg-black/20 p-5">
+                  <h4 className="font-semibold text-white mb-2">{faq.q}</h4>
+                  <p className="text-sm text-white/60">{faq.a}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* CTA Section */}
       <section className="py-40 px-6 relative">
         <div className="max-w-4xl mx-auto glass-card rounded-[3rem] p-12 md:p-20 text-center relative overflow-hidden">
