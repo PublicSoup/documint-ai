@@ -1,22 +1,29 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { BarChart3, TrendingUp, Users, FileText, CheckSquare, Eye, Crown, ArrowUpRight } from "lucide-react";
+import { BarChart3, TrendingUp, Users, FileText, CheckSquare, Eye, Crown, ArrowUpRight, AlertCircle } from "lucide-react";
 import Link from 'next/link';
 import { hasFeatureAccess } from "@/lib/subscription";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AnalyticsCharts } from "@/components/analytics-charts";
-import { getAnalyticsData } from "@/lib/analytics";
+import { getAnalyticsData, getMarketingCtaAnalytics } from "@/lib/analytics";
+import { checkTeamPermission } from "@/lib/permissions";
 
 export const metadata = {
     title: "Analytics | DocuMint AI",
     description: "Documentation health and usage metrics"
 };
 
-export default async function AnalyticsPage() {
+export default async function AnalyticsPage({
+    searchParams,
+}: {
+    searchParams: Promise<{ teamId?: string }>;
+}) {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) redirect("/");
+
+    const { teamId } = await searchParams;
 
     // Gate: Analytics is Pro Feature
     const hasAccess = await hasFeatureAccess(session.user.id, "analytics");
@@ -41,8 +48,18 @@ export default async function AnalyticsPage() {
         );
     }
 
+    if (teamId) {
+        const canViewTeam = await checkTeamPermission(session.user.id, teamId, "view");
+        if (!canViewTeam) {
+            redirect("/dashboard/analytics");
+        }
+    }
+
     // Fetch data using the helper
-    const data = await getAnalyticsData(session.user.id);
+    const [data, marketingCtas] = await Promise.all([
+        getAnalyticsData(session.user.id, teamId),
+        getMarketingCtaAnalytics(session.user.id, 30),
+    ]);
 
     return (
         <div className="max-w-7xl mx-auto space-y-8 animate-fade-in pb-10">
@@ -78,6 +95,38 @@ export default async function AnalyticsPage() {
                     bg="bg-pink-500/10"
                 />
             </div>
+
+            {/* Marketing CTA Signals */}
+            <Card className="border-white/5 bg-black/20">
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-white">
+                        <CheckSquare className="w-4 h-4 text-emerald-400" />
+                        Landing CTA Performance (Last 30 Days)
+                    </CardTitle>
+                </CardHeader>
+                <CardContent>
+                    {marketingCtas.ctas.length === 0 ? (
+                        <div className="text-sm text-muted-foreground border border-dashed border-white/10 rounded-xl p-6 bg-white/5">
+                            No CTA event data yet. Trigger a few landing-page clicks to start collecting conversion signals.
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            <div className="text-xs uppercase tracking-wider text-white/50 font-semibold">
+                                Total tracked CTA clicks: <span className="text-white">{marketingCtas.totalEvents}</span>
+                            </div>
+                            {marketingCtas.ctas.slice(0, 8).map((cta) => (
+                                <div key={`${cta.eventName}-${cta.location}`} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                                    <div>
+                                        <p className="text-sm text-white font-medium">{cta.location.replaceAll("_", " ")}</p>
+                                        <p className="text-xs text-white/50">{cta.eventName}</p>
+                                    </div>
+                                    <div className="text-primary font-bold">{cta.count}</div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
 
             {/* Documentation Growth Chart */}
             <AnalyticsCharts data={data.recentActivity.map(a => ({
@@ -182,4 +231,4 @@ function StatCard({ label, value, icon, bg }: { label: string, value: string, ic
     );
 }
 
-import { AlertCircle } from "lucide-react";
+//

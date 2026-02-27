@@ -42,14 +42,94 @@ export interface AnalyticsData {
     };
 }
 
+export interface MarketingCtaAnalytics {
+    totalEvents: number;
+    ctas: {
+        eventName: string;
+        location: string;
+        count: number;
+    }[];
+}
+
 function toDateKey(date: Date): string {
     return date.toISOString().split("T")[0];
 }
 
+function isMarketingDetails(details: Prisma.JsonValue | null): details is Prisma.JsonObject {
+    if (!details || typeof details !== "object" || Array.isArray(details)) return false;
+
+    const eventName = details["eventName"];
+    const location = details["location"];
+
+    return typeof eventName === "string" && typeof location === "string";
+}
+
+export async function getMarketingCtaAnalytics(_userId: string, days = 30): Promise<MarketingCtaAnalytics> {
+    const startDate = subDays(new Date(), days);
+
+    const logs = await db.auditLog.findMany({
+        where: {
+            action: "MARKETING_EVENT",
+            createdAt: { gte: startDate },
+        },
+        select: {
+            details: true,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 5000,
+    });
+
+    const counts = new Map<string, { eventName: string; location: string; count: number }>();
+
+    for (const log of logs) {
+        if (!isMarketingDetails(log.details)) continue;
+
+        const eventNameValue = log.details["eventName"];
+        const locationValue = log.details["location"];
+
+        if (typeof eventNameValue !== "string" || typeof locationValue !== "string") continue;
+
+        const key = `${eventNameValue}|${locationValue}`;
+        const existing = counts.get(key);
+
+        if (existing) {
+            existing.count += 1;
+            continue;
+        }
+
+        counts.set(key, {
+            eventName: eventNameValue,
+            location: locationValue,
+            count: 1,
+        });
+    }
+
+    const ctas = Array.from(counts.values()).sort((a, b) => b.count - a.count);
+    const totalEvents = ctas.reduce((sum, cta) => sum + cta.count, 0);
+
+    return { totalEvents, ctas };
+}
+
 export async function getAnalyticsData(userId: string, teamId?: string, days = 30): Promise<AnalyticsData> {
-    const whereClause: Prisma.FileWhereInput = teamId
-        ? { teamId }
-        : { userId, teamId: null };
+    let whereClause: Prisma.FileWhereInput = { userId, teamId: null };
+
+    if (teamId) {
+        const membership = await db.teamMember.findUnique({
+            where: {
+                teamId_userId: {
+                    teamId,
+                    userId,
+                },
+            },
+            select: { teamId: true },
+        });
+
+        if (!membership) {
+            throw new Error("Forbidden");
+        }
+
+        whereClause = { teamId };
+    }
 
     const startDate = subDays(new Date(), days);
 
