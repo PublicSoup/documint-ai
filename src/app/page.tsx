@@ -165,6 +165,84 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Trust + Social Proof */}
+      <section className="px-6 pb-16">
+        <div className="max-w-7xl mx-auto">
+          <div className="glass-card rounded-3xl border border-white/10 px-8 py-6 md:px-10 md:py-8">
+            <p className="text-[11px] uppercase tracking-[0.25em] text-white/40 text-center mb-6 font-bold">
+              Trusted by teams shipping production systems
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+              {[
+                { label: 'Deployment Readiness', value: '99.95%' },
+                { label: 'Avg. Docs Time Saved', value: '12+ hrs/mo' },
+                { label: 'Security Review Coverage', value: '100%' },
+                { label: 'Support SLA', value: '< 24h' }
+              ].map((metric) => (
+                <div key={metric.label} className="rounded-2xl border border-white/10 bg-black/20 p-4 md:p-5 text-center">
+                  <div className="text-xl md:text-2xl font-black text-primary mb-1">{metric.value}</div>
+                  <div className="text-xs md:text-sm text-white/60">{metric.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Premium Outcomes */}
+      <section id="solutions" className="px-6 pb-20">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <Card className="glass-card border-white/10">
+            <CardContent className="p-8 md:p-10">
+              <p className="text-[11px] uppercase tracking-[0.2em] text-primary mb-4 font-bold">Executive-ready outcomes</p>
+              <h3 className="text-3xl md:text-4xl font-black tracking-tight mb-5">Move from AI demos to production delivery.</h3>
+              <p className="text-white/60 mb-7 leading-relaxed">
+                DocuMint AI helps engineering teams ship polished, secure releases with automated documentation, conversion-aware generation, and enterprise controls built in.
+              </p>
+              <ul className="space-y-4">
+                {[
+                  'Reduce onboarding friction with always-updated technical docs',
+                  'Increase trial-to-paid momentum via launch and conversion playbooks',
+                  'Enforce secure defaults with validation, authz, and audit coverage'
+                ].map((item) => (
+                  <li key={item} className="flex items-start gap-3 text-white/80">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400 mt-0.5" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card border-primary/20 bg-gradient-to-br from-primary/10 to-purple-600/10">
+            <CardContent className="p-8 md:p-10">
+              <p className="text-[11px] uppercase tracking-[0.2em] text-primary mb-4 font-bold">Why premium teams choose us</p>
+              <div className="space-y-5">
+                {[
+                  {
+                    title: 'Enterprise-grade architecture',
+                    body: 'Typed APIs, strict validation, and auditable changes across critical paths.'
+                  },
+                  {
+                    title: 'Growth-aware product engine',
+                    body: 'Launch checklists and conversion hooks baked directly into AI generation flows.'
+                  },
+                  {
+                    title: 'Developer-first velocity',
+                    body: 'Web IDE, AI assistants, and architecture visualization in one unified platform.'
+                  }
+                ].map((point) => (
+                  <div key={point.title} className="rounded-2xl border border-white/10 bg-black/20 p-5">
+                    <h4 className="font-bold text-white mb-1">{point.title}</h4>
+                    <p className="text-sm text-white/60">{point.body}</p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
       {/* Features Grid */}
       <section id="features" className="py-32 px-6 relative overflow-hidden">
         <div className="max-w-7xl mx-auto">
