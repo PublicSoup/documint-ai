@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Sparkles, Code, Server, Layout, Palette, ArrowRight, Loader2, CheckCircle2, Wand2, Globe } from "lucide-react";
+import { Sparkles, Code, Server, Layout, Palette, ArrowRight, Loader2, CheckCircle2, Wand2, Globe, Megaphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ProjectTemplate {
@@ -267,6 +267,14 @@ interface GeneratedWebsiteDraft {
     conversionHooks: string[];
 }
 
+interface ConversionVariant {
+    id: string;
+    angle: string;
+    headline: string;
+    subheadline: string;
+    cta: string;
+}
+
 export function ProjectTemplates({ onSelectTemplate }: ProjectTemplatesProps) {
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
@@ -278,6 +286,8 @@ export function ProjectTemplates({ onSelectTemplate }: ProjectTemplatesProps) {
     const [framework, setFramework] = useState<WebsiteFramework>("react-vite");
     const [includeAuthPages, setIncludeAuthPages] = useState(false);
     const [generatedDraft, setGeneratedDraft] = useState<GeneratedWebsiteDraft | null>(null);
+    const [variants, setVariants] = useState<ConversionVariant[]>([]);
+    const [generatingVariants, setGeneratingVariants] = useState(false);
 
     const handleSelect = async (template: ProjectTemplate) => {
         setSelectedId(template.id);
@@ -334,10 +344,57 @@ export function ProjectTemplates({ onSelectTemplate }: ProjectTemplatesProps) {
                 launchChecklist,
                 conversionHooks,
             });
+            setVariants([]);
         } catch (error) {
             setGeneratorError(error instanceof Error ? error.message : "Failed to generate website.");
         } finally {
             setGenerating(false);
+        }
+    };
+
+    const handleGenerateVariants = async () => {
+        if (brief.trim().length < 10) {
+            setGeneratorError("Please provide a website brief before generating variants.");
+            return;
+        }
+
+        setGeneratorError(null);
+        setGeneratingVariants(true);
+
+        try {
+            const response = await fetch("/api/ide/generate-conversion-variants", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    brief,
+                    goal: "signups",
+                    audience: style === "saas" ? "SaaS buyers and product teams" : "Website visitors with purchase intent",
+                }),
+            });
+
+            const payload = await response.json();
+            if (!response.ok) {
+                throw new Error(payload?.message || payload?.error || "Failed to generate conversion variants.");
+            }
+
+            const safeVariants = Array.isArray(payload?.variants)
+                ? payload.variants.filter(
+                    (variant: unknown): variant is ConversionVariant =>
+                        typeof variant === "object" &&
+                        variant !== null &&
+                        "id" in variant &&
+                        "angle" in variant &&
+                        "headline" in variant &&
+                        "subheadline" in variant &&
+                        "cta" in variant,
+                )
+                : [];
+
+            setVariants(safeVariants);
+        } catch (error) {
+            setGeneratorError(error instanceof Error ? error.message : "Failed to generate conversion variants.");
+        } finally {
+            setGeneratingVariants(false);
         }
     };
 
@@ -358,6 +415,7 @@ export function ProjectTemplates({ onSelectTemplate }: ProjectTemplatesProps) {
                         onClick={() => {
                             setShowAIGenerator((prev) => !prev);
                             setGeneratedDraft(null);
+                            setVariants([]);
                         }}
                         className="w-full text-left p-5 rounded-xl border border-violet-500/30 bg-gradient-to-r from-violet-500/10 to-indigo-500/10 hover:from-violet-500/20 hover:to-indigo-500/20 transition-all"
                     >
@@ -447,10 +505,22 @@ export function ProjectTemplates({ onSelectTemplate }: ProjectTemplatesProps) {
                         <div className="flex items-center justify-end gap-2">
                             <button
                                 type="button"
-                                onClick={() => setShowAIGenerator(false)}
+                                onClick={() => {
+                                    setShowAIGenerator(false);
+                                    setVariants([]);
+                                }}
                                 className="px-3 py-1.5 text-xs rounded-md border border-white/10 text-white/60 hover:text-white"
                             >
                                 Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleGenerateVariants}
+                                disabled={generatingVariants}
+                                className="px-3 py-1.5 text-xs rounded-md bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-60 inline-flex items-center gap-1.5"
+                            >
+                                {generatingVariants ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
+                                Generate Copy Variants
                             </button>
                             <button
                                 type="button"
@@ -514,11 +584,31 @@ export function ProjectTemplates({ onSelectTemplate }: ProjectTemplatesProps) {
                                     setIncludeAuthPages(false);
                                     setStyle("saas");
                                     setFramework("react-vite");
+                                    setVariants([]);
                                 }}
                                 className="px-3 py-1.5 text-xs rounded-md bg-emerald-600 text-white hover:bg-emerald-500"
                             >
                                 Create Project Files
                             </button>
+                        </div>
+                    </div>
+                )}
+
+                {variants.length > 0 && (
+                    <div className="mb-6 p-4 rounded-xl border border-indigo-500/30 bg-indigo-500/10 space-y-3">
+                        <div className="flex items-center justify-between">
+                            <h4 className="text-sm font-semibold text-white">Conversion Copy Variants</h4>
+                            <span className="text-[10px] px-2 py-1 rounded-full bg-white/10 text-white/80">{variants.length} variants</span>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-3">
+                            {variants.map((variant) => (
+                                <div key={variant.id} className="rounded-lg border border-white/10 bg-black/20 p-3 space-y-2">
+                                    <p className="text-[10px] uppercase tracking-wide text-indigo-300 font-semibold">{variant.angle}</p>
+                                    <p className="text-xs text-white font-semibold">{variant.headline}</p>
+                                    <p className="text-[11px] text-white/70">{variant.subheadline}</p>
+                                    <p className="text-[10px] text-emerald-300">CTA: {variant.cta}</p>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 )}
