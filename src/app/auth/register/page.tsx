@@ -45,8 +45,8 @@ export default function RegisterPage() {
     }, [searchParams]);
 
     const source = useMemo(() => {
-        const rawSource = searchParams.get("source")?.trim();
-        if (!rawSource || rawSource.length > 80 || !/^[a-z0-9_\-]+$/i.test(rawSource)) {
+        const rawSource = searchParams.get("source")?.trim().toLowerCase();
+        if (!rawSource || rawSource.length > 80 || !/^[a-z0-9_\-]+$/.test(rawSource)) {
             return null;
         }
 
