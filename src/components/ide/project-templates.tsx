@@ -259,6 +259,14 @@ interface ProjectTemplatesProps {
 type WebsiteStyle = "saas" | "agency" | "ecommerce" | "portfolio" | "blog" | "custom";
 type WebsiteFramework = "react-vite" | "html";
 
+interface GeneratedWebsiteDraft {
+    projectName: string;
+    summary: string;
+    files: { name: string; content: string }[];
+    launchChecklist: string[];
+    conversionHooks: string[];
+}
+
 export function ProjectTemplates({ onSelectTemplate }: ProjectTemplatesProps) {
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
@@ -269,6 +277,7 @@ export function ProjectTemplates({ onSelectTemplate }: ProjectTemplatesProps) {
     const [style, setStyle] = useState<WebsiteStyle>("saas");
     const [framework, setFramework] = useState<WebsiteFramework>("react-vite");
     const [includeAuthPages, setIncludeAuthPages] = useState(false);
+    const [generatedDraft, setGeneratedDraft] = useState<GeneratedWebsiteDraft | null>(null);
 
     const handleSelect = async (template: ProjectTemplate) => {
         setSelectedId(template.id);
@@ -310,12 +319,21 @@ export function ProjectTemplates({ onSelectTemplate }: ProjectTemplatesProps) {
                 throw new Error("Generator returned an invalid project payload.");
             }
 
-            onSelectTemplate(generatedFiles);
-            setShowAIGenerator(false);
-            setBrief("");
-            setIncludeAuthPages(false);
-            setStyle("saas");
-            setFramework("react-vite");
+            const launchChecklist = Array.isArray(payload?.launchChecklist)
+                ? payload.launchChecklist.filter((item: unknown): item is string => typeof item === "string")
+                : [];
+
+            const conversionHooks = Array.isArray(payload?.conversionHooks)
+                ? payload.conversionHooks.filter((item: unknown): item is string => typeof item === "string")
+                : [];
+
+            setGeneratedDraft({
+                projectName: typeof payload?.projectName === "string" ? payload.projectName : "Generated Website",
+                summary: typeof payload?.summary === "string" ? payload.summary : "AI-generated website scaffold ready for launch.",
+                files: generatedFiles,
+                launchChecklist,
+                conversionHooks,
+            });
         } catch (error) {
             setGeneratorError(error instanceof Error ? error.message : "Failed to generate website.");
         } finally {
@@ -337,7 +355,10 @@ export function ProjectTemplates({ onSelectTemplate }: ProjectTemplatesProps) {
 
                 <div className="mb-4">
                     <button
-                        onClick={() => setShowAIGenerator((prev) => !prev)}
+                        onClick={() => {
+                            setShowAIGenerator((prev) => !prev);
+                            setGeneratedDraft(null);
+                        }}
                         className="w-full text-left p-5 rounded-xl border border-violet-500/30 bg-gradient-to-r from-violet-500/10 to-indigo-500/10 hover:from-violet-500/20 hover:to-indigo-500/20 transition-all"
                     >
                         <div className="flex items-start gap-4">
@@ -439,6 +460,64 @@ export function ProjectTemplates({ onSelectTemplate }: ProjectTemplatesProps) {
                             >
                                 {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
                                 Generate Website
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {generatedDraft && (
+                    <div className="mb-6 p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <h4 className="text-sm font-semibold text-white">{generatedDraft.projectName}</h4>
+                                <p className="text-xs text-white/70 mt-1">{generatedDraft.summary}</p>
+                            </div>
+                            <span className="text-[10px] px-2 py-1 rounded-full bg-white/10 text-white/80">
+                                {generatedDraft.files.length} files
+                            </span>
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-2">
+                            <div>
+                                <p className="text-xs font-semibold text-emerald-200 mb-1">Launch checklist</p>
+                                <ul className="space-y-1 text-xs text-white/80 list-disc pl-4">
+                                    {generatedDraft.launchChecklist.map((item) => (
+                                        <li key={item}>{item}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                            <div>
+                                <p className="text-xs font-semibold text-indigo-200 mb-1">Conversion hooks</p>
+                                <ul className="space-y-1 text-xs text-white/80 list-disc pl-4">
+                                    {generatedDraft.conversionHooks.map((item) => (
+                                        <li key={item}>{item}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setGeneratedDraft(null)}
+                                className="px-3 py-1.5 text-xs rounded-md border border-white/10 text-white/60 hover:text-white"
+                            >
+                                Discard
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    onSelectTemplate(generatedDraft.files);
+                                    setGeneratedDraft(null);
+                                    setShowAIGenerator(false);
+                                    setBrief("");
+                                    setIncludeAuthPages(false);
+                                    setStyle("saas");
+                                    setFramework("react-vite");
+                                }}
+                                className="px-3 py-1.5 text-xs rounded-md bg-emerald-600 text-white hover:bg-emerald-500"
+                            >
+                                Create Project Files
                             </button>
                         </div>
                     </div>

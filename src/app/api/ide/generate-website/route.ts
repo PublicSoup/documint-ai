@@ -26,6 +26,8 @@ const aiResponseSchema = z
     .object({
         projectName: z.string().trim().min(1).max(80),
         summary: z.string().trim().min(1).max(500),
+        launchChecklist: z.array(z.string().trim().min(3).max(160)).min(3).max(8),
+        conversionHooks: z.array(z.string().trim().min(3).max(180)).min(2).max(6),
         files: z.array(websiteFileSchema).min(2).max(20),
     })
     .strict();
@@ -62,7 +64,7 @@ export async function POST(req: NextRequest) {
             "You are a principal frontend architect generating production-ready starter code.",
             "Return valid JSON only. No markdown fences.",
             "Output shape:",
-            '{"projectName":"...","summary":"...","files":[{"name":"...","content":"..."}]}',
+            '{"projectName":"...","summary":"...","launchChecklist":["..."],"conversionHooks":["..."],"files":[{"name":"...","content":"..."}]}',
             "Requirements:",
             "- Modern, responsive, accessible UI",
             "- Clean semantic HTML",
@@ -80,6 +82,8 @@ export async function POST(req: NextRequest) {
             `Include auth pages: ${payload.includeAuthPages ? "yes" : "no"}`,
             "If auth pages are requested, include login and signup views and shared styles.",
             "Avoid external APIs and secrets.",
+            "Include a launchChecklist with concrete go-live items (analytics, seo, legal, performance, QA).",
+            "Include conversionHooks with concise subscription-growth suggestions relevant to the generated site.",
         ].join("\n");
 
         const aiResult = await getAICompletionWithDetailedError(
@@ -127,6 +131,8 @@ export async function POST(req: NextRequest) {
                     style: payload.style,
                     includeAuthPages: payload.includeAuthPages,
                     fileCount: safeFiles.length,
+                    checklistCount: parsed.launchChecklist.length,
+                    conversionHookCount: parsed.conversionHooks.length,
                 },
             });
         } catch {
@@ -137,6 +143,8 @@ export async function POST(req: NextRequest) {
             {
                 projectName: parsed.projectName,
                 summary: parsed.summary,
+                launchChecklist: parsed.launchChecklist,
+                conversionHooks: parsed.conversionHooks,
                 files: safeFiles,
             },
             { status: 200 },
