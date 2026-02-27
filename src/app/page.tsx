@@ -30,6 +30,21 @@ const jsonLd = {
   }
 };
 
+const LANDING_EXPERIMENT_VARIANT = "control";
+
+function buildRegisterHref(params: { source: string; intent?: "trial" | "signup"; plan?: "starter" | "pro" | "team" }): string {
+  const searchParams = new URLSearchParams({
+    source: params.source,
+    intent: params.intent ?? "signup",
+  });
+
+  if (params.plan) {
+    searchParams.set("plan", params.plan);
+  }
+
+  return `/auth/register?${searchParams.toString()}`;
+}
+
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-[#030014] text-white selection:bg-primary/30 overflow-hidden">
@@ -56,20 +71,20 @@ export default function LandingPage() {
           </Link>
 
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-white/70">
-            <Link href="#features" className="hover:text-primary transition-colors">Features</Link>
-            <Link href="#solutions" className="hover:text-primary transition-colors">Solutions</Link>
-            <Link href="#pricing" className="hover:text-primary transition-colors">Pricing</Link>
+            <TrackedLink href="#features" eventName="landing_secondary_cta_click" location="header_nav_features" variant={LANDING_EXPERIMENT_VARIANT} className="hover:text-primary transition-colors">Features</TrackedLink>
+            <TrackedLink href="#solutions" eventName="landing_secondary_cta_click" location="header_nav_solutions" variant={LANDING_EXPERIMENT_VARIANT} className="hover:text-primary transition-colors">Solutions</TrackedLink>
+            <TrackedLink href="#pricing" eventName="landing_secondary_cta_click" location="header_nav_pricing" variant={LANDING_EXPERIMENT_VARIANT} className="hover:text-primary transition-colors">Pricing</TrackedLink>
           </nav>
 
           <div className="flex items-center gap-3">
-            <Link href="/auth/login">
+            <TrackedLink href="/auth/login" eventName="landing_secondary_cta_click" location="header_login" variant={LANDING_EXPERIMENT_VARIANT}>
               <Button variant="ghost" className="hover:bg-white/5">Log in</Button>
-            </Link>
-            <Link href="/auth/register">
+            </TrackedLink>
+            <TrackedLink href={buildRegisterHref({ source: "header_primary", intent: "signup" })} eventName="landing_primary_cta_click" location="header_primary" variant={LANDING_EXPERIMENT_VARIANT}>
               <Button className="bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 rounded-full px-5 md:px-6">
                 Get Started <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
-            </Link>
+            </TrackedLink>
           </div>
         </div>
       </header>
@@ -102,12 +117,12 @@ export default function LandingPage() {
           <div
             className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
-            <TrackedLink href="/auth/register" eventName="landing_primary_cta_click" location="hero_primary">
+            <TrackedLink href={buildRegisterHref({ source: "hero_primary", intent: "signup" })} eventName="landing_primary_cta_click" location="hero_primary" variant={LANDING_EXPERIMENT_VARIANT}>
               <Button size="lg" className="h-14 px-8 text-lg bg-primary hover:bg-primary/90 text-white rounded-2xl shadow-2xl shadow-primary/40">
                 Launch Dashboard <ArrowRight className="w-5 h-5 ml-2" />
               </Button>
             </TrackedLink>
-            <TrackedLink href="https://github.com" target="_blank" eventName="landing_secondary_cta_click" location="hero_secondary_github">
+            <TrackedLink href="https://github.com" target="_blank" eventName="landing_secondary_cta_click" location="hero_secondary_github" variant={LANDING_EXPERIMENT_VARIANT}>
               <Button size="lg" variant="outline" className="h-14 px-8 text-lg border-white/10 hover:bg-white/5 rounded-2xl">
                 <Github className="w-5 h-5 mr-2" /> View on GitHub
               </Button>
@@ -244,6 +259,42 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Enterprise Social Proof */}
+      <section className="px-6 pb-20">
+        <div className="max-w-7xl mx-auto">
+          <div className="glass-card rounded-3xl border border-white/10 p-8 md:p-10">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-primary mb-6 font-bold text-center">Proof for enterprise buyers</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {[
+                {
+                  company: 'Fintech Platform',
+                  metric: '31% faster onboarding',
+                  body: 'Reduced engineering onboarding cycles by keeping architecture and docs continuously in sync.'
+                },
+                {
+                  company: 'SaaS Product Team',
+                  metric: '2.4x doc freshness',
+                  body: 'Increased documentation update frequency with AI-assisted generation in normal dev workflows.'
+                },
+                {
+                  company: 'Enterprise IT Org',
+                  metric: '42% fewer review loops',
+                  body: 'Security and architecture expectations shifted left with clearer generated technical artifacts.'
+                }
+              ].map((item) => (
+                <Card key={item.company} className="border-white/10 bg-black/20">
+                  <CardContent className="p-6">
+                    <p className="text-xs uppercase tracking-widest text-white/40 mb-3">{item.company}</p>
+                    <p className="text-2xl font-black text-primary mb-3">{item.metric}</p>
+                    <p className="text-sm text-white/60 leading-relaxed">{item.body}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Features Grid */}
       <section id="features" className="py-32 px-6 relative overflow-hidden">
         <div className="max-w-7xl mx-auto">
@@ -368,7 +419,7 @@ export default function LandingPage() {
                     ))}
                   </ul>
 
-                  <TrackedLink href="/auth/register" className="w-full" eventName="landing_pricing_cta_click" location={`pricing_${plan.id}`}>
+                  <TrackedLink href={buildRegisterHref({ source: `pricing_${plan.id}`, intent: "trial", plan: plan.id === "team" ? "team" : plan.id === "pro" ? "pro" : "starter" })} className="w-full" eventName="landing_pricing_cta_click" location={`pricing_${plan.id}`} variant={LANDING_EXPERIMENT_VARIANT}>
                     <Button className={`w-full ${plan.popular ? 'bg-primary hover:bg-primary/90' : 'bg-white/10 hover:bg-white/20'} text-white`}>
                       Get Started
                     </Button>
@@ -438,6 +489,26 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* High-Intent Sticky Conversion Bar */}
+      <section className="px-6 pb-16">
+        <div className="max-w-7xl mx-auto">
+          <div className="glass-card border border-primary/20 rounded-2xl p-5 md:p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <p className="text-sm uppercase tracking-[0.2em] text-primary font-bold mb-1">For teams evaluating now</p>
+              <h3 className="text-xl md:text-2xl font-black tracking-tight">Start your 14-day Pro trial and ship production-ready docs this week.</h3>
+            </div>
+            <div className="flex items-center gap-3">
+              <TrackedLink href={buildRegisterHref({ source: "sticky_conversion_bar_primary", intent: "trial", plan: "pro" })} eventName="landing_final_cta_click" location="sticky_conversion_bar_primary" variant={LANDING_EXPERIMENT_VARIANT}>
+                <Button className="bg-primary hover:bg-primary/90 text-white rounded-xl px-6">Start Free Trial</Button>
+              </TrackedLink>
+              <TrackedLink href="/dashboard/settings?tab=billing" eventName="landing_secondary_cta_click" location="sticky_conversion_bar_billing" variant={LANDING_EXPERIMENT_VARIANT}>
+                <Button variant="outline" className="border-white/20 hover:bg-white/10 rounded-xl px-6">See Plans</Button>
+              </TrackedLink>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* CTA Section */}
       <section className="py-40 px-6 relative">
         <div className="max-w-4xl mx-auto glass-card rounded-[3rem] p-12 md:p-20 text-center relative overflow-hidden">
@@ -452,16 +523,16 @@ export default function LandingPage() {
             Ship documentation that scales with your code.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
-            <TrackedLink href="/auth/register" eventName="landing_final_cta_click" location="final_cta_primary">
+            <TrackedLink href={buildRegisterHref({ source: "final_cta_primary", intent: "trial", plan: "pro" })} eventName="landing_final_cta_click" location="final_cta_primary" variant={LANDING_EXPERIMENT_VARIANT}>
               <Button size="lg" className="h-14 px-10 text-lg bg-white text-black hover:bg-white/90 rounded-2xl">
                 Get Started Free
               </Button>
             </TrackedLink>
-            <Link href="/contact">
+            <TrackedLink href="/contact" eventName="landing_secondary_cta_click" location="final_cta_contact_sales" variant={LANDING_EXPERIMENT_VARIANT}>
               <Button size="lg" variant="outline" className="h-14 px-10 text-lg border-white/20 hover:bg-white/10 rounded-2xl">
                 Contact Sales
               </Button>
-            </Link>
+            </TrackedLink>
           </div>
         </div>
       </section>
@@ -488,9 +559,9 @@ export default function LandingPage() {
           <div className="flex gap-16 text-sm text-white/40">
             <div className="flex flex-col gap-4">
               <span className="font-bold text-white uppercase text-xs tracking-widest">Product</span>
-              <Link href="#features" className="hover:text-primary transition-colors">Features</Link>
-              <Link href="#pricing" className="hover:text-primary transition-colors">Pricing</Link>
-              <Link href="/docs" className="hover:text-primary transition-colors">Documentation</Link>
+              <TrackedLink href="#features" eventName="landing_secondary_cta_click" location="footer_nav_features" variant={LANDING_EXPERIMENT_VARIANT} className="hover:text-primary transition-colors">Features</TrackedLink>
+              <TrackedLink href="#pricing" eventName="landing_secondary_cta_click" location="footer_nav_pricing" variant={LANDING_EXPERIMENT_VARIANT} className="hover:text-primary transition-colors">Pricing</TrackedLink>
+              <TrackedLink href="/docs" eventName="landing_secondary_cta_click" location="footer_nav_docs" variant={LANDING_EXPERIMENT_VARIANT} className="hover:text-primary transition-colors">Documentation</TrackedLink>
             </div>
             <div className="flex flex-col gap-4">
               <span className="font-bold text-white uppercase text-xs tracking-widest">Legal</span>

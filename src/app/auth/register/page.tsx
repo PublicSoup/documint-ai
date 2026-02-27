@@ -1,22 +1,57 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { FileCode2, Sparkles, Github, ArrowRight, User, Mail, Lock } from "lucide-react";
-import { signIn, getProviders, type ClientSafeProvider } from "next-auth/react";
+import { Sparkles, Github, ArrowRight, User, Mail, Lock } from "lucide-react";
+import { signIn } from "next-auth/react";
 import { useToast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
+
+type RegistrationIntent = "signup" | "trial";
+type RegistrationPlan = "starter" | "pro" | "team";
+
+const INTENT_HEADLINE: Record<RegistrationIntent, string> = {
+    signup: "Create workspace",
+    trial: "Start your free trial",
+};
+
+const INTENT_SUBTITLE: Record<RegistrationIntent, string> = {
+    signup: "Set up your account to get started",
+    trial: "Create your account and launch a guided trial onboarding flow",
+};
 
 export default function RegisterPage() {
     const { toast } = useToast();
     const router = useRouter();
+    const searchParams = useSearchParams();
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [loading, setLoading] = useState(false);
-    // OAuth buttons are always shown
-    const showSocial = true;
+
+    const intent = useMemo<RegistrationIntent>(() => {
+        const rawIntent = searchParams.get("intent");
+        return rawIntent === "trial" ? "trial" : "signup";
+    }, [searchParams]);
+
+    const plan = useMemo<RegistrationPlan | null>(() => {
+        const rawPlan = searchParams.get("plan");
+        if (rawPlan === "starter" || rawPlan === "pro" || rawPlan === "team") {
+            return rawPlan;
+        }
+
+        return null;
+    }, [searchParams]);
+
+    const source = useMemo(() => {
+        const rawSource = searchParams.get("source")?.trim();
+        if (!rawSource || rawSource.length > 80 || !/^[a-z0-9_\-]+$/i.test(rawSource)) {
+            return null;
+        }
+
+        return rawSource;
+    }, [searchParams]);
 
     /* ... handlers ... */
     const handleSubmit = async (e: React.FormEvent) => {
@@ -31,13 +66,28 @@ export default function RegisterPage() {
             });
 
             if (res.ok) {
+                const loginQuery = new URLSearchParams();
+                if (intent === "trial") {
+                    loginQuery.set("intent", intent);
+                }
+                if (plan) {
+                    loginQuery.set("plan", plan);
+                }
+                if (source) {
+                    loginQuery.set("source", source);
+                }
+
+                const loginHref = loginQuery.toString().length > 0
+                    ? `/auth/login?${loginQuery.toString()}`
+                    : "/auth/login";
+
                 toast("Account created! Redirecting to login...", "success");
-                setTimeout(() => router.push("/auth/login"), 1500);
+                setTimeout(() => router.push(loginHref), 1500);
             } else {
                 const data = await res.json();
                 // Show specific validation errors if available
                 if (data.details?.errors && Array.isArray(data.details.errors)) {
-                    const messages = data.details.errors.map((e: any) => e.message).join(". ");
+                    const messages = data.details.errors.map((e: { message: string }) => e.message).join(". ");
                     toast(messages || "Registration failed", "error");
                 } else {
                     toast(data.message || "Registration failed", "error");
@@ -70,8 +120,13 @@ export default function RegisterPage() {
                 <div className="glass-card p-8 rounded-[2.5rem] border border-white/10 shadow-2xl relative">
 
                     <div className="mb-8 text-center">
-                        <h2 className="text-3xl font-bold text-white tracking-tight">Create workspace</h2>
-                        <p className="mt-2 text-sm text-white/50">Set up your account to get started</p>
+                        <h2 className="text-3xl font-bold text-white tracking-tight">{INTENT_HEADLINE[intent]}</h2>
+                        <p className="mt-2 text-sm text-white/50">{INTENT_SUBTITLE[intent]}</p>
+                        {plan && (
+                            <p className="mt-2 text-xs uppercase tracking-[0.16em] text-primary font-bold">
+                                Selected plan: {plan}
+                            </p>
+                        )}
                     </div>
 
                     <form className="space-y-5" onSubmit={handleSubmit}>
@@ -129,7 +184,7 @@ export default function RegisterPage() {
                             disabled={loading}
                             className="w-full h-12 bg-white text-black hover:bg-white/90 rounded-xl font-black uppercase tracking-widest text-xs transition-all disabled:opacity-50 mt-4"
                         >
-                            {loading ? "Creating..." : "Launch Account"}
+                            {loading ? "Creating..." : intent === "trial" ? "Start Trial Account" : "Launch Account"}
                             {!loading && <ArrowRight className="w-4 h-4 ml-2" />}
                         </Button>
                     </form>
@@ -147,7 +202,18 @@ export default function RegisterPage() {
                     <div className="space-y-3">
                         <Button
                             variant="outline"
-                            onClick={() => signIn("auth0", { callbackUrl: "/dashboard" }, { connection: "google-oauth2" })}
+                            onClick={() => {
+                                const callbackQuery = new URLSearchParams();
+                                if (intent === "trial") callbackQuery.set("intent", intent);
+                                if (plan) callbackQuery.set("plan", plan);
+                                if (source) callbackQuery.set("source", source);
+
+                                const callbackUrl = callbackQuery.toString().length > 0
+                                    ? `/dashboard?${callbackQuery.toString()}`
+                                    : "/dashboard";
+
+                                void signIn("auth0", { callbackUrl }, { connection: "google-oauth2" });
+                            }}
                             className="w-full h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
                         >
                             <svg className="w-4 h-4" viewBox="0 0 24 24">
@@ -161,7 +227,18 @@ export default function RegisterPage() {
 
                         <Button
                             variant="outline"
-                            onClick={() => signIn("auth0", { callbackUrl: "/dashboard" }, { connection: "github" })}
+                            onClick={() => {
+                                const callbackQuery = new URLSearchParams();
+                                if (intent === "trial") callbackQuery.set("intent", intent);
+                                if (plan) callbackQuery.set("plan", plan);
+                                if (source) callbackQuery.set("source", source);
+
+                                const callbackUrl = callbackQuery.toString().length > 0
+                                    ? `/dashboard?${callbackQuery.toString()}`
+                                    : "/dashboard";
+
+                                void signIn("auth0", { callbackUrl }, { connection: "github" });
+                            }}
                             className="w-full h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
                         >
                             <Github className="w-4 h-4" />
