@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Sparkles, Code, Server, Layout, Palette, ArrowRight, Loader2, CheckCircle2 } from "lucide-react";
+import { Sparkles, Code, Server, Layout, Palette, ArrowRight, Loader2, CheckCircle2, Wand2, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ProjectTemplate {
@@ -256,32 +256,193 @@ interface ProjectTemplatesProps {
     onSelectTemplate: (files: { name: string; content: string }[]) => void;
 }
 
+type WebsiteStyle = "saas" | "agency" | "ecommerce" | "portfolio" | "blog" | "custom";
+type WebsiteFramework = "react-vite" | "html";
+
 export function ProjectTemplates({ onSelectTemplate }: ProjectTemplatesProps) {
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    const [showAIGenerator, setShowAIGenerator] = useState(false);
+    const [generating, setGenerating] = useState(false);
+    const [generatorError, setGeneratorError] = useState<string | null>(null);
+    const [brief, setBrief] = useState("");
+    const [style, setStyle] = useState<WebsiteStyle>("saas");
+    const [framework, setFramework] = useState<WebsiteFramework>("react-vite");
+    const [includeAuthPages, setIncludeAuthPages] = useState(false);
 
     const handleSelect = async (template: ProjectTemplate) => {
         setSelectedId(template.id);
         setLoading(true);
 
-        // Small delay to show the selection animation
         await new Promise(resolve => setTimeout(resolve, 500));
 
         onSelectTemplate(template.files);
         setLoading(false);
     };
 
+    const handleGenerateWebsite = async () => {
+        if (brief.trim().length < 10) {
+            setGeneratorError("Please provide at least 10 characters in your website brief.");
+            return;
+        }
+
+        setGeneratorError(null);
+        setGenerating(true);
+        try {
+            const response = await fetch("/api/ide/generate-website", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    prompt: brief,
+                    style,
+                    framework,
+                    includeAuthPages,
+                }),
+            });
+
+            const payload = await response.json();
+            if (!response.ok) {
+                throw new Error(payload?.message || payload?.error || "Failed to generate website.");
+            }
+
+            const generatedFiles = Array.isArray(payload?.files) ? payload.files : [];
+            if (generatedFiles.length < 2) {
+                throw new Error("Generator returned an invalid project payload.");
+            }
+
+            onSelectTemplate(generatedFiles);
+            setShowAIGenerator(false);
+            setBrief("");
+            setIncludeAuthPages(false);
+            setStyle("saas");
+            setFramework("react-vite");
+        } catch (error) {
+            setGeneratorError(error instanceof Error ? error.message : "Failed to generate website.");
+        } finally {
+            setGenerating(false);
+        }
+    };
+
     return (
         <div className="flex flex-col items-center justify-center h-full p-8 bg-[#020010]">
-            <div className="max-w-3xl w-full">
+            <div className="max-w-4xl w-full">
                 <div className="text-center mb-8">
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-medium mb-4">
                         <Sparkles className="w-3 h-3" />
                         Starter Templates
                     </div>
                     <h2 className="text-2xl font-bold text-white mb-2">Start a New Project</h2>
-                    <p className="text-sm text-white/40">Choose a template to get started instantly</p>
+                    <p className="text-sm text-white/40">Choose a template or generate a full website with AI</p>
                 </div>
+
+                <div className="mb-4">
+                    <button
+                        onClick={() => setShowAIGenerator((prev) => !prev)}
+                        className="w-full text-left p-5 rounded-xl border border-violet-500/30 bg-gradient-to-r from-violet-500/10 to-indigo-500/10 hover:from-violet-500/20 hover:to-indigo-500/20 transition-all"
+                    >
+                        <div className="flex items-start gap-4">
+                            <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 bg-gradient-to-br from-violet-500 to-indigo-500 text-white shadow-lg">
+                                <Wand2 className="w-5 h-5" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <h3 className="font-semibold text-white text-sm mb-1 flex items-center gap-2">
+                                    AI Website Generator
+                                    <ArrowRight className="w-3.5 h-3.5 text-white/40" />
+                                </h3>
+                                <p className="text-xs text-white/50">Describe your product and generate a production-ready website scaffold with real files instantly.</p>
+                                <div className="flex gap-1.5 mt-2">
+                                    {[
+                                        "Highest conversion potential",
+                                        "AI-generated files",
+                                        "Launch-ready scaffold"
+                                    ].map(tag => (
+                                        <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.08] text-white/70 font-medium">
+                                            {tag}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </button>
+                </div>
+
+                {showAIGenerator && (
+                    <div className="mb-6 p-4 rounded-xl border border-white/10 bg-black/20 space-y-3">
+                        <div className="grid gap-3 md:grid-cols-2">
+                            <div className="md:col-span-2">
+                                <label htmlFor="website-brief" className="text-xs text-white/70 block mb-1">Website brief</label>
+                                <textarea
+                                    id="website-brief"
+                                    value={brief}
+                                    onChange={(e) => setBrief(e.target.value)}
+                                    placeholder="Example: Build a SaaS landing + pricing + FAQ for an AI contract review startup targeting legal ops teams."
+                                    className="w-full h-28 rounded-lg bg-[#060616] border border-white/10 px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-violet-400/50"
+                                />
+                            </div>
+
+                            <div>
+                                <label htmlFor="website-style" className="text-xs text-white/70 block mb-1">Style</label>
+                                <select
+                                    id="website-style"
+                                    value={style}
+                                    onChange={(e) => setStyle(e.target.value as WebsiteStyle)}
+                                    className="w-full rounded-lg bg-[#060616] border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-400/50"
+                                >
+                                    <option value="saas">SaaS</option>
+                                    <option value="agency">Agency</option>
+                                    <option value="ecommerce">E-commerce</option>
+                                    <option value="portfolio">Portfolio</option>
+                                    <option value="blog">Blog</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label htmlFor="website-framework" className="text-xs text-white/70 block mb-1">Framework</label>
+                                <select
+                                    id="website-framework"
+                                    value={framework}
+                                    onChange={(e) => setFramework(e.target.value as WebsiteFramework)}
+                                    className="w-full rounded-lg bg-[#060616] border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-400/50"
+                                >
+                                    <option value="react-vite">React + Vite</option>
+                                    <option value="html">HTML/CSS/JS</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <label className="flex items-center gap-2 text-xs text-white/80">
+                            <input
+                                type="checkbox"
+                                checked={includeAuthPages}
+                                onChange={(e) => setIncludeAuthPages(e.target.checked)}
+                                className="rounded border-white/20 bg-[#060616]"
+                            />
+                            Include login + signup pages
+                        </label>
+
+                        {generatorError && <p className="text-xs text-red-400">{generatorError}</p>}
+
+                        <div className="flex items-center justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowAIGenerator(false)}
+                                className="px-3 py-1.5 text-xs rounded-md border border-white/10 text-white/60 hover:text-white"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleGenerateWebsite}
+                                disabled={generating}
+                                className="px-3 py-1.5 text-xs rounded-md bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-60 inline-flex items-center gap-1.5"
+                            >
+                                {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
+                                Generate Website
+                            </button>
+                        </div>
+                    </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {TEMPLATES.map(template => (
@@ -296,7 +457,6 @@ export function ProjectTemplates({ onSelectTemplate }: ProjectTemplatesProps) {
                                     : "border-white/[0.06] bg-white/[0.02] hover:border-white/10 hover:bg-white/[0.04]"
                             )}
                         >
-                            {/* Gradient glow on hover */}
                             <div className={cn(
                                 "absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-br",
                                 template.color

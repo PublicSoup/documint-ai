@@ -4,26 +4,31 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { runAgent } from "@/lib/agent/engine";
+import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 
-const historyMessageSchema = z.object({
-    role: z.enum(["system", "user", "assistant"]),
-    content: z.string().max(10_000),
-}).strict();
+const historyMessageSchema = z
+    .object({
+        role: z.enum(["system", "user", "assistant"]),
+        content: z.string().max(10_000),
+    })
+    .strict();
 
-const chatRequestSchema = z.object({
-    message: z.string().trim().min(1).max(8_000),
-    history: z.array(historyMessageSchema).max(30).default([]),
-    contextFileId: z.string().min(1).max(255).optional(),
-    contextContent: z.string().max(50_000).optional(),
-    additionalContext: z.string().max(5_000).optional(),
-    stream: z.boolean().default(true),
-}).strict();
+const chatRequestSchema = z
+    .object({
+        message: z.string().trim().min(1).max(8_000),
+        history: z.array(historyMessageSchema).max(30).default([]),
+        contextFileId: z.string().min(1).max(255).optional(),
+        contextContent: z.string().max(50_000).optional(),
+        additionalContext: z.string().max(5_000).optional(),
+        stream: z.boolean().default(true),
+    })
+    .strict();
 
 export async function POST(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         const limit = await rateLimit(session.user.id, "pro");
@@ -31,19 +36,7 @@ export async function POST(req: Request) {
             return rateLimitResponse(limit.remaining, limit.reset);
         }
 
-        const payload = chatRequestSchema.safeParse(await req.json());
-        if (!payload.success) {
-            return NextResponse.json({ error: "Invalid chat payload" }, { status: 400 });
-        }
-
-        const {
-            message,
-            history,
-            contextFileId,
-            contextContent,
-            additionalContext,
-            stream,
-        } = payload.data;
+        const { message, history, contextFileId, contextContent, additionalContext, stream } = await validateBody(req, chatRequestSchema);
 
         const fullMessage = additionalContext
             ? `${message}\n\nAdditional Context:\n${additionalContext}`
@@ -71,11 +64,11 @@ export async function POST(req: Request) {
             }
 
             if (lastError && !finalReply) {
-                return NextResponse.json({ error: lastError }, { status: 500 });
+                throw ApiErrors.internalError(lastError);
             }
 
             if (!finalReply) {
-                return NextResponse.json({ error: "AI returned an empty response. Please try again." }, { status: 500 });
+                throw ApiErrors.internalError("AI returned an empty response. Please try again.");
             }
 
             return NextResponse.json({ reply: finalReply });
@@ -124,7 +117,6 @@ export async function POST(req: Request) {
             },
         });
     } catch (error) {
-        console.error("Chat Error:", error);
-        return NextResponse.json({ error: "Failed to process chat" }, { status: 500 });
+        return errorResponse(error);
     }
 }

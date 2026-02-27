@@ -16,6 +16,45 @@ declare global {
     }
 }
 
+const MAX_DIAGRAM_CHARS = 100_000;
+
+function sanitizeMermaidInput(input: string): string {
+    return input
+        .replace(/\u0000/g, "")
+        .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
+        .trim()
+        .slice(0, MAX_DIAGRAM_CHARS);
+}
+
+function sanitizeSvg(svg: string): string {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svg, "image/svg+xml");
+
+    const forbiddenTags = ["script", "foreignObject", "iframe", "object", "embed", "link"];
+    for (const tag of forbiddenTags) {
+        doc.querySelectorAll(tag).forEach((node) => node.remove());
+    }
+
+    doc.querySelectorAll("*").forEach((element) => {
+        const attrs = [...element.attributes];
+        for (const attr of attrs) {
+            const name = attr.name.toLowerCase();
+            const value = attr.value.toLowerCase();
+
+            if (name.startsWith("on")) {
+                element.removeAttribute(attr.name);
+                continue;
+            }
+
+            if ((name === "href" || name === "xlink:href") && value.startsWith("javascript:")) {
+                element.removeAttribute(attr.name);
+            }
+        }
+    });
+
+    return new XMLSerializer().serializeToString(doc);
+}
+
 export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramViewerProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [svg, setSvg] = useState<string>("");
@@ -28,31 +67,30 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
             theme: "dark",
             themeVariables: {
                 darkMode: true,
-                background: '#0c0c0e',
-                primaryColor: '#3b82f6',
-                primaryTextColor: '#e2e8f0',
-                primaryBorderColor: '#6366f1',
-                lineColor: '#6366f1',
-                secondaryColor: '#10b981',
-                tertiaryColor: '#1e1b4b',
-                edgeLabelBackground: '#1e1b4b',
-                nodeTextColor: '#e2e8f0',
-                clusterBkg: '#1a1a2e',
-                clusterBorder: '#334155',
-                titleColor: '#e2e8f0',
+                background: "#0c0c0e",
+                primaryColor: "#3b82f6",
+                primaryTextColor: "#e2e8f0",
+                primaryBorderColor: "#6366f1",
+                lineColor: "#6366f1",
+                secondaryColor: "#10b981",
+                tertiaryColor: "#1e1b4b",
+                edgeLabelBackground: "#1e1b4b",
+                nodeTextColor: "#e2e8f0",
+                clusterBkg: "#1a1a2e",
+                clusterBorder: "#334155",
+                titleColor: "#e2e8f0",
             },
-            securityLevel: "loose",
+            securityLevel: "strict",
             fontFamily: "'Inter', 'Segoe UI', sans-serif",
             flowchart: {
-                htmlLabels: true,
-                curve: 'basis',
+                htmlLabels: false,
+                curve: "basis",
                 padding: 16,
                 nodeSpacing: 40,
                 rankSpacing: 50,
-            }
+            },
         });
 
-        // Expose callback for Mermaid click directives.
         window.mermaidNodeClick = (id: string) => {
             if (onNodeClick) onNodeClick(id);
         };
@@ -65,9 +103,8 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
     useEffect(() => {
         const autoRepair = (input: string): string => {
             let fixed = input.trim();
-            // Basic single-line detection and fix
-            if (!fixed.includes('\n') || fixed.split('\n').length < 3) {
-                if (fixed.toLowerCase().startsWith('erdiagram')) {
+            if (!fixed.includes("\n") || fixed.split("\n").length < 3) {
+                if (fixed.toLowerCase().startsWith("erdiagram")) {
                     fixed = fixed
                         .replace(/^ERDiagram/i, "erDiagram")
                         .replace(/erDiagram\s*/i, "erDiagram\n")
@@ -75,7 +112,7 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
                         .replace(/\}\s*/g, "}\n")
                         .replace(/\s([a-zA-Z0-9_]+)\s+([\}|o\+\{\.\-]+[-.]{2,}[|o\+\{\.\-]+)/g, "\n$1 $2")
                         .replace(/\s([a-zA-Z0-9_]+)\s+([-.]+[|o\+\{\.\-]+)/g, "\n$1 $2");
-                } else if (fixed.toLowerCase().startsWith('sequencediagram')) {
+                } else if (fixed.toLowerCase().startsWith("sequencediagram")) {
                     fixed = fixed
                         .replace(/^sequenceDiagram/i, "sequenceDiagram\n")
                         .replace(/participant /g, "\nparticipant ")
@@ -98,19 +135,21 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
             if (!code || !containerRef.current) return;
 
             setIsRendering(true);
+            setError(null);
+
             try {
-                setError(null);
+                const safeInput = sanitizeMermaidInput(code);
                 const id = `mermaid-${Math.random().toString(36).slice(2, 11)}`;
-                const { svg } = await mermaid.render(id, code);
-                setSvg(svg);
+                const rendered = await mermaid.render(id, safeInput);
+                setSvg(sanitizeSvg(rendered.svg));
             } catch {
                 try {
-                    const repaired = autoRepair(code);
+                    const repaired = autoRepair(sanitizeMermaidInput(code));
                     const id = `mermaid-retry-${Math.random().toString(36).slice(2, 11)}`;
-                    const { svg } = await mermaid.render(id, repaired);
-                    setSvg(svg);
+                    const rendered = await mermaid.render(id, repaired);
+                    setSvg(sanitizeSvg(rendered.svg));
                 } catch {
-                    setError("Failed to render diagram. The AI output might be invalid syntax.");
+                    setError("Failed to render diagram. Please verify Mermaid syntax (flowchart/sequence/class). ");
                     setSvg("");
                 }
             } finally {
@@ -139,8 +178,8 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
     const [isDragging, setIsDragging] = useState(false);
     const [startPan, setStartPan] = useState({ x: 0, y: 0 });
 
-    const handleZoomIn = () => setTransform(prev => ({ ...prev, k: Math.min(prev.k * 1.2, 5) }));
-    const handleZoomOut = () => setTransform(prev => ({ ...prev, k: Math.max(prev.k / 1.2, 0.2) }));
+    const handleZoomIn = () => setTransform((prev) => ({ ...prev, k: Math.min(prev.k * 1.2, 5) }));
+    const handleZoomOut = () => setTransform((prev) => ({ ...prev, k: Math.max(prev.k / 1.2, 0.2) }));
     const handleReset = () => setTransform({ k: 1, x: 0, y: 0 });
 
     const handleMouseDown = (e: React.MouseEvent) => {
@@ -150,12 +189,10 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
 
     const handleMouseMove = (e: React.MouseEvent) => {
         if (!isDragging) return;
-        setTransform(prev => ({ ...prev, x: e.clientX - startPan.x, y: e.clientY - startPan.y }));
+        setTransform((prev) => ({ ...prev, x: e.clientX - startPan.x, y: e.clientY - startPan.y }));
     };
 
     const handleMouseUp = () => setIsDragging(false);
-
-
 
     useEffect(() => {
         const container = containerRef.current;
@@ -164,14 +201,14 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
         const onWheel = (e: WheelEvent) => {
             e.preventDefault();
             const delta = e.deltaY > 0 ? 0.9 : 1.1;
-            setTransform(prev => ({
+            setTransform((prev) => ({
                 ...prev,
-                k: Math.max(0.2, Math.min(5, prev.k * delta))
+                k: Math.max(0.2, Math.min(5, prev.k * delta)),
             }));
         };
 
-        container.addEventListener('wheel', onWheel, { passive: false });
-        return () => container.removeEventListener('wheel', onWheel);
+        container.addEventListener("wheel", onWheel, { passive: false });
+        return () => container.removeEventListener("wheel", onWheel);
     }, []);
 
     useEffect(() => {
@@ -203,9 +240,7 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
             <div className="p-4 border border-red-500/20 bg-red-500/10 rounded-lg text-red-400 text-sm">
                 <p className="font-medium mb-2">Rendering Error</p>
                 <p>{error}</p>
-                <div className="mt-4 p-2 bg-black/30 rounded font-mono text-xs overflow-auto max-h-32">
-                    {code}
-                </div>
+                <div className="mt-4 p-2 bg-black/30 rounded font-mono text-xs overflow-auto max-h-32">{code}</div>
             </div>
         );
     }
@@ -247,7 +282,7 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
                         dangerouslySetInnerHTML={{ __html: svg }}
                         className="origin-top-left transition-transform duration-75 ease-out"
                         style={{
-                            transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.k})`
+                            transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.k})`,
                         }}
                     />
                 ) : isRendering ? (
@@ -256,9 +291,7 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
                         Rendering...
                     </div>
                 ) : (
-                    <div className="flex items-center justify-center text-zinc-500 h-full text-sm">
-                        No diagram available.
-                    </div>
+                    <div className="flex items-center justify-center text-zinc-500 h-full text-sm">No diagram available.</div>
                 )}
             </div>
         </div>

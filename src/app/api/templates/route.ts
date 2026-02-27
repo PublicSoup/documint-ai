@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { requireFeature } from "@/lib/feature-gate";
 import { checkTeamPermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateBody, validateQuery } from "@/lib/api-utils";
 
 const jsonValueSchema: z.ZodType<Prisma.JsonValue> = z.lazy(() =>
     z.union([
@@ -19,42 +20,38 @@ const jsonValueSchema: z.ZodType<Prisma.JsonValue> = z.lazy(() =>
     ]),
 );
 
-const querySchema = z.object({
-    teamId: z.string().trim().min(1).max(100).optional(),
-}).strict();
+const querySchema = z
+    .object({
+        teamId: z.string().trim().min(1).max(100).optional(),
+    })
+    .strict();
 
-const createTemplateSchema = z.object({
-    name: z.string().trim().min(1).max(120),
-    content: z.string().trim().min(1).max(200_000),
-    description: z.string().trim().max(500).optional(),
-    teamId: z.string().trim().min(1).max(100).optional(),
-    structure: z.record(z.string(), jsonValueSchema).optional(),
-    isPublic: z.boolean().optional(),
-}).strict();
+const createTemplateSchema = z
+    .object({
+        name: z.string().trim().min(1).max(120),
+        content: z.string().trim().min(1).max(200_000),
+        description: z.string().trim().max(500).optional(),
+        teamId: z.string().trim().min(1).max(100).optional(),
+        structure: z.record(z.string(), jsonValueSchema).optional(),
+        isPublic: z.boolean().optional(),
+    })
+    .strict();
 
 export async function GET(request: NextRequest) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     try {
-        await enforceRateLimit(session.user.id, "api");
-
-        const parsedQuery = querySchema.safeParse({
-            teamId: request.nextUrl.searchParams.get("teamId") ?? undefined,
-        });
-
-        if (!parsedQuery.success) {
-            return NextResponse.json({ error: "Invalid query parameters" }, { status: 400 });
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            throw ApiErrors.unauthorized();
         }
 
-        const { teamId } = parsedQuery.data;
+        await enforceRateLimit(session.user.id, "api");
+
+        const { teamId } = validateQuery(request.nextUrl.searchParams, querySchema);
 
         if (teamId) {
             const hasPermission = await checkTeamPermission(session.user.id, teamId, "view");
             if (!hasPermission) {
-                return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+                throw ApiErrors.forbidden();
             }
         }
 
@@ -73,8 +70,7 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({ templates });
     } catch (error) {
-        console.error("Failed to fetch templates:", error);
-        return NextResponse.json({ error: "Failed to fetch templates" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
@@ -82,25 +78,20 @@ export async function POST(request: NextRequest) {
     const gateResponse = await requireFeature("customTemplates");
     if (gateResponse) return gateResponse;
 
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     try {
-        await enforceRateLimit(session.user.id, "api");
-
-        const parsedBody = createTemplateSchema.safeParse(await request.json());
-        if (!parsedBody.success) {
-            return NextResponse.json({ error: "Invalid template payload" }, { status: 400 });
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            throw ApiErrors.unauthorized();
         }
 
-        const { name, content, description, teamId, structure, isPublic } = parsedBody.data;
+        await enforceRateLimit(session.user.id, "api");
+
+        const { name, content, description, teamId, structure, isPublic } = await validateBody(request, createTemplateSchema);
 
         if (teamId) {
             const canEditTeam = await checkTeamPermission(session.user.id, teamId, "edit");
             if (!canEditTeam) {
-                return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+                throw ApiErrors.forbidden();
             }
         }
 
@@ -135,7 +126,6 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ template }, { status: 201 });
     } catch (error) {
-        console.error("Create template error:", error);
-        return NextResponse.json({ error: "Failed to create template" }, { status: 500 });
+        return errorResponse(error);
     }
 }

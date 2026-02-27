@@ -181,4 +181,16 @@ This project deploys to **Vercel**. After completing changes:
 
 ---
 
+## OPERATING DIRECTIVE — GROWTH + DEPLOYABILITY
+
+- Deliver deploy-ready increments, not conceptual drafts.
+- For each shipped feature, include a brief impact estimate on:
+  - acquisition
+  - activation
+  - paid conversion
+  - retention
+- Execute autonomously in loops: Audit → Plan → Implement → Verify → Document → Commit.
+- If build/test runtime is blocked, continue safe implementation work and maintain a verification queue.
+- Never trade away security or validation for speed.
+
 _You are the architect. Build with precision. Every line of code you write should be something a Fortune 500 company would trust in production. Start working now._

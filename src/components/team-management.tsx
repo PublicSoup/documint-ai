@@ -19,8 +19,31 @@ interface Team {
     name: string;
     slug: string;
     role: string; // MEMBER, ADMIN, OWNER
-    members: { userId: string; role: string; user: { name: string; email: string; image: string } }[];
+    members: { userId: string; role: string; user: { name: string | null; email: string | null; image: string | null } }[];
     invites?: { id: string; email: string; role: string; createdAt: string }[];
+}
+
+function getApiMessage(payload: unknown, fallback: string): string {
+    if (!payload || typeof payload !== "object") {
+        return fallback;
+    }
+
+    const record = payload as Record<string, unknown>;
+
+    if (typeof record.message === "string" && record.message.trim().length > 0) {
+        return record.message;
+    }
+
+    if (
+        typeof record.error === "string" &&
+        record.error.trim().length > 0 &&
+        record.error !== "ApiException" &&
+        record.error !== "Error"
+    ) {
+        return record.error;
+    }
+
+    return fallback;
 }
 
 export default function TeamManagement() {
@@ -61,7 +84,7 @@ export default function TeamManagement() {
             const data = await res.json().catch(() => ({}));
 
             if (!res.ok) {
-                throw new Error(data.error || "Failed to load teams");
+                throw new Error(getApiMessage(data, "Failed to load teams"));
             }
 
             setTeams(Array.isArray(data.teams) ? data.teams : []);
@@ -104,10 +127,9 @@ export default function TeamManagement() {
                 toast("Team created successfully!", "success");
             } else {
                 const data = await res.json().catch(() => ({}));
-                toast(data.error || "Failed to create team", "error");
+                toast(getApiMessage(data, "Failed to create team"), "error");
             }
-        } catch (error) {
-            console.error(error);
+        } catch {
             toast("Failed to create team", "error");
         } finally {
             setCreating(false);
@@ -125,11 +147,10 @@ export default function TeamManagement() {
                 const data = await res.json();
                 toast(data.message || "Health report generated and sent to all members.", "success");
             } else {
-                const data = await res.json();
-                toast(data.error || "Failed to generate health report.", "error");
+                const data = await res.json().catch(() => ({}));
+                toast(getApiMessage(data, "Failed to generate health report."), "error");
             }
-        } catch (error) {
-            console.error(error);
+        } catch {
             toast("An unexpected error occurred.", "error");
         } finally {
             setTriggeringReport(null);
@@ -148,11 +169,10 @@ export default function TeamManagement() {
                 toast(data.message || "Project rescan complete.", "success");
                 await fetchTeams({ background: true });
             } else {
-                const data = await res.json();
-                toast(data.error || "Failed to perform rescan.", "error");
+                const data = await res.json().catch(() => ({}));
+                toast(getApiMessage(data, "Failed to perform rescan."), "error");
             }
-        } catch (error) {
-            console.error(error);
+        } catch {
             toast("Error performing project rescan.", "error");
         } finally {
             setRescanning(null);
@@ -178,11 +198,10 @@ export default function TeamManagement() {
                 setInviteEmail(prev => ({ ...prev, [teamId]: "" }));
                 await fetchTeams({ background: true });
             } else {
-                const data = await res.json();
-                toast(data.error || "Failed to send invitation", "error");
+                const data = await res.json().catch(() => ({}));
+                toast(getApiMessage(data, "Failed to send invitation"), "error");
             }
-        } catch (error) {
-            console.error(error);
+        } catch {
             toast("Error sending invitation", "error");
         } finally {
             setInviting(prev => ({ ...prev, [teamId]: false }));
@@ -200,10 +219,10 @@ export default function TeamManagement() {
                 toast("Invitation revoked", "success");
                 await fetchTeams({ background: true });
             } else {
-                toast("Failed to revoke invitation", "error");
+                const data = await res.json().catch(() => ({}));
+                toast(getApiMessage(data, "Failed to revoke invitation"), "error");
             }
-        } catch (error) {
-            console.error(error);
+        } catch {
             toast("Error revoking invitation", "error");
         } finally {
             setRevoking(prev => ({ ...prev, [inviteId]: false }));
@@ -223,11 +242,10 @@ export default function TeamManagement() {
                 toast("Role updated successfully", "success");
                 await fetchTeams({ background: true });
             } else {
-                const data = await res.json();
-                toast(data.error || "Failed to update role", "error");
+                const data = await res.json().catch(() => ({}));
+                toast(getApiMessage(data, "Failed to update role"), "error");
             }
-        } catch (error) {
-            console.error(error);
+        } catch {
             toast("Error updating role", "error");
         } finally {
             setUpdatingRole(prev => ({ ...prev, [`${teamId}-${userId}`]: false }));
@@ -246,19 +264,35 @@ export default function TeamManagement() {
                 toast("Member removed", "success");
                 await fetchTeams({ background: true });
             } else {
-                const data = await res.json();
-                toast(data.error || "Failed to remove member", "error");
+                const data = await res.json().catch(() => ({}));
+                toast(getApiMessage(data, "Failed to remove member"), "error");
             }
-        } catch (error) {
-            console.error(error);
+        } catch {
             toast("Error removing member", "error");
         }
     };
 
     if (loading) {
         return (
-            <div className="p-8 text-center">
-                <Loader2 className="w-6 h-6 animate-spin mx-auto text-gray-400" />
+            <div className="space-y-6">
+                <Card className="glass-card border-white/5 animate-pulse">
+                    <CardHeader>
+                        <div className="h-6 w-48 bg-white/10 rounded-lg" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="h-10 w-full bg-white/5 rounded-xl" />
+                    </CardContent>
+                </Card>
+
+                <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                        <div className="h-6 w-32 bg-white/10 rounded-lg" />
+                        <div className="h-8 w-24 bg-white/10 rounded-lg" />
+                    </div>
+                    {[1, 2].map(i => (
+                        <Card key={i} className="glass-card border-white/5 h-48 animate-pulse" />
+                    ))}
+                </div>
             </div>
         );
     }
@@ -426,13 +460,13 @@ export default function TeamManagement() {
                                                             <div className="flex items-center gap-3">
                                                                 <div className="h-8 w-8 rounded-full bg-zinc-800 border border-white/10 flex items-center justify-center text-xs text-white font-bold overflow-hidden shrink-0">
                                                                     {member.user.image ? (
-                                                                        <img src={member.user.image} alt={member.user.name} className="w-full h-full object-cover" />
+                                                                        <img src={member.user.image} alt={member.user.name ?? "Team member avatar"} className="w-full h-full object-cover" />
                                                                     ) : (
-                                                                        <span>{member.user.name?.[0] || member.user.email[0].toUpperCase()}</span>
+                                                                        <span>{member.user.name?.[0] || member.user.email?.[0]?.toUpperCase() || "?"}</span>
                                                                     )}
                                                                 </div>
                                                                 <div className="min-w-0">
-                                                                    <p className="text-xs font-bold text-white truncate">{member.user.name || member.user.email}</p>
+                                                                    <p className="text-xs font-bold text-white truncate">{member.user.name || member.user.email || "Unknown User"}</p>
                                                                     <p className="text-[9px] text-zinc-500 uppercase tracking-tighter font-black italic">{member.role}</p>
                                                                 </div>
                                                             </div>
