@@ -14,6 +14,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { PLANS } from '@/config/plans';
+import { TrackedLink } from '@/components/marketing/tracked-link';
 
 const jsonLd = {
   "@context": "https://schema.org",
@@ -101,16 +102,16 @@ export default function LandingPage() {
           <div
             className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
-            <Link href="/auth/register">
+            <TrackedLink href="/auth/register" eventName="landing_primary_cta_click" location="hero_primary">
               <Button size="lg" className="h-14 px-8 text-lg bg-primary hover:bg-primary/90 text-white rounded-2xl shadow-2xl shadow-primary/40">
                 Launch Dashboard <ArrowRight className="w-5 h-5 ml-2" />
               </Button>
-            </Link>
-            <Link href="https://github.com" target="_blank">
+            </TrackedLink>
+            <TrackedLink href="https://github.com" target="_blank" eventName="landing_secondary_cta_click" location="hero_secondary_github">
               <Button size="lg" variant="outline" className="h-14 px-8 text-lg border-white/10 hover:bg-white/5 rounded-2xl">
                 <Github className="w-5 h-5 mr-2" /> View on GitHub
               </Button>
-            </Link>
+            </TrackedLink>
           </div>
         </div>
 
@@ -367,11 +368,11 @@ export default function LandingPage() {
                     ))}
                   </ul>
 
-                  <Link href="/auth/register" className="w-full">
+                  <TrackedLink href="/auth/register" className="w-full" eventName="landing_pricing_cta_click" location={`pricing_${plan.id}`}>
                     <Button className={`w-full ${plan.popular ? 'bg-primary hover:bg-primary/90' : 'bg-white/10 hover:bg-white/20'} text-white`}>
                       Get Started
                     </Button>
-                  </Link>
+                  </TrackedLink>
                 </CardContent>
               </Card>
             ))}
@@ -451,11 +452,11 @@ export default function LandingPage() {
             Ship documentation that scales with your code.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
-            <Link href="/auth/register">
+            <TrackedLink href="/auth/register" eventName="landing_final_cta_click" location="final_cta_primary">
               <Button size="lg" className="h-14 px-10 text-lg bg-white text-black hover:bg-white/90 rounded-2xl">
                 Get Started Free
               </Button>
-            </Link>
+            </TrackedLink>
             <Link href="/contact">
               <Button size="lg" variant="outline" className="h-14 px-10 text-lg border-white/20 hover:bg-white/10 rounded-2xl">
                 Contact Sales
