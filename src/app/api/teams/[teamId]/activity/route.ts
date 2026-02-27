@@ -5,14 +5,19 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { checkTeamPermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateQuery } from "@/lib/api-utils";
 
-const paramsSchema = z.object({
-    teamId: z.string().trim().min(1).max(100),
-}).strict();
+const paramsSchema = z
+    .object({
+        teamId: z.string().trim().min(1).max(100),
+    })
+    .strict();
 
-const querySchema = z.object({
-    limit: z.coerce.number().int().min(1).max(100).default(20),
-}).strict();
+const querySchema = z
+    .object({
+        limit: z.coerce.number().int().min(1).max(100).default(20),
+    })
+    .strict();
 
 /**
  * GET /api/teams/[teamId]/activity
@@ -20,39 +25,34 @@ const querySchema = z.object({
  */
 export async function GET(
     request: NextRequest,
-    { params }: { params: Promise<{ teamId: string }> }
+    { params }: { params: Promise<{ teamId: string }> },
 ) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid teamId" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid team ID", parsedParams.error.flatten());
         }
-        const { teamId } = parsedParams.data;
 
-        const parsedQuery = querySchema.safeParse({
-            limit: new URL(request.url).searchParams.get("limit") ?? 20,
-        });
-        if (!parsedQuery.success) {
-            return NextResponse.json({ error: "Invalid query" }, { status: 400 });
-        }
-        const { limit } = parsedQuery.data;
+        const { limit } = validateQuery(request.nextUrl.searchParams, querySchema);
+        const { teamId } = parsedParams.data;
 
         const hasPermission = await checkTeamPermission(session.user.id, teamId, "view");
         if (!hasPermission) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+            throw ApiErrors.forbidden();
         }
 
         const teamFiles = await db.file.findMany({
             where: { teamId },
             select: { id: true },
         });
+
         const fileIds = teamFiles.map((file) => file.id);
 
         const logs = await db.auditLog.findMany({
@@ -73,7 +73,6 @@ export async function GET(
 
         return NextResponse.json({ logs, total: logs.length });
     } catch (error) {
-        console.error("[TeamActivity_API] Error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }

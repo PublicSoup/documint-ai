@@ -7,19 +7,30 @@ import { requireFeature } from "@/lib/feature-gate";
 import { getAICompletion } from "@/lib/ai";
 import { checkTeamPermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse } from "@/lib/api-utils";
 
-const paramsSchema = z.object({
-    teamId: z.string().trim().min(1).max(100),
-}).strict();
+const paramsSchema = z
+    .object({
+        teamId: z.string().trim().min(1).max(100),
+    })
+    .strict();
 
-const aiDebtResponseSchema = z.object({
-    summary: z.string().trim().min(1),
-    hotspots: z.array(z.object({
-        name: z.string().trim().min(1),
-        priority: z.enum(["CRITICAL", "HIGH", "MEDIUM"]),
-        reason: z.string().trim().min(1),
-    }).strict()).max(3),
-}).strict();
+const aiDebtResponseSchema = z
+    .object({
+        summary: z.string().trim().min(1),
+        hotspots: z
+            .array(
+                z
+                    .object({
+                        name: z.string().trim().min(1),
+                        priority: z.enum(["CRITICAL", "HIGH", "MEDIUM"]),
+                        reason: z.string().trim().min(1),
+                    })
+                    .strict(),
+            )
+            .max(3),
+    })
+    .strict();
 
 interface DebtContext {
     totalFiles: number;
@@ -36,24 +47,26 @@ export async function GET(
     try {
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid team ID" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid team ID", parsedParams.error.flatten());
         }
 
         const { teamId } = parsedParams.data;
 
         const gateError = await requireFeature("analytics");
-        if (gateError) return gateError;
+        if (gateError) {
+            return gateError;
+        }
 
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
         const hasPermission = await checkTeamPermission(session.user.id, teamId, "view");
         if (!hasPermission) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+            throw ApiErrors.forbidden();
         }
 
         const files = await db.file.findMany({
@@ -125,7 +138,6 @@ export async function GET(
 
         return NextResponse.json(parsedAiResponse.data);
     } catch (error) {
-        console.error("[DocDebt_API] Error:", error);
-        return NextResponse.json({ error: "Analysis failed" }, { status: 500 });
+        return errorResponse(error);
     }
 }

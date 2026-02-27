@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { 
-    Activity, Clock, FileText, ShieldCheck, 
-    UserPlus, Trash2, Edit, CheckCircle2, 
+import { useState, useEffect, useCallback } from "react";
+import {
+    Activity, Clock, FileText, ShieldCheck,
+    UserPlus, Trash2, Edit, CheckCircle2,
     Loader2, AlertCircle, UserMinus, UserCheck,
-    RefreshCw, AlertTriangle, Fingerprint
+    RefreshCw, AlertTriangle, Fingerprint,
+    type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
@@ -15,7 +16,7 @@ interface TeamActivity {
     action: string;
     entity: string;
     entityId: string;
-    details: any;
+    details: Record<string, unknown>;
     createdAt: string;
     user?: {
         name: string | null;
@@ -24,7 +25,7 @@ interface TeamActivity {
     } | null;
 }
 
-const ACTION_MAP: Record<string, { label: string; icon: any; color: string }> = {
+const ACTION_MAP: Record<string, { label: string; icon: LucideIcon; color: string }> = {
     VERIFY: { label: "Verified documentation", icon: ShieldCheck, color: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" },
     UNVERIFY: { label: "Removed verification", icon: ShieldCheck, color: "text-amber-400 bg-amber-500/10 border-amber-500/20" },
     UPDATE: { label: "Updated documentation", icon: Edit, color: "text-blue-400 bg-blue-500/10 border-blue-500/20" },
@@ -44,29 +45,48 @@ const ACTION_MAP: Record<string, { label: string; icon: any; color: string }> = 
 export function TeamActivityFeed({ teamId }: { teamId: string }) {
     const [activities, setActivities] = useState<TeamActivity[]>([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(false);
+    const [error, setError] = useState("");
 
-    useEffect(() => {
-        const fetchActivity = async () => {
-            setLoading(true);
-            try {
-                const res = await fetch(`/api/teams/${teamId}/activity`);
-                if (res.ok) {
-                    const data = await res.json();
-                    setActivities(data.logs || []);
-                } else {
-                    setError(true);
-                }
-            } catch (error) {
-                console.error("Failed to fetch team activity:", error);
-                setError(true);
-            } finally {
+    const fetchActivity = useCallback(async (signal?: AbortSignal) => {
+        setLoading(true);
+        setError("");
+
+        try {
+            const res = await fetch(`/api/teams/${teamId}/activity`, { signal });
+            const data = await res.json().catch(() => ({}));
+
+            if (!res.ok) {
+                const message =
+                    (typeof data.message === "string" && data.message) ||
+                    (typeof data.error === "string" && data.error !== "ApiException" ? data.error : "") ||
+                    "Failed to load activity";
+                throw new Error(message);
+            }
+
+            setActivities(Array.isArray(data.logs) ? data.logs : []);
+        } catch (requestError: unknown) {
+            if (signal?.aborted) {
+                return;
+            }
+
+            const message = requestError instanceof Error ? requestError.message : "Failed to load activity";
+            setError(message);
+        } finally {
+            if (!signal?.aborted) {
                 setLoading(false);
             }
-        };
-
-        if (teamId) fetchActivity();
+        }
     }, [teamId]);
+
+    useEffect(() => {
+        const controller = new AbortController();
+
+        if (teamId) {
+            void fetchActivity(controller.signal);
+        }
+
+        return () => controller.abort();
+    }, [teamId, fetchActivity]);
 
     if (loading) {
         return (
@@ -79,9 +99,18 @@ export function TeamActivityFeed({ teamId }: { teamId: string }) {
 
     if (error) {
         return (
-            <div className="py-8 flex flex-col items-center justify-center gap-3 text-rose-500">
-                <AlertCircle className="w-6 h-6" />
-                <p className="text-xs font-bold">Failed to load activity</p>
+            <div className="py-8 px-4 flex flex-col items-center justify-center gap-3 text-center">
+                <AlertCircle className="w-6 h-6 text-rose-500" />
+                <p className="text-xs font-bold text-rose-300">{error}</p>
+                <button
+                    type="button"
+                    onClick={() => {
+                        void fetchActivity();
+                    }}
+                    className="text-[10px] font-bold uppercase tracking-wider text-zinc-300 hover:text-white transition-colors"
+                >
+                    Retry
+                </button>
             </div>
         );
     }
@@ -139,16 +168,16 @@ export function TeamActivityFeed({ teamId }: { teamId: string }) {
                                     
                                     <p className="text-[11px] text-white/50 mt-0.5 leading-relaxed">
                                         {config.label} 
-                                        {activity.details?.fileName && (
+                                        {typeof activity.details?.fileName === "string" && (
                                             <span className="text-zinc-300 font-mono ml-1">[{activity.details.fileName}]</span>
                                         )}
-                                        {activity.action === "UPDATE_MEMBER_ROLE" && activity.details?.newRole && (
+                                        {activity.action === "UPDATE_MEMBER_ROLE" && typeof activity.details?.newRole === "string" && (
                                             <span className="text-primary font-bold ml-1">to {activity.details.newRole}</span>
                                         )}
-                                        {activity.action === "POLICY_ENFORCEMENT" && activity.details?.expiredCount && (
+                                        {activity.action === "POLICY_ENFORCEMENT" && typeof activity.details?.expiredCount === "number" && (
                                             <span className="text-amber-500 font-bold ml-1">({activity.details.expiredCount} docs)</span>
                                         )}
-                                        {activity.action === "INTENT_DRIFT_DETECTED" && activity.details?.reasoning && (
+                                        {activity.action === "INTENT_DRIFT_DETECTED" && typeof activity.details?.reasoning === "string" && (
                                             <span className="text-rose-400/80 italic block mt-1 border-l border-rose-500/20 pl-2">
                                                 {activity.details.reasoning}
                                             </span>

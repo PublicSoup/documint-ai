@@ -7,14 +7,19 @@ import { db } from "@/lib/db";
 import { checkTeamPermission } from "@/lib/permissions";
 import { requireFeature } from "@/lib/feature-gate";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse } from "@/lib/api-utils";
 
-const paramsSchema = z.object({
-    teamId: z.string().trim().min(1).max(100),
-}).strict();
+const paramsSchema = z
+    .object({
+        teamId: z.string().trim().min(1).max(100),
+    })
+    .strict();
 
-type TeamConfig = {
-    coverageGoal?: number;
-};
+const teamConfigSchema = z
+    .object({
+        coverageGoal: z.number().int().min(1).max(100).optional(),
+    })
+    .strict();
 
 export async function GET(
     _request: NextRequest,
@@ -23,24 +28,26 @@ export async function GET(
     try {
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid team ID" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid team ID", parsedParams.error.flatten());
         }
 
         const { teamId } = parsedParams.data;
 
         const gateError = await requireFeature("analytics");
-        if (gateError) return gateError;
+        if (gateError) {
+            return gateError;
+        }
 
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
         const hasPermission = await checkTeamPermission(session.user.id, teamId, "view");
         if (!hasPermission) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+            throw ApiErrors.forbidden();
         }
 
         const team = await db.team.findUnique({
@@ -55,7 +62,7 @@ export async function GET(
         });
 
         if (!team) {
-            return NextResponse.json({ error: "Team not found" }, { status: 404 });
+            throw ApiErrors.notFound("Team");
         }
 
         const files = await db.file.findMany({
@@ -67,6 +74,10 @@ export async function GET(
             },
         });
 
+        const teamConfigResult = teamConfigSchema.safeParse(team.integrations[0]?.config ?? {});
+        const teamConfig = teamConfigResult.success ? teamConfigResult.data : {};
+        const targetGoal = teamConfig.coverageGoal ?? 80;
+
         const totalFiles = files.length;
         if (totalFiles === 0) {
             return NextResponse.json({
@@ -74,9 +85,9 @@ export async function GET(
                 totalScore: 0,
                 grade: "N/A",
                 metrics: {
-                    coverage: { value: 0, target: 80, status: "warning" },
-                    drift: { value: 0, count: 0, status: "healthy" },
-                    velocity: { value: 0, status: "stale" },
+                    coverage: { value: 0, target: targetGoal, status: "warning" as const },
+                    drift: { value: 0, count: 0, status: "healthy" as const },
+                    velocity: { value: 0, status: "stale" as const },
                 },
                 generatedAt: new Date().toISOString(),
             });
@@ -102,19 +113,16 @@ export async function GET(
         const velocityWeight = Math.min((velocity / Math.max(totalFiles * 0.1, 1)) * 100, 100) * 0.2;
         const totalScore = Math.round(coverageWeight + driftWeight + velocityWeight);
 
-        const grade = totalScore >= 90
-            ? "A"
-            : totalScore >= 80
-                ? "B"
-                : totalScore >= 70
-                    ? "C"
-                    : totalScore >= 60
-                        ? "D"
-                        : "F";
-
-        const teamConfigRaw = team.integrations[0]?.config;
-        const teamConfig = (teamConfigRaw && typeof teamConfigRaw === "object" ? teamConfigRaw : {}) as TeamConfig;
-        const targetGoal = teamConfig.coverageGoal ?? 80;
+        const grade =
+            totalScore >= 90
+                ? "A"
+                : totalScore >= 80
+                    ? "B"
+                    : totalScore >= 70
+                        ? "C"
+                        : totalScore >= 60
+                            ? "D"
+                            : "F";
 
         return NextResponse.json({
             teamName: team.name,
@@ -139,7 +147,6 @@ export async function GET(
             generatedAt: new Date().toISOString(),
         });
     } catch (error) {
-        console.error("[Scorecard_API] Error:", error);
-        return NextResponse.json({ error: "Failed to generate scorecard" }, { status: 500 });
+        return errorResponse(error);
     }
 }
