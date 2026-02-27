@@ -3,8 +3,9 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { errorResponse, validateQuery } from "@/lib/api-utils";
+import { ApiErrors, errorResponse, validateQuery } from "@/lib/api-utils";
 import { checkTeamPermission } from "@/lib/permissions";
 
 const querySchema = z.object({
@@ -19,7 +20,7 @@ export async function GET(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         // Rate limiting
@@ -28,13 +29,13 @@ export async function GET(request: NextRequest) {
         const { searchParams } = new URL(request.url);
         const { teamId } = validateQuery(searchParams, querySchema);
 
-        const where: any = {};
+        const where: Prisma.FileWhereInput = {};
 
         if (teamId) {
             // Verify team access
             const hasPermission = await checkTeamPermission(session.user.id, teamId, "view");
             if (!hasPermission) {
-                return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+                throw ApiErrors.forbidden();
             }
             where.teamId = teamId;
         } else {
