@@ -55,7 +55,12 @@ export function OnboardingChecklist({ onboardingContext }: OnboardingChecklistPr
             await fetch("/api/onboarding", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ dismissed: true }),
+                body: JSON.stringify({
+                    dismissed: true,
+                    intent: onboardingContext?.intent,
+                    plan: onboardingContext?.plan ?? undefined,
+                    source: onboardingContext?.source ?? undefined,
+                }),
             });
         } catch (e) {
             console.error(e);

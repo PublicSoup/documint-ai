@@ -5,11 +5,14 @@ import { db } from "@/lib/db";
 import { getUserSubscription } from "@/lib/subscription";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { z } from "zod";
-import { errorResponse, validateBody } from "@/lib/api-utils";
+import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 
 const onboardingSchema = z.object({
     dismissed: z.boolean(),
-});
+    intent: z.enum(["signup", "trial"]).optional(),
+    plan: z.enum(["starter", "pro", "team"]).optional(),
+    source: z.string().trim().min(1).max(80).regex(/^[a-z0-9_\-]+$/i).optional(),
+}).strict();
 
 /**
  * GET /api/onboarding
@@ -19,7 +22,7 @@ export async function GET() {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         // Rate limit
@@ -70,13 +73,13 @@ export async function POST(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
         const userId = session.user.id;
-        const { dismissed } = await validateBody(request, onboardingSchema);
+        const { dismissed, intent, plan, source } = await validateBody(request, onboardingSchema);
 
         // Fetch current settings to preserve other keys
         const user = await db.user.findUnique({ 
@@ -95,6 +98,24 @@ export async function POST(request: NextRequest) {
                 }
             }
         });
+
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId,
+                action: "UPDATE_ONBOARDING_PREFERENCES",
+                entity: "UserSettings",
+                entityId: userId,
+                details: {
+                    dismissed,
+                    intent: intent ?? null,
+                    plan: plan ?? null,
+                    source: source ?? null,
+                },
+            });
+        } catch {
+            // Non-blocking audit logging.
+        }
 
         return NextResponse.json({ success: true });
 
