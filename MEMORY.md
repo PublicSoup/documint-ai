@@ -66,6 +66,20 @@ Audit → Plan → Implement → Verify → Document → Commit
 ## Verification Record
 - Most recent explicit green verification: `npm run build` passed after conversion-variants feature batch.
 
+## Completed vs Pending (cron quick-scan)
+### Completed
+- Team + analytics API hardening baseline established and shipped.
+- IDE AI Website Generator and conversion-variant generation flow shipped.
+- Launch-readiness metadata (`launchChecklist`, `conversionHooks`) integrated.
+- Mermaid/WebContainer reliability hardening completed for current batch scope.
+- Root operational `MEMORY.md` established for cross-run continuity.
+
+### Pending
+- Conversion funnel instrumentation (server-side events + dashboard surfacing).
+- Remaining mutation-route audit for full authz/rate-limit/audit parity.
+- WebContainer failure recovery deepening (timeouts/retries/state reconciliation).
+- Full verification cadence (`build` + `lint` + `test` when available) each major batch.
+
 ## Known Runtime Risk
 - Some runs experienced execution backend limits (`exec` allowlist/sandbox issues), intermittently blocking build/git verification in constrained runtimes.
 - Mitigation: prefer gateway-host execution path when available.
