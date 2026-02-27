@@ -1,12 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { CheckCircle2, Circle, X, PartyPopper, ArrowRight, Loader2, Share2, UploadCloud, CreditCard } from "lucide-react";
+import { CheckCircle2, Circle, X, PartyPopper, Share2, UploadCloud, CreditCard } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 interface OnboardingState {
     steps: {
@@ -18,11 +17,18 @@ interface OnboardingState {
     isDismissed: boolean;
 }
 
-export function OnboardingChecklist() {
+interface OnboardingChecklistProps {
+    onboardingContext?: {
+        intent: "signup" | "trial";
+        plan: "starter" | "pro" | "team" | null;
+        source: string | null;
+    };
+}
+
+export function OnboardingChecklist({ onboardingContext }: OnboardingChecklistProps) {
     const [state, setState] = useState<OnboardingState | null>(null);
     const [loading, setLoading] = useState(true);
     const [isVisible, setIsVisible] = useState(true);
-    const router = useRouter();
 
     useEffect(() => {
         const fetchState = async () => {
@@ -58,6 +64,24 @@ export function OnboardingChecklist() {
 
     if (loading || !state || !isVisible) return null;
 
+    const billingHref = (() => {
+        const query = new URLSearchParams();
+
+        if (onboardingContext?.intent === "trial") {
+            query.set("intent", "trial");
+        }
+
+        if (onboardingContext?.plan) {
+            query.set("plan", onboardingContext.plan);
+        }
+
+        if (onboardingContext?.source) {
+            query.set("source", onboardingContext.source);
+        }
+
+        return query.toString().length > 0 ? `/dashboard/billing?${query.toString()}` : "/dashboard/billing";
+    })();
+
     const steps = [
         {
             id: "hasAccount",
@@ -81,15 +105,17 @@ export function OnboardingChecklist() {
             description: "Make a documentation file public and share the link.",
             completed: state.steps.hasShared,
             icon: Share2,
-            action: <span className="text-xs text-muted-foreground">Select a file &rarr; Click "Share"</span>
+            action: <span className="text-xs text-muted-foreground">Select a file &rarr; Click &quot;Share&quot;</span>
         },
         {
             id: "hasUpgraded",
-            label: "Start Free Trial",
-            description: "Unlock advanced AI analysis and team features.",
+            label: onboardingContext?.intent === "trial" ? "Activate Trial Plan" : "Start Free Trial",
+            description: onboardingContext?.plan
+                ? `Unlock advanced AI analysis with the ${onboardingContext.plan} plan.`
+                : "Unlock advanced AI analysis and team features.",
             completed: state.steps.hasUpgraded,
             icon: CreditCard,
-            action: <Link href="/dashboard/billing"><Button size="sm" variant="primary" className="h-7 text-xs border-0">Upgrade</Button></Link>
+            action: <Link href={billingHref}><Button size="sm" variant="primary" className="h-7 text-xs border-0">Upgrade</Button></Link>
         }
     ];
 
@@ -115,10 +141,12 @@ export function OnboardingChecklist() {
                             <div>
                                 <h3 className="text-xl font-bold text-white flex items-center gap-2">
                                     <PartyPopper className="w-5 h-5 text-yellow-400" />
-                                    Getting Started
+                                    {onboardingContext?.intent === "trial" ? "Trial Activation" : "Getting Started"}
                                 </h3>
                                 <p className="text-muted-foreground text-sm mt-1">
-                                    Complete these steps to get the most out of DocuMint AI.
+                                    {onboardingContext?.intent === "trial"
+                                        ? "Complete these steps to unlock your full trial value quickly."
+                                        : "Complete these steps to get the most out of DocuMint AI."}
                                 </p>
                             </div>
                             <Button variant="ghost" size="icon" onClick={handleDismiss} className="text-white/40 hover:text-white">
@@ -132,7 +160,7 @@ export function OnboardingChecklist() {
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
-                            {steps.map((step, i) => (
+                            {steps.map((step) => (
                                 <div
                                     key={step.id}
                                     className={`p-4 rounded-xl border transition-all ${step.completed

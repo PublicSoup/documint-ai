@@ -23,7 +23,8 @@ import {
     ChevronRight,
     Terminal,
     Lock,
-    Check
+    Check,
+    ArrowRight
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -61,6 +62,18 @@ export default async function DashboardPage(props: {
 }) {
     const searchParams = await props.searchParams;
     const session = await getServerSession(authOptions);
+
+    const onboardingIntentRaw = Array.isArray(searchParams?.intent) ? searchParams.intent[0] : searchParams?.intent;
+    const onboardingPlanRaw = Array.isArray(searchParams?.plan) ? searchParams.plan[0] : searchParams?.plan;
+    const onboardingSourceRaw = Array.isArray(searchParams?.source) ? searchParams.source[0] : searchParams?.source;
+
+    const onboardingIntent = onboardingIntentRaw === "trial" ? "trial" : "signup";
+    const onboardingPlan = onboardingPlanRaw === "starter" || onboardingPlanRaw === "pro" || onboardingPlanRaw === "team"
+        ? onboardingPlanRaw
+        : null;
+    const onboardingSource = onboardingSourceRaw && /^[a-z0-9_\-]{1,80}$/i.test(onboardingSourceRaw)
+        ? onboardingSourceRaw
+        : null;
 
     if (!session) {
         redirect("/auth/login");
@@ -212,7 +225,27 @@ export default async function DashboardPage(props: {
 
     return (
         <div className="space-y-8 animate-fade-in pb-20">
-            <OnboardingChecklist />
+            <OnboardingChecklist onboardingContext={{ intent: onboardingIntent, plan: onboardingPlan, source: onboardingSource }} />
+
+            {onboardingIntent === "trial" && !(subscription.isPro || subscription.isTeam) && (
+                <Card className="border-primary/25 bg-primary/10">
+                    <CardContent className="p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                        <div>
+                            <p className="text-xs uppercase tracking-[0.16em] text-primary font-black">Trial onboarding</p>
+                            <p className="text-sm text-white/80 mt-1">
+                                Complete billing setup to unlock your Pro trial workspace features.
+                            </p>
+                        </div>
+                        <Link
+                            href={`/dashboard/billing${onboardingSource ? `?source=${encodeURIComponent(onboardingSource)}` : ""}`}
+                        >
+                            <Button size="sm" className="bg-primary hover:bg-primary/90 text-white">
+                                Start Pro Trial <ArrowRight className="w-4 h-4 ml-2" />
+                            </Button>
+                        </Link>
+                    </CardContent>
+                </Card>
+            )}
 
             <Tabs defaultValue="overview" className="space-y-6">
                 <div className="flex items-center justify-between">
@@ -352,7 +385,7 @@ export default async function DashboardPage(props: {
                                         <ReadmeGenerator fileIds={typedFiles.map(f => f.id)} />
                                         <div className="grid grid-cols-2 gap-2">
                                             <ChangelogGenerator fileIds={typedFiles.map(f => f.id)} />
-                                            <Link href="/dashboard/analytics" className="w-full">
+                                            <Link href={teamId ? `/dashboard/analytics?teamId=${teamId}` : "/dashboard/analytics"} className="w-full">
                                                 <Button variant="ghost" size="sm" className="w-full justify-start text-[10px] h-9 hover:bg-white/5">
                                                     <BarChart3 className="w-3 h-3 mr-2 text-purple-400" />
                                                     Analytics

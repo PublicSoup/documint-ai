@@ -1,12 +1,33 @@
 "use client";
 
-import { signIn, getProviders, type ClientSafeProvider } from "next-auth/react";
-import { useState, useEffect } from "react";
+import { signIn } from "next-auth/react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { FileCode2, Sparkles, Github, ArrowRight, Mail, Lock } from "lucide-react";
+import { Sparkles, Github, ArrowRight, Mail, Lock } from "lucide-react";
 import { useToast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
+
+type LoginIntent = "signup" | "trial";
+type LoginPlan = "starter" | "pro" | "team";
+
+function buildDashboardHref(params: { intent: LoginIntent; plan: LoginPlan | null; source: string | null }): string {
+    const query = new URLSearchParams();
+
+    if (params.intent === "trial") {
+        query.set("intent", "trial");
+    }
+
+    if (params.plan) {
+        query.set("plan", params.plan);
+    }
+
+    if (params.source) {
+        query.set("source", params.source);
+    }
+
+    return query.toString().length > 0 ? `/dashboard?${query.toString()}` : "/dashboard";
+}
 
 export default function LoginPage() {
     const { toast } = useToast();
@@ -14,8 +35,35 @@ export default function LoginPage() {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [loading, setLoading] = useState(false);
-    // OAuth buttons are always shown
-    const showSocial = true;
+    const [intent, setIntent] = useState<LoginIntent>("signup");
+    const [plan, setPlan] = useState<LoginPlan | null>(null);
+    const [source, setSource] = useState<string | null>(null);
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const rawIntent = params.get("intent");
+        const rawPlan = params.get("plan");
+        const rawSource = params.get("source")?.trim();
+
+        setIntent(rawIntent === "trial" ? "trial" : "signup");
+
+        if (rawPlan === "starter" || rawPlan === "pro" || rawPlan === "team") {
+            setPlan(rawPlan);
+        } else {
+            setPlan(null);
+        }
+
+        if (rawSource && rawSource.length <= 80 && /^[a-z0-9_\-]+$/i.test(rawSource)) {
+            setSource(rawSource);
+        } else {
+            setSource(null);
+        }
+    }, []);
+
+    const dashboardHref = useMemo(
+        () => buildDashboardHref({ intent, plan, source }),
+        [intent, plan, source],
+    );
 
     /* ... handlers ... */
     const handleSubmit = async (e: React.FormEvent) => {
@@ -32,7 +80,7 @@ export default function LoginPage() {
             if (res?.error) {
                 toast(res.error === "CredentialsSignin" ? "Invalid email or password" : `Authentication Error: ${res.error}`, "error");
             } else {
-                router.push("/dashboard");
+                router.push(dashboardHref);
             }
         } catch (error) {
             console.error(error);
@@ -61,8 +109,11 @@ export default function LoginPage() {
                 <div className="glass-card p-8 rounded-[2rem] border border-white/10 shadow-2xl relative">
 
                     <div className="mb-8">
-                        <h2 className="text-3xl font-bold text-white tracking-tight">Welcome back</h2>
-                        <p className="mt-2 text-sm text-white/50">Enter your credentials to access your workspace</p>
+                        <h2 className="text-3xl font-bold text-white tracking-tight">{intent === "trial" ? "Continue your trial setup" : "Welcome back"}</h2>
+                        <p className="mt-2 text-sm text-white/50">{intent === "trial" ? "Sign in to continue your guided trial onboarding." : "Enter your credentials to access your workspace"}</p>
+                        {plan && (
+                            <p className="mt-2 text-xs uppercase tracking-[0.16em] text-primary font-bold">Selected plan: {plan}</p>
+                        )}
                     </div>
 
                     <form className="space-y-6" onSubmit={handleSubmit}>
@@ -134,7 +185,9 @@ export default function LoginPage() {
                     <div className="grid grid-cols-2 gap-4">
                         <Button
                             variant="outline"
-                            onClick={() => signIn("auth0", { callbackUrl: "/dashboard" }, { connection: "google-oauth2" })}
+                            onClick={() => {
+                                void signIn("auth0", { callbackUrl: dashboardHref }, { connection: "google-oauth2" });
+                            }}
                             className="h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
                         >
                             <svg className="w-4 h-4" viewBox="0 0 24 24">
@@ -148,7 +201,9 @@ export default function LoginPage() {
 
                         <Button
                             variant="outline"
-                            onClick={() => signIn("auth0", { callbackUrl: "/dashboard" }, { connection: "github" })}
+                            onClick={() => {
+                                void signIn("auth0", { callbackUrl: dashboardHref }, { connection: "github" });
+                            }}
                             className="h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
                         >
                             <Github className="w-4 h-4" />
@@ -159,7 +214,9 @@ export default function LoginPage() {
                     <div className="mt-4">
                         <Button
                             variant="ghost"
-                            onClick={() => signIn("auth0", { callbackUrl: "/dashboard" })}
+                            onClick={() => {
+                                void signIn("auth0", { callbackUrl: dashboardHref });
+                            }}
                             className="w-full h-10 border border-white/5 bg-white/5 hover:bg-white/10 text-white/60 text-xs rounded-xl gap-2 font-medium"
                         >
                             <Mail className="w-4 h-4 mr-2" />
@@ -170,7 +227,16 @@ export default function LoginPage() {
 
                 <p className="mt-8 text-center text-sm text-white/40">
                     New to DocuMint?{" "}
-                    <Link href="/auth/register" className="font-bold text-primary hover:text-primary/80 transition-colors">
+                    <Link
+                        href={(() => {
+                            const query = new URLSearchParams();
+                            if (intent === "trial") query.set("intent", "trial");
+                            if (plan) query.set("plan", plan);
+                            if (source) query.set("source", source);
+                            return query.toString().length > 0 ? `/auth/register?${query.toString()}` : "/auth/register";
+                        })()}
+                        className="font-bold text-primary hover:text-primary/80 transition-colors"
+                    >
                         Create an account
                     </Link>
                 </p>

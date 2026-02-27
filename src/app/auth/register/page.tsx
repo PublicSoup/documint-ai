@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Sparkles, Github, ArrowRight, User, Mail, Lock } from "lucide-react";
 import { signIn } from "next-auth/react";
@@ -24,34 +24,34 @@ const INTENT_SUBTITLE: Record<RegistrationIntent, string> = {
 export default function RegisterPage() {
     const { toast } = useToast();
     const router = useRouter();
-    const searchParams = useSearchParams();
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [loading, setLoading] = useState(false);
+    const [intent, setIntent] = useState<RegistrationIntent>("signup");
+    const [plan, setPlan] = useState<RegistrationPlan | null>(null);
+    const [source, setSource] = useState<string | null>(null);
 
-    const intent = useMemo<RegistrationIntent>(() => {
-        const rawIntent = searchParams.get("intent");
-        return rawIntent === "trial" ? "trial" : "signup";
-    }, [searchParams]);
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const rawIntent = params.get("intent");
+        const rawPlan = params.get("plan");
+        const rawSource = params.get("source")?.trim().toLowerCase();
 
-    const plan = useMemo<RegistrationPlan | null>(() => {
-        const rawPlan = searchParams.get("plan");
+        setIntent(rawIntent === "trial" ? "trial" : "signup");
+
         if (rawPlan === "starter" || rawPlan === "pro" || rawPlan === "team") {
-            return rawPlan;
+            setPlan(rawPlan);
+        } else {
+            setPlan(null);
         }
 
-        return null;
-    }, [searchParams]);
-
-    const source = useMemo(() => {
-        const rawSource = searchParams.get("source")?.trim().toLowerCase();
-        if (!rawSource || rawSource.length > 80 || !/^[a-z0-9_\-]+$/.test(rawSource)) {
-            return null;
+        if (rawSource && rawSource.length <= 80 && /^[a-z0-9_\-]+$/.test(rawSource)) {
+            setSource(rawSource);
+        } else {
+            setSource(null);
         }
-
-        return rawSource;
-    }, [searchParams]);
+    }, []);
 
     /* ... handlers ... */
     const handleSubmit = async (e: React.FormEvent) => {

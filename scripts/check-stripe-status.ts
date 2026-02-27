@@ -6,7 +6,7 @@ import Stripe from "stripe";
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: "2024-11-20.acacia" as any,
+    apiVersion: "2025-12-15.clover",
 });
 
 async function checkStripe() {
@@ -37,8 +37,9 @@ async function checkStripe() {
             try {
                 const price = await stripe.prices.retrieve(id);
                 console.log(`   ✅ ${name}: Found Price ${id} (${price.unit_amount! / 100} ${price.currency.toUpperCase()})`);
-            } catch (e: any) {
-                console.error(`   ❌ ${name}: Failed to find price ${id} - ${e.message}`);
+            } catch (error: unknown) {
+                const message = error instanceof Error ? error.message : "Unknown Stripe error";
+                console.error(`   ❌ ${name}: Failed to find price ${id} - ${message}`);
                 allGood = false;
             }
         }
@@ -51,8 +52,9 @@ async function checkStripe() {
             process.exit(1);
         }
 
-    } catch (error: any) {
-        console.error(`❌ Failed to connect to Stripe: ${error.message}`);
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Unknown Stripe connection error";
+        console.error(`❌ Failed to connect to Stripe: ${message}`);
         process.exit(1);
     }
 }
