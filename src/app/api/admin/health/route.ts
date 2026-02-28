@@ -306,6 +306,11 @@ export async function GET() {
             Math.floor((generatedAtEpochMs - Date.parse(healthSignalStableSince ?? generatedAtIso)) / 1000),
         );
 
+        const stabilityWindowMin = Math.max(1 / 60, healthSignalStabilitySec / 60);
+        const healthSignalTransitionVelocityPerMin = Number.parseFloat(
+            (healthSignalTransitionCount / stabilityWindowMin).toFixed(2),
+        );
+
         const flappingByTransitionCount = healthSignalTransitionCount >= HEALTH_SIGNAL_FLAPPING_TRANSITION_THRESHOLD;
         const flappingByStabilityWindow = healthSignalStabilitySec <= HEALTH_SIGNAL_FLAPPING_STABILITY_WINDOW_SEC;
 
@@ -397,6 +402,7 @@ export async function GET() {
             healthSignalTransitionCountCapped: true,
             healthSignalTransitionCountRemaining: true,
             healthSignalTransitionUtilizationPct: true,
+            healthSignalTransitionVelocityPerMin: true,
             healthSignalFlapping: true,
             healthSignalFlappingReason: true,
             healthSignalVolatilityBand: true,
@@ -454,6 +460,7 @@ export async function GET() {
                 healthSignalTransitionCountCapped,
                 healthSignalTransitionCountRemaining,
                 healthSignalTransitionUtilizationPct,
+                healthSignalTransitionVelocityPerMin,
                 healthSignalFlapping,
                 healthSignalFlappingReason,
                 healthSignalVolatilityBand,
