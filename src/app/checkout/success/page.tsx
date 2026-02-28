@@ -23,6 +23,8 @@ function SuccessContent() {
         ? `/dashboard?${dashboardQuery.toString()}`
         : "/dashboard";
 
+    const [redirectCountdown, setRedirectCountdown] = useState(6);
+
     useEffect(() => {
         // If no session ID, still show success (they might have navigated directly)
         const timer = setTimeout(() => {
@@ -31,6 +33,24 @@ function SuccessContent() {
 
         return () => clearTimeout(timer);
     }, [searchParams]);
+
+    useEffect(() => {
+        if (status !== "success" || intent !== "trial") return;
+
+        const interval = setInterval(() => {
+            setRedirectCountdown((prev) => {
+                if (prev <= 1) {
+                    clearInterval(interval);
+                    router.push(dashboardHref);
+                    return 0;
+                }
+
+                return prev - 1;
+            });
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [status, intent, router, dashboardHref]);
 
     if (status === "loading") {
         return (
@@ -79,6 +99,12 @@ function SuccessContent() {
                         ? "Your trial is active. Complete onboarding to unlock value faster."
                         : "Your subscription is now active. You have access to all premium features."}
                 </p>
+
+                {intent === "trial" && (
+                    <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 mb-6">
+                        Redirecting you to guided onboarding in {redirectCountdown}s…
+                    </p>
+                )}
 
                 <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-4 mb-8">
                     <h3 className="font-semibold text-gray-900 mb-2">What&apos;s unlocked:</h3>
