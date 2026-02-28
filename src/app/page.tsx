@@ -565,9 +565,33 @@ export default function LandingPage() {
             </div>
             <div className="flex flex-col gap-4">
               <span className="font-bold text-white uppercase text-xs tracking-widest">Legal</span>
-              <Link href="/privacy" className="hover:text-primary transition-colors">Privacy Policy</Link>
-              <Link href="/terms" className="hover:text-primary transition-colors">Terms of Service</Link>
-              <Link href="/refund" className="hover:text-primary transition-colors">Refund Policy</Link>
+              <TrackedLink
+                href="/privacy"
+                eventName="landing_secondary_cta_click"
+                location="landing_footer_legal_privacy"
+                variant={LANDING_EXPERIMENT_VARIANT}
+                className="hover:text-primary transition-colors"
+              >
+                Privacy Policy
+              </TrackedLink>
+              <TrackedLink
+                href="/terms"
+                eventName="landing_secondary_cta_click"
+                location="landing_footer_legal_terms"
+                variant={LANDING_EXPERIMENT_VARIANT}
+                className="hover:text-primary transition-colors"
+              >
+                Terms of Service
+              </TrackedLink>
+              <TrackedLink
+                href="/refund"
+                eventName="landing_secondary_cta_click"
+                location="landing_footer_legal_refund"
+                variant={LANDING_EXPERIMENT_VARIANT}
+                className="hover:text-primary transition-colors"
+              >
+                Refund Policy
+              </TrackedLink>
             </div>
           </div>
 
