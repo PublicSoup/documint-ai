@@ -5,11 +5,14 @@ import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateQuery } from "@/lib/api-utils";
 
-const fileSearchSchema = z.object({
-    q: z.string().trim().min(2).max(200),
-    teamId: z.string().trim().min(1).max(100).optional(),
-}).strict();
+const fileSearchSchema = z
+    .object({
+        q: z.string().trim().min(2).max(200),
+        teamId: z.string().trim().min(1).max(100).optional(),
+    })
+    .strict();
 
 /**
  * GET /api/files/search?q=...&teamId=...
@@ -19,22 +22,12 @@ export async function GET(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
-        const searchParams = new URL(req.url).searchParams;
-        const parsed = fileSearchSchema.safeParse({
-            q: searchParams.get("q") ?? "",
-            teamId: searchParams.get("teamId") ?? undefined,
-        });
-
-        if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid search query" }, { status: 400 });
-        }
-
-        const { q: query, teamId } = parsed.data;
+        const { q: query, teamId } = validateQuery(req.nextUrl.searchParams, fileSearchSchema);
 
         const where: Prisma.FileWhereInput = {
             OR: [
@@ -60,7 +53,7 @@ export async function GET(req: NextRequest) {
             });
 
             if (!membership) {
-                return NextResponse.json({ error: "Forbidden: Not a team member" }, { status: 403 });
+                throw ApiErrors.forbidden("Not a team member");
             }
 
             where.teamId = teamId;
@@ -101,7 +94,6 @@ export async function GET(req: NextRequest) {
 
         return NextResponse.json({ results: files });
     } catch (error) {
-        console.error("[FileSearch_API] Error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
