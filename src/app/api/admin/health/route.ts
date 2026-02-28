@@ -25,6 +25,7 @@ let previousHealthSignalVolatilityScore: number | null = null;
 let previousPolicyMismatchDigest: string | null = null;
 let currentPolicyMismatchStableSince: string | null = null;
 let policyMismatchTransitionCount = 0;
+let previousPolicyMismatchActionDigest: string | null = null;
 
 const HEALTH_SIGNAL_FLAPPING_TRANSITION_THRESHOLD = 3;
 const HEALTH_SIGNAL_FLAPPING_STABILITY_WINDOW_SEC = 300;
@@ -476,8 +477,15 @@ export async function GET() {
             .digest("hex")
             .slice(0, 16);
 
+        const policyMismatchActionDigest = createHash("sha256")
+            .update(policyMismatchRecommendedActions.join(","))
+            .digest("hex")
+            .slice(0, 16);
+
         const policyMismatchChanged = previousPolicyMismatchDigest !== policyMismatchDigest;
         const policyMismatchPreviousDigest = previousPolicyMismatchDigest;
+        const policyMismatchActionChanged = previousPolicyMismatchActionDigest !== policyMismatchActionDigest;
+        const policyMismatchPreviousActionDigest = previousPolicyMismatchActionDigest;
 
         if (policyMismatchChanged && policyMismatchPreviousDigest) {
             policyMismatchTransitionCount += 1;
@@ -525,6 +533,7 @@ export async function GET() {
                     : "watch";
 
         previousPolicyMismatchDigest = policyMismatchDigest;
+        previousPolicyMismatchActionDigest = policyMismatchActionDigest;
 
         const policyMismatchRecommendedActions = policyMismatches
             .map((mismatch) => {
@@ -597,8 +606,11 @@ export async function GET() {
             policyMismatchNamesCsv: true,
             policyMismatchRecommendedActionCsv: true,
             policyMismatchDigest: true,
+            policyMismatchActionDigest: true,
             policyMismatchChanged: true,
+            policyMismatchActionChanged: true,
             policyMismatchPreviousDigest: true,
+            policyMismatchPreviousActionDigest: true,
             policyMismatchStableSince: true,
             policyMismatchStabilitySec: true,
             policyMismatchTransitionCount: true,
@@ -684,8 +696,11 @@ export async function GET() {
                 policyMismatchNamesCsv: policyMismatches.join(",") || "none",
                 policyMismatchRecommendedActionCsv: policyMismatchRecommendedActions.join(",") || "none",
                 policyMismatchDigest,
+                policyMismatchActionDigest,
                 policyMismatchChanged,
+                policyMismatchActionChanged,
                 policyMismatchPreviousDigest,
+                policyMismatchPreviousActionDigest,
                 policyMismatchStableSince,
                 policyMismatchStabilitySec,
                 policyMismatchTransitionCount,
