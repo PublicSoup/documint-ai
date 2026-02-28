@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { ShieldCheck, Lock, FileCheck2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { TrackedLink } from "@/components/marketing/tracked-link";
 
 export default function SecurityPage() {
   return (
@@ -47,12 +47,22 @@ export default function SecurityPage() {
         </div>
 
         <div className="flex gap-3">
-          <Link href="/auth/register?source=security_page&intent=trial&plan=pro">
+          <TrackedLink
+            href="/auth/register?source=security_page&intent=trial&plan=pro"
+            eventName="landing_final_cta_click"
+            location="security_page_primary"
+            variant="control"
+          >
             <Button className="bg-primary hover:bg-primary/90 text-white rounded-xl">Start Free Trial</Button>
-          </Link>
-          <Link href="/contact">
+          </TrackedLink>
+          <TrackedLink
+            href="/contact"
+            eventName="landing_secondary_cta_click"
+            location="security_page_contact_review"
+            variant="control"
+          >
             <Button variant="outline" className="border-white/20 hover:bg-white/10 rounded-xl">Request Security Review</Button>
-          </Link>
+          </TrackedLink>
         </div>
       </div>
     </main>
