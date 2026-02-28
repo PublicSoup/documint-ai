@@ -51,7 +51,7 @@ function parseGeneratedDoc(rawContent: string): GeneratedDoc {
         if (validated.success) {
             return validated.data;
         }
-    } catch (e) {
+    } catch {
         // Fallback for non-JSON or partial responses
     }
 
@@ -72,7 +72,7 @@ export async function POST(
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
         // 1. Enforce rate limit
@@ -80,7 +80,7 @@ export async function POST(
 
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return errorResponse(ApiErrors.badRequest("Invalid file ID"));
+            throw ApiErrors.badRequest("Invalid file ID", parsedParams.error.flatten());
         }
         const { id: fileId } = parsedParams.data;
 
@@ -90,7 +90,7 @@ export async function POST(
         const requiredPermission = preview ? "view" : "edit";
         const hasPermission = await checkFilePermission(session.user.id, fileId, requiredPermission);
         if (!hasPermission) {
-            return errorResponse(ApiErrors.forbidden("You do not have permission to regenerate documentation for this file."));
+            throw ApiErrors.forbidden("You do not have permission to regenerate documentation for this file.");
         }
 
         // 3. Fetch file details
@@ -100,12 +100,12 @@ export async function POST(
         });
 
         if (!file) {
-            return errorResponse(ApiErrors.notFound("File"));
+            throw ApiErrors.notFound("File");
         }
 
         const content = await getFileContent(fileId);
         if (!content) {
-            return errorResponse(ApiErrors.notFound("File content"));
+            throw ApiErrors.notFound("File content");
         }
 
         let styleGuide = "";
@@ -157,7 +157,7 @@ ${content}
         );
 
         if (!aiResult?.content) {
-            return errorResponse(ApiErrors.internalError("AI generation failed."));
+            throw ApiErrors.internalError("AI generation failed.");
         }
 
         const docContent = parseGeneratedDoc(aiResult.content);
@@ -196,7 +196,9 @@ ${content}
             });
 
             const metadata = (existingDoc?.metadata as Record<string, unknown> | null) || {};
-            const { proposedContent, proposedAt, ...metadataWithoutProposal } = metadata;
+            const metadataWithoutProposal = { ...metadata };
+            delete metadataWithoutProposal.proposedContent;
+            delete metadataWithoutProposal.proposedAt;
 
             await db.documentation.upsert({
                 where: { fileId },
