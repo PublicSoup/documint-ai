@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { requireFeature } from "@/lib/feature-gate";
 import { z } from "zod";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { errorResponse, validateQuery } from "@/lib/api-utils";
+import { ApiErrors, errorResponse, validateQuery } from "@/lib/api-utils";
 
 const querySchema = z.object({
     period: z.enum(["7d", "30d", "90d"]).default("7d"),
@@ -19,7 +19,7 @@ export async function GET(req: Request) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         // Check feature access
