@@ -552,7 +552,13 @@ export default function LandingPage() {
             </p>
             <div className="pt-4 flex flex-col gap-2 text-xs text-white/40">
               <span className="uppercase tracking-[0.2em] font-black text-white/20">Contact Support</span>
-              <a href="mailto:support@documint.ai" className="hover:text-primary transition-colors text-sm font-medium">support@documint.ai</a>
+              <a
+                href="mailto:support@documint.ai"
+                aria-label="Email DocuMint AI support"
+                className="hover:text-primary transition-colors text-sm font-medium"
+              >
+                support@documint.ai
+              </a>
             </div>
           </div>
 
