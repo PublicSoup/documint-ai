@@ -466,6 +466,11 @@ export async function GET() {
             Math.floor((generatedAtEpochMs - Date.parse(policyMismatchStableSince ?? generatedAtIso)) / 1000),
         );
 
+        const policyMismatchStabilityWindowMin = Math.max(1 / 60, policyMismatchStabilitySec / 60);
+        const policyMismatchTransitionVelocityPerMin = Number.parseFloat(
+            (policyMismatchTransitionCount / policyMismatchStabilityWindowMin).toFixed(2),
+        );
+
         const policyMismatchVolatilityBand =
             policyMismatchTransitionCount >= 5 ? "volatile" :
             policyMismatchTransitionCount >= 2 ? "watch" :
@@ -536,6 +541,8 @@ export async function GET() {
             policyMismatchPreviousDigest: true,
             policyMismatchStableSince: true,
             policyMismatchStabilitySec: true,
+            policyMismatchTransitionCount: true,
+            policyMismatchTransitionVelocityPerMin: true,
             policyMismatchVolatilityBand: true,
             incidentClass: true,
             incidentRoutingHint: true,
@@ -613,6 +620,8 @@ export async function GET() {
                 policyMismatchPreviousDigest,
                 policyMismatchStableSince,
                 policyMismatchStabilitySec,
+                policyMismatchTransitionCount,
+                policyMismatchTransitionVelocityPerMin,
                 policyMismatchVolatilityBand,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
