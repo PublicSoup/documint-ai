@@ -7,24 +7,24 @@ import { db } from "@/lib/db";
 import { requireFeature } from "@/lib/feature-gate";
 import { validateAdmin } from "@/lib/admin-auth";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { errorResponse, validateQuery, validateBody } from "@/lib/api-utils";
+import { ApiErrors, errorResponse, validateQuery, validateBody } from "@/lib/api-utils";
 
 const querySchema = z.object({
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(50),
-    action: z.string().optional(),
-    entity: z.string().optional(),
-    userId: z.string().optional(),
+    action: z.string().trim().min(1).max(120).optional(),
+    entity: z.string().trim().min(1).max(120).optional(),
+    userId: z.string().trim().min(1).max(100).optional(),
     startDate: z.string().datetime().optional(),
     endDate: z.string().datetime().optional(),
-});
+}).strict();
 
 const exportSchema = z.object({
     format: z.enum(["csv", "json"]).default("csv"),
     startDate: z.string().datetime().optional(),
     endDate: z.string().datetime().optional(),
-    userId: z.string().optional(),
-});
+    userId: z.string().trim().min(1).max(100).optional(),
+}).strict();
 
 /**
  * GET /api/audit
@@ -39,15 +39,14 @@ export async function GET(request: NextRequest) {
         // 2. Check Authentication
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         // 3. Rate Limiting
         await enforceRateLimit(session.user.id, "api");
 
         // 4. Validate Query Params
-        const { searchParams } = new URL(request.url);
-        const { page, limit, action, entity, userId: filterUserId, startDate, endDate } = validateQuery(searchParams, querySchema);
+        const { page, limit, action, entity, userId: filterUserId, startDate, endDate } = validateQuery(request.nextUrl.searchParams, querySchema);
 
         // 5. Determine permissions
         const adminCheck = await validateAdmin();
@@ -109,7 +108,7 @@ export async function POST(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
