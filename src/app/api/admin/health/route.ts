@@ -15,6 +15,7 @@ const ADMIN_HEALTH_RESPONSE_SHAPE_ID = "ah.v1.core";
 let previousHealthSignalDigest: string | null = null;
 let previousHealthSignalObservedAt: string | null = null;
 let currentHealthSignalStableSince: string | null = null;
+let healthSignalTransitionCount = 0;
 
 /**
  * GET /api/admin/health
@@ -284,6 +285,10 @@ export async function GET() {
         const healthSignalPreviousDigest = previousHealthSignalDigest;
         const healthSignalPreviousObservedAt = previousHealthSignalObservedAt;
 
+        if (healthSignalChanged && previousHealthSignalDigest) {
+            healthSignalTransitionCount += 1;
+        }
+
         if (!currentHealthSignalStableSince || healthSignalChanged) {
             currentHealthSignalStableSince = generatedAtIso;
         }
@@ -348,6 +353,7 @@ export async function GET() {
             healthSignalPreviousObservedAt: true,
             healthSignalStableSince: true,
             healthSignalStabilitySec: true,
+            healthSignalTransitionCount: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -396,6 +402,7 @@ export async function GET() {
                 healthSignalPreviousObservedAt,
                 healthSignalStableSince,
                 healthSignalStabilitySec,
+                healthSignalTransitionCount,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
