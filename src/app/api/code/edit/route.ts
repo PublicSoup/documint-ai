@@ -6,14 +6,46 @@ import { db } from "@/lib/db";
 import { checkFilePermission } from "@/lib/permissions";
 import { isLocalFileId, getLocalFile, updateLocalFile } from "@/lib/local-dev-storage";
 import { uploadFile } from "@/lib/supabase/storage";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 
-const editSchema = z.object({
-    fileId: z.string().min(1),
-    operation: z.enum(["replace", "prepend", "append", "set"]).default("set"),
-    content: z.string().optional(),
-    find: z.string().optional(),
-    replaceWith: z.string().optional(),
-}).strict();
+const editSchema = z
+    .object({
+        fileId: z.string().trim().min(1).max(100),
+        operation: z.enum(["replace", "prepend", "append", "set"]).default("set"),
+        content: z.string().max(2_000_000).optional(),
+        find: z.string().optional(),
+        replaceWith: z.string().optional(),
+    })
+    .strict();
+
+function applyEditOperation(params: {
+    currentContent: string;
+    operation: z.infer<typeof editSchema>["operation"];
+    content: string;
+    find?: string;
+    replaceWith: string;
+}): string {
+    const { currentContent, operation, content, find, replaceWith } = params;
+
+    if (operation === "set") {
+        return content;
+    }
+
+    if (operation === "prepend") {
+        return `${content}${currentContent}`;
+    }
+
+    if (operation === "append") {
+        return `${currentContent}${content}`;
+    }
+
+    if (!find) {
+        throw ApiErrors.badRequest("find is required for replace operation");
+    }
+
+    return currentContent.replaceAll(find, replaceWith);
+}
 
 /**
  * POST /api/code/edit
@@ -23,64 +55,53 @@ export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
-        const parsed = editSchema.safeParse(await req.json());
-        if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
-        }
+        await enforceRateLimit(session.user.id, "api");
 
-        const { fileId, operation, content = "", find, replaceWith = "" } = parsed.data;
+        const { fileId, operation, content = "", find, replaceWith = "" } = await validateBody(req, editSchema);
 
         // Local dev file flow
         if (isLocalFileId(fileId) || session.user.id.startsWith("dev-")) {
             const local = await getLocalFile(fileId);
-            if (!local) return NextResponse.json({ error: "File not found" }, { status: 404 });
-
-            let nextContent = local.content || "";
-            if (operation === "set") {
-                nextContent = content;
-            } else if (operation === "prepend") {
-                nextContent = `${content}${nextContent}`;
-            } else if (operation === "append") {
-                nextContent = `${nextContent}${content}`;
-            } else {
-                if (!find) {
-                    return NextResponse.json({ error: "find is required for replace operation" }, { status: 400 });
-                }
-                nextContent = nextContent.replaceAll(find, replaceWith);
+            if (!local) {
+                throw ApiErrors.notFound("File");
             }
 
+            const nextContent = applyEditOperation({
+                currentContent: local.content || "",
+                operation,
+                content,
+                find,
+                replaceWith,
+            });
+
             const ok = await updateLocalFile(fileId, nextContent);
-            if (!ok) return NextResponse.json({ error: "Failed to update file" }, { status: 500 });
+            if (!ok) {
+                throw ApiErrors.internalError("Failed to update local file");
+            }
 
             return NextResponse.json({ success: true, fileId, size: nextContent.length });
         }
 
         const canEdit = await checkFilePermission(session.user.id, fileId, "edit");
         if (!canEdit) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+            throw ApiErrors.forbidden();
         }
 
         const file = await db.file.findUnique({ where: { id: fileId } });
         if (!file) {
-            return NextResponse.json({ error: "File not found" }, { status: 404 });
+            throw ApiErrors.notFound("File");
         }
 
-        let nextContent = file.content || "";
-        if (operation === "set") {
-            nextContent = content;
-        } else if (operation === "prepend") {
-            nextContent = `${content}${nextContent}`;
-        } else if (operation === "append") {
-            nextContent = `${nextContent}${content}`;
-        } else {
-            if (!find) {
-                return NextResponse.json({ error: "find is required for replace operation" }, { status: 400 });
-            }
-            nextContent = nextContent.replaceAll(find, replaceWith);
-        }
+        const nextContent = applyEditOperation({
+            currentContent: file.content || "",
+            operation,
+            content,
+            find,
+            replaceWith,
+        });
 
         await db.file.update({
             where: { id: fileId },
@@ -104,11 +125,12 @@ export async function POST(req: NextRequest) {
                 entityId: fileId,
                 details: { operation, size: nextContent.length },
             });
-        } catch {}
+        } catch {
+            // Keep mutation non-blocking if audit logging fails.
+        }
 
         return NextResponse.json({ success: true, fileId, size: nextContent.length });
     } catch (error) {
-        console.error("[CodeEdit_API] Error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
