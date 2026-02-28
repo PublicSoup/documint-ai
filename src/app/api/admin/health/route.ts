@@ -92,7 +92,7 @@ export async function GET() {
                 status: databaseHealthy && auditChainValid && !webContainerDegraded ? "healthy" : "degraded",
                 timestamp: new Date().toISOString(),
                 checkDurationMs: Date.now() - startedAt,
-                checkFailures,
+                checkFailures: [...new Set(checkFailures)],
                 components: {
                     database: {
                         status: databaseHealthy ? "online" : "offline",
