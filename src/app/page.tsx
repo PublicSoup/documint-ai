@@ -579,7 +579,12 @@ export default function LandingPage() {
               location="footer_social_github"
               variant={LANDING_EXPERIMENT_VARIANT}
             >
-              <Button size="icon" variant="ghost" className="w-10 h-10 rounded-full hover:bg-white/5 border border-white/5">
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label="Visit DocuMint AI on GitHub"
+                className="w-10 h-10 rounded-full hover:bg-white/5 border border-white/5"
+              >
                 <Github className="w-5 h-5" />
               </Button>
             </TrackedLink>
@@ -589,7 +594,12 @@ export default function LandingPage() {
               location="footer_social_docs"
               variant={LANDING_EXPERIMENT_VARIANT}
             >
-              <Button size="icon" variant="ghost" className="w-10 h-10 rounded-full hover:bg-white/5 border border-white/5">
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label="View DocuMint AI documentation"
+                className="w-10 h-10 rounded-full hover:bg-white/5 border border-white/5"
+              >
                 <Globe className="w-5 h-5" />
               </Button>
             </TrackedLink>
