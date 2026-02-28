@@ -487,6 +487,9 @@ export async function GET() {
             ),
         );
 
+        const policyMismatchVolatilityAlertRecommended =
+            policyMismatchVolatilityBand === "volatile" || policyMismatchVolatilityScore >= 70;
+
         previousPolicyMismatchDigest = policyMismatchDigest;
 
         const policyMismatchRecommendedActions = policyMismatches
@@ -556,6 +559,7 @@ export async function GET() {
             policyMismatchTransitionVelocityPerMin: true,
             policyMismatchVolatilityBand: true,
             policyMismatchVolatilityScore: true,
+            policyMismatchVolatilityAlertRecommended: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -636,6 +640,7 @@ export async function GET() {
                 policyMismatchTransitionVelocityPerMin,
                 policyMismatchVolatilityBand,
                 policyMismatchVolatilityScore,
+                policyMismatchVolatilityAlertRecommended,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
