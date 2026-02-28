@@ -1,7 +1,4 @@
-'use client';
-
 import Link from 'next/link';
-import React from 'react';
 import { TrackedLink } from '@/components/marketing/tracked-link';
 
 export function SiteFooter() {
