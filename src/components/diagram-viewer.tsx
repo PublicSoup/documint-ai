@@ -26,6 +26,20 @@ function sanitizeMermaidInput(input: string): string {
         .slice(0, MAX_DIAGRAM_CHARS);
 }
 
+function isSafeSvgUrl(rawValue: string): boolean {
+    const value = rawValue.trim().toLowerCase();
+
+    if (!value) {
+        return true;
+    }
+
+    if (value.startsWith("#") || value.startsWith("/")) {
+        return true;
+    }
+
+    return value.startsWith("http://") || value.startsWith("https://") || value.startsWith("mailto:") || value.startsWith("tel:");
+}
+
 function sanitizeSvg(svg: string): string {
     const parser = new DOMParser();
     const doc = parser.parseFromString(svg, "image/svg+xml");
@@ -39,15 +53,17 @@ function sanitizeSvg(svg: string): string {
         const attrs = [...element.attributes];
         for (const attr of attrs) {
             const name = attr.name.toLowerCase();
-            const value = attr.value.toLowerCase();
+            const value = attr.value;
 
             if (name.startsWith("on")) {
                 element.removeAttribute(attr.name);
                 continue;
             }
 
-            if ((name === "href" || name === "xlink:href") && value.startsWith("javascript:")) {
-                element.removeAttribute(attr.name);
+            if (name === "href" || name === "xlink:href") {
+                if (!isSafeSvgUrl(value)) {
+                    element.removeAttribute(attr.name);
+                }
             }
         }
     });
