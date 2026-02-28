@@ -7,9 +7,14 @@ import { db } from "@/lib/db";
 import { checkTeamPermission } from "@/lib/permissions";
 import { requireFeature } from "@/lib/feature-gate";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateQuery } from "@/lib/api-utils";
 
 const paramsSchema = z.object({
     teamId: z.string().trim().min(1).max(100),
+}).strict();
+
+const querySchema = z.object({
+    days: z.coerce.number().int().min(1).max(90).default(7),
 }).strict();
 
 interface ContributorStat {
@@ -19,35 +24,39 @@ interface ContributorStat {
 }
 
 export async function GET(
-    _request: NextRequest,
+    request: NextRequest,
     { params }: { params: Promise<{ teamId: string }> },
 ) {
     try {
-        const parsedParams = paramsSchema.safeParse(await params);
-        if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid team ID" }, { status: 400 });
-        }
-
-        const { teamId } = parsedParams.data;
-
         const gateError = await requireFeature("analytics");
-        if (gateError) return gateError;
+        if (gateError) {
+            return gateError;
+        }
 
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
+        const parsedParams = paramsSchema.safeParse(await params);
+        if (!parsedParams.success) {
+            throw ApiErrors.badRequest("Invalid team ID", parsedParams.error.flatten());
+        }
+
+        const { days } = validateQuery(request.nextUrl.searchParams, querySchema);
+
+        const { teamId } = parsedParams.data;
+
         const hasPermission = await checkTeamPermission(session.user.id, teamId, "view");
         if (!hasPermission) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+            throw ApiErrors.forbidden();
         }
 
         const now = new Date();
-        const thisWeekStart = subDays(now, 7);
-        const lastWeekStart = subDays(now, 14);
+        const thisWindowStart = subDays(now, days);
+        const previousWindowStart = subDays(now, days * 2);
 
         const teamFiles = await db.file.findMany({
             where: { teamId },
@@ -65,7 +74,7 @@ export async function GET(
             where: {
                 OR: entityFilters,
                 action: { in: ["APPROVE", "UPDATE", "ANALYZE", "CREATE_FILE", "VERIFY"] },
-                createdAt: { gte: lastWeekStart },
+                createdAt: { gte: previousWindowStart },
             },
             include: {
                 user: {
@@ -75,14 +84,14 @@ export async function GET(
         });
 
         const stats = {
-            thisWeek: { creations: 0, approvals: 0, updates: 0 },
-            lastWeek: { creations: 0, approvals: 0, updates: 0 },
+            currentWindow: { creations: 0, approvals: 0, updates: 0 },
+            previousWindow: { creations: 0, approvals: 0, updates: 0 },
             contributors: new Map<string, ContributorStat>(),
         };
 
         for (const log of logs) {
-            const isThisWeek = log.createdAt >= thisWeekStart;
-            const target = isThisWeek ? stats.thisWeek : stats.lastWeek;
+            const isCurrentWindow = log.createdAt >= thisWindowStart;
+            const target = isCurrentWindow ? stats.currentWindow : stats.previousWindow;
 
             if (log.action === "APPROVE" || log.action === "VERIFY") {
                 target.approvals += 1;
@@ -92,7 +101,7 @@ export async function GET(
                 target.creations += 1;
             }
 
-            if (isThisWeek && log.user && log.userId) {
+            if (isCurrentWindow && log.user && log.userId) {
                 const current = stats.contributors.get(log.userId) ?? {
                     name: log.user.name || log.user.email?.split("@")[0] || "Unknown",
                     image: log.user.image,
@@ -107,32 +116,32 @@ export async function GET(
             .sort((a, b) => b.count - a.count)
             .slice(0, 3);
 
-        const creationsChange = stats.lastWeek.creations === 0
-            ? (stats.thisWeek.creations > 0 ? 100 : 0)
-            : Math.round(((stats.thisWeek.creations - stats.lastWeek.creations) / stats.lastWeek.creations) * 100);
+        const creationsChange = stats.previousWindow.creations === 0
+            ? (stats.currentWindow.creations > 0 ? 100 : 0)
+            : Math.round(((stats.currentWindow.creations - stats.previousWindow.creations) / stats.previousWindow.creations) * 100);
 
-        const approvalsChange = stats.lastWeek.approvals === 0
-            ? (stats.thisWeek.approvals > 0 ? 100 : 0)
-            : Math.round(((stats.thisWeek.approvals - stats.lastWeek.approvals) / stats.lastWeek.approvals) * 100);
+        const approvalsChange = stats.previousWindow.approvals === 0
+            ? (stats.currentWindow.approvals > 0 ? 100 : 0)
+            : Math.round(((stats.currentWindow.approvals - stats.previousWindow.approvals) / stats.previousWindow.approvals) * 100);
 
         return NextResponse.json({
             trends: {
                 creations: {
-                    current: stats.thisWeek.creations,
-                    previous: stats.lastWeek.creations,
+                    current: stats.currentWindow.creations,
+                    previous: stats.previousWindow.creations,
                     change: creationsChange,
                 },
                 approvals: {
-                    current: stats.thisWeek.approvals,
-                    previous: stats.lastWeek.approvals,
+                    current: stats.currentWindow.approvals,
+                    previous: stats.previousWindow.approvals,
                     change: approvalsChange,
                 },
             },
             topContributors,
-            totalActivity: stats.thisWeek.creations + stats.thisWeek.approvals + stats.thisWeek.updates,
+            totalActivity: stats.currentWindow.creations + stats.currentWindow.approvals + stats.currentWindow.updates,
+            windowDays: days,
         });
     } catch (error) {
-        console.error("[WeeklySummary_API] Error:", error);
-        return NextResponse.json({ error: "Aggregation failed" }, { status: 500 });
+        return errorResponse(error);
     }
 }
