@@ -461,6 +461,7 @@ export async function GET() {
 
         const policyMismatches = [
             !volatilityPolicyCompatible ? "volatility-policy" : null,
+            !policyMismatchAlertPolicyCompatible ? "policy-mismatch-alert-policy" : null,
         ].filter((value): value is string => Boolean(value)).sort();
 
         const policyMismatchCount = policyMismatches.length;
@@ -527,7 +528,11 @@ export async function GET() {
 
         const policyMismatchRecommendedActions = policyMismatches
             .map((mismatch) =>
-                mismatch === "volatility-policy" ? "update-monitor-policy" : "review-policy-config",
+                mismatch === "volatility-policy"
+                    ? "update-monitor-policy"
+                    : mismatch === "policy-mismatch-alert-policy"
+                        ? "update-mismatch-alert-policy"
+                        : "review-policy-config",
             )
             .sort();
 
