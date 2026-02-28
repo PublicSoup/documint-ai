@@ -17,14 +17,14 @@ const highlightSchema = z.object({
 }).strict();
 
 const createInlineCommentSchema = z.object({
-    fileId: z.string().min(1),
+    fileId: z.string().trim().min(1).max(100),
     content: z.string().trim().min(1).max(5000),
-    parentId: z.string().min(1).optional(),
+    parentId: z.string().trim().min(1).max(100).optional(),
     highlight: highlightSchema.optional(),
 }).strict();
 
 const inlineQuerySchema = z.object({
-    fileId: z.string().min(1),
+    fileId: z.string().trim().min(1).max(100),
 }).strict();
 
 /**
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
         // 1. Enforce Rate Limit
@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
         // 3. Check permissions
         const hasPermission = await checkFilePermission(session.user.id, fileId, "view");
         if (!hasPermission) {
-            return errorResponse(ApiErrors.forbidden("You do not have permission to view comments for this file."));
+            throw ApiErrors.forbidden("You do not have permission to view comments for this file.");
         }
 
         // 4. Fetch Comments
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
         // 1. Enforce Rate Limit
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
         // 3. Check permissions
         const hasPermission = await checkFilePermission(session.user.id, fileId, "view");
         if (!hasPermission) {
-            return errorResponse(ApiErrors.forbidden("You do not have permission to comment on this file."));
+            throw ApiErrors.forbidden("You do not have permission to comment on this file.");
         }
 
         // 4. Fetch file details
@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
         });
 
         if (!file) {
-            return errorResponse(ApiErrors.notFound("File"));
+            throw ApiErrors.notFound("File");
         }
 
         if (parentId) {
@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
                 select: { fileId: true },
             });
             if (!parent || parent.fileId !== fileId) {
-                return errorResponse(ApiErrors.badRequest("Invalid parent comment reference."));
+                throw ApiErrors.badRequest("Invalid parent comment reference.");
             }
         }
 
