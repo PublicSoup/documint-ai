@@ -21,6 +21,7 @@ let currentHealthSignalStableSince: string | null = null;
 let healthSignalTransitionCount = 0;
 let previousHealthSignalVolatilityScore: number | null = null;
 let previousPolicyMismatchDigest: string | null = null;
+let currentPolicyMismatchStableSince: string | null = null;
 
 const HEALTH_SIGNAL_FLAPPING_TRANSITION_THRESHOLD = 3;
 const HEALTH_SIGNAL_FLAPPING_STABILITY_WINDOW_SEC = 300;
@@ -449,6 +450,17 @@ export async function GET() {
 
         const policyMismatchChanged = previousPolicyMismatchDigest !== policyMismatchDigest;
         const policyMismatchPreviousDigest = previousPolicyMismatchDigest;
+
+        if (!currentPolicyMismatchStableSince || policyMismatchChanged) {
+            currentPolicyMismatchStableSince = generatedAtIso;
+        }
+
+        const policyMismatchStableSince = currentPolicyMismatchStableSince;
+        const policyMismatchStabilitySec = Math.max(
+            0,
+            Math.floor((generatedAtEpochMs - Date.parse(policyMismatchStableSince ?? generatedAtIso)) / 1000),
+        );
+
         previousPolicyMismatchDigest = policyMismatchDigest;
 
         const policyMismatchRecommendedActions = policyMismatches
@@ -512,6 +524,8 @@ export async function GET() {
             policyMismatchDigest: true,
             policyMismatchChanged: true,
             policyMismatchPreviousDigest: true,
+            policyMismatchStableSince: true,
+            policyMismatchStabilitySec: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -586,6 +600,8 @@ export async function GET() {
                 policyMismatchDigest,
                 policyMismatchChanged,
                 policyMismatchPreviousDigest,
+                policyMismatchStableSince,
+                policyMismatchStabilitySec,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
