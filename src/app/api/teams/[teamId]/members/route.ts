@@ -4,28 +4,28 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateBody, validateQuery } from "@/lib/api-utils";
 
-const paramsSchema = z.object({
-    teamId: z.string().trim().min(1).max(100),
-}).strict();
+const paramsSchema = z
+    .object({
+        teamId: z.string().trim().min(1).max(100),
+    })
+    .strict();
 
-const deleteQuerySchema = z.object({
-    userId: z.string().trim().min(1).max(100),
-}).strict();
+const deleteQuerySchema = z
+    .object({
+        userId: z.string().trim().min(1).max(100),
+    })
+    .strict();
 
-const updateMemberSchema = z.object({
-    userId: z.string().trim().min(1).max(100),
-    role: z.enum(["OWNER", "ADMIN", "EDITOR", "VIEWER", "MEMBER"]),
-}).strict();
+const teamMemberRoleSchema = z.enum(["OWNER", "ADMIN", "MEMBER"]);
 
-async function ensureTeamExists(teamId: string) {
-    const team = await db.team.findUnique({
-        where: { id: teamId },
-        select: { id: true },
-    });
-
-    return Boolean(team);
-}
+const updateMemberSchema = z
+    .object({
+        userId: z.string().trim().min(1).max(100),
+        role: teamMemberRoleSchema,
+    })
+    .strict();
 
 async function getMembership(teamId: string, userId: string) {
     return db.teamMember.findUnique({
@@ -41,6 +41,23 @@ async function getMembership(teamId: string, userId: string) {
     });
 }
 
+async function assertTeamAccess(teamId: string, userId: string) {
+    const [teamExists, membership] = await Promise.all([
+        db.team.findUnique({ where: { id: teamId }, select: { id: true } }),
+        getMembership(teamId, userId),
+    ]);
+
+    if (!teamExists) {
+        throw ApiErrors.notFound("Team");
+    }
+
+    if (!membership) {
+        throw ApiErrors.forbidden("Access denied");
+    }
+
+    return membership;
+}
+
 export async function GET(
     _req: NextRequest,
     { params }: { params: Promise<{ teamId: string }> },
@@ -48,22 +65,19 @@ export async function GET(
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid team ID" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid team ID", parsedParams.error.flatten());
         }
 
         const { teamId } = parsedParams.data;
 
-        const isTeamMember = await getMembership(teamId, session.user.id);
-        if (!isTeamMember) {
-            return NextResponse.json({ error: "Access denied" }, { status: 403 });
-        }
+        await assertTeamAccess(teamId, session.user.id);
 
         const members = await db.teamMember.findMany({
             where: { teamId },
@@ -82,8 +96,7 @@ export async function GET(
 
         return NextResponse.json({ members });
     } catch (error) {
-        console.error("List members error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
@@ -94,34 +107,24 @@ export async function DELETE(
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid team ID" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid team ID", parsedParams.error.flatten());
         }
 
-        const parsedQuery = deleteQuerySchema.safeParse({
-            userId: req.nextUrl.searchParams.get("userId") ?? undefined,
-        });
-        if (!parsedQuery.success) {
-            return NextResponse.json({ error: "User ID is required" }, { status: 400 });
-        }
-
+        const { userId: targetUserId } = validateQuery(req.nextUrl.searchParams, deleteQuerySchema);
         const { teamId } = parsedParams.data;
-        const { userId: targetUserId } = parsedQuery.data;
 
-        const requesterMembership = await getMembership(teamId, session.user.id);
-        if (!requesterMembership) {
-            return NextResponse.json({ error: "Access denied" }, { status: 403 });
-        }
-
+        const requesterMembership = await assertTeamAccess(teamId, session.user.id);
         const targetMembership = await getMembership(teamId, targetUserId);
+
         if (!targetMembership) {
-            return NextResponse.json({ error: "Member not found" }, { status: 404 });
+            throw ApiErrors.notFound("Team member");
         }
 
         const isSelf = session.user.id === targetUserId;
@@ -132,23 +135,17 @@ export async function DELETE(
             });
 
             if (ownerCount === 1) {
-                return NextResponse.json(
-                    { error: "Cannot leave as the last owner. Delete the team instead." },
-                    { status: 400 },
-                );
+                throw ApiErrors.badRequest("Cannot leave as the last owner. Delete the team instead.");
             }
         }
 
         if (!isSelf) {
             if (requesterMembership.role !== "ADMIN" && requesterMembership.role !== "OWNER") {
-                return NextResponse.json(
-                    { error: "You don't have permission to remove members" },
-                    { status: 403 },
-                );
+                throw ApiErrors.forbidden("You don't have permission to remove members");
             }
 
             if (requesterMembership.role === "ADMIN" && targetMembership.role === "OWNER") {
-                return NextResponse.json({ error: "Admins cannot remove Owners" }, { status: 403 });
+                throw ApiErrors.forbidden("Admins cannot remove owners");
             }
         }
 
@@ -180,8 +177,7 @@ export async function DELETE(
 
         return NextResponse.json({ success: true });
     } catch (error) {
-        console.error("Remove member error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
@@ -196,49 +192,33 @@ export async function PATCH(
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid team ID" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid team ID", parsedParams.error.flatten());
         }
 
-        const parsedBody = updateMemberSchema.safeParse(await req.json());
-        if (!parsedBody.success) {
-            return NextResponse.json({ error: "Invalid request data" }, { status: 400 });
-        }
-
+        const { userId: targetUserId, role: newRole } = await validateBody(req, updateMemberSchema);
         const { teamId } = parsedParams.data;
-        const { userId: targetUserId, role: newRole } = parsedBody.data;
 
-        const teamExists = await ensureTeamExists(teamId);
-        if (!teamExists) {
-            return NextResponse.json({ error: "Team not found" }, { status: 404 });
-        }
-
-        const requesterMembership = await getMembership(teamId, session.user.id);
-        if (!requesterMembership) {
-            return NextResponse.json({ error: "Access denied" }, { status: 403 });
-        }
-
+        const requesterMembership = await assertTeamAccess(teamId, session.user.id);
         const targetMembership = await getMembership(teamId, targetUserId);
+
         if (!targetMembership) {
-            return NextResponse.json({ error: "Member not found" }, { status: 404 });
+            throw ApiErrors.notFound("Team member");
         }
 
         if (requesterMembership.role !== "OWNER" && requesterMembership.role !== "ADMIN") {
-            return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
+            throw ApiErrors.forbidden("Insufficient permissions");
         }
 
         if (newRole === "OWNER" || targetMembership.role === "OWNER") {
             if (requesterMembership.role !== "OWNER") {
-                return NextResponse.json(
-                    { error: "Only team owners can manage other owner roles" },
-                    { status: 403 },
-                );
+                throw ApiErrors.forbidden("Only team owners can manage owner roles");
             }
         }
 
@@ -247,12 +227,32 @@ export async function PATCH(
             targetMembership.role === "ADMIN" &&
             session.user.id !== targetUserId
         ) {
-            return NextResponse.json({ error: "Admins cannot manage other admin roles" }, { status: 403 });
+            throw ApiErrors.forbidden("Admins cannot manage other admin roles");
+        }
+
+        if (targetMembership.role === "OWNER" && newRole !== "OWNER") {
+            const ownerCount = await db.teamMember.count({
+                where: { teamId, role: "OWNER" },
+            });
+
+            if (ownerCount === 1) {
+                throw ApiErrors.badRequest("Cannot reassign the last team owner. Add another owner first.");
+            }
+        }
+
+        if (targetMembership.role === newRole) {
+            return NextResponse.json({ success: true, message: "Role unchanged" });
         }
 
         const updatedMembership = await db.teamMember.update({
             where: { teamId_userId: { teamId, userId: targetUserId } },
             data: { role: newRole },
+            select: {
+                teamId: true,
+                userId: true,
+                role: true,
+                joinedAt: true,
+            },
         });
 
         try {
@@ -274,7 +274,6 @@ export async function PATCH(
 
         return NextResponse.json({ success: true, membership: updatedMembership });
     } catch (error) {
-        console.error("Update member role error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
