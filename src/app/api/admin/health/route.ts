@@ -17,6 +17,9 @@ let previousHealthSignalObservedAt: string | null = null;
 let currentHealthSignalStableSince: string | null = null;
 let healthSignalTransitionCount = 0;
 
+const HEALTH_SIGNAL_FLAPPING_TRANSITION_THRESHOLD = 3;
+const HEALTH_SIGNAL_FLAPPING_STABILITY_WINDOW_SEC = 300;
+
 /**
  * GET /api/admin/health
  * Comprehensive system health check for administrators.
@@ -299,6 +302,10 @@ export async function GET() {
             Math.floor((generatedAtEpochMs - Date.parse(healthSignalStableSince ?? generatedAtIso)) / 1000),
         );
 
+        const healthSignalFlapping =
+            healthSignalTransitionCount >= HEALTH_SIGNAL_FLAPPING_TRANSITION_THRESHOLD &&
+            healthSignalStabilitySec <= HEALTH_SIGNAL_FLAPPING_STABILITY_WINDOW_SEC;
+
         previousHealthSignalDigest = healthSignalDigest;
         previousHealthSignalObservedAt = generatedAtIso;
 
@@ -354,6 +361,7 @@ export async function GET() {
             healthSignalStableSince: true,
             healthSignalStabilitySec: true,
             healthSignalTransitionCount: true,
+            healthSignalFlapping: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -403,6 +411,7 @@ export async function GET() {
                 healthSignalStableSince,
                 healthSignalStabilitySec,
                 healthSignalTransitionCount,
+                healthSignalFlapping,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
