@@ -56,6 +56,7 @@ export default function BillingHub() {
     const [billingLoading, setBillingLoading] = useState(false);
     const [focusedPlanId, setFocusedPlanId] = useState<"starter" | "pro" | "team" | null>(null);
     const [trialIntentActive, setTrialIntentActive] = useState(false);
+    const [checkoutCanceled, setCheckoutCanceled] = useState(false);
 
     // Profile State
     const [saving, setSaving] = useState(false);
@@ -86,9 +87,15 @@ export default function BillingHub() {
         const params = new URLSearchParams(window.location.search);
         const plan = params.get("plan");
         const intent = params.get("intent");
+        const canceled = params.get("canceled");
 
         if (intent === "trial") {
             setTrialIntentActive(true);
+            setActiveTab("plans");
+        }
+
+        if (canceled === "true") {
+            setCheckoutCanceled(true);
             setActiveTab("plans");
         }
 
@@ -409,6 +416,17 @@ export default function BillingHub() {
 
                             <div>
                                 <h2 className="text-xl font-bold text-white mb-6">Available Plans</h2>
+                                {checkoutCanceled && (
+                                    <div className="mb-5 rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 flex items-center justify-between gap-3">
+                                        <p className="text-sm text-white/80">
+                                            Checkout was canceled. Your selected plan is still here when you&apos;re ready.
+                                        </p>
+                                        <Button size="sm" variant="outline" onClick={() => setCheckoutCanceled(false)}>
+                                            Dismiss
+                                        </Button>
+                                    </div>
+                                )}
+
                                 {trialIntentActive && (
                                     <div className="mb-5 rounded-xl border border-primary/25 bg-primary/10 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                                         <p className="text-sm text-white/80">
