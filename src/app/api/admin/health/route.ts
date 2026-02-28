@@ -433,6 +433,18 @@ export async function GET() {
                     ? "missing-policy-version-in-bundle"
                     : "contract-mode-not-strict";
 
+        const policyMismatchAlertPolicyCompatible =
+            ADMIN_HEALTH_CONTRACT_COMPATIBILITY_MODE === "strict"
+                ? policyMismatchAlertPolicyBundleId.includes(`version:${ADMIN_HEALTH_POLICY_MISMATCH_ALERT_POLICY_VERSION}`)
+                : true;
+
+        const policyMismatchAlertPolicyCompatibilityReason =
+            policyMismatchAlertPolicyCompatible
+                ? "compatible"
+                : ADMIN_HEALTH_CONTRACT_COMPATIBILITY_MODE === "strict"
+                    ? "missing-policy-version-in-bundle"
+                    : "contract-mode-not-strict";
+
         const volatilityPolicyCompatibilityAction =
             volatilityPolicyCompatibilityReason === "compatible"
                 ? "no-action"
@@ -577,6 +589,8 @@ export async function GET() {
             policyMismatchVolatilityAlertSeverityHint: true,
             policyMismatchAlertPolicyVersion: true,
             policyMismatchAlertPolicyBundleId: true,
+            policyMismatchAlertPolicyCompatible: true,
+            policyMismatchAlertPolicyCompatibilityReason: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -661,6 +675,8 @@ export async function GET() {
                 policyMismatchVolatilityAlertSeverityHint,
                 policyMismatchAlertPolicyVersion: ADMIN_HEALTH_POLICY_MISMATCH_ALERT_POLICY_VERSION,
                 policyMismatchAlertPolicyBundleId,
+                policyMismatchAlertPolicyCompatible,
+                policyMismatchAlertPolicyCompatibilityReason,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
