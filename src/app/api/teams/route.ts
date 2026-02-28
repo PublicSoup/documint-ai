@@ -27,7 +27,9 @@ export async function GET() {
                             select: { members: true },
                         },
                         members: {
-                            include: {
+                            select: {
+                                userId: true,
+                                role: true,
                                 user: {
                                     select: {
                                         name: true,
@@ -39,6 +41,12 @@ export async function GET() {
                             orderBy: { joinedAt: "asc" },
                         },
                         invites: {
+                            select: {
+                                id: true,
+                                email: true,
+                                role: true,
+                                createdAt: true,
+                            },
                             orderBy: { createdAt: "desc" },
                         },
                     },
