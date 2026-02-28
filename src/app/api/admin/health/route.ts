@@ -365,6 +365,11 @@ export async function GET() {
                     ? "falling"
                     : "steady";
 
+        const volatilityTrendConfidence =
+            healthSignalTransitionCount >= 8 ? "high" :
+            healthSignalTransitionCount >= 3 ? "medium" :
+            "low";
+
         previousHealthSignalVolatilityScore = healthSignalVolatilityScore;
 
         previousHealthSignalDigest = healthSignalDigest;
@@ -431,6 +436,7 @@ export async function GET() {
             healthSignalVolatilityBand: true,
             healthSignalVolatilityScore: true,
             healthSignalVolatilityTrend: true,
+            volatilityTrendConfidence: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -491,6 +497,7 @@ export async function GET() {
                 healthSignalVolatilityBand,
                 healthSignalVolatilityScore,
                 healthSignalVolatilityTrend,
+                volatilityTrendConfidence,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
