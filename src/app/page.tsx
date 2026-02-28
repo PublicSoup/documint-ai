@@ -572,12 +572,27 @@ export default function LandingPage() {
           </div>
 
           <div className="flex gap-4">
-            <Button size="icon" variant="ghost" className="w-10 h-10 rounded-full hover:bg-white/5 border border-white/5">
-              <Github className="w-5 h-5" />
-            </Button>
-            <Button size="icon" variant="ghost" className="w-10 h-10 rounded-full hover:bg-white/5 border border-white/5">
-              <Globe className="w-5 h-5" />
-            </Button>
+            <TrackedLink
+              href="https://github.com/documintai"
+              target="_blank"
+              eventName="landing_secondary_cta_click"
+              location="footer_social_github"
+              variant={LANDING_EXPERIMENT_VARIANT}
+            >
+              <Button size="icon" variant="ghost" className="w-10 h-10 rounded-full hover:bg-white/5 border border-white/5">
+                <Github className="w-5 h-5" />
+              </Button>
+            </TrackedLink>
+            <TrackedLink
+              href="/docs"
+              eventName="landing_secondary_cta_click"
+              location="footer_social_docs"
+              variant={LANDING_EXPERIMENT_VARIANT}
+            >
+              <Button size="icon" variant="ghost" className="w-10 h-10 rounded-full hover:bg-white/5 border border-white/5">
+                <Globe className="w-5 h-5" />
+              </Button>
+            </TrackedLink>
           </div>
         </div>
         <div className="max-w-7xl mx-auto mt-20 flex flex-col md:flex-row justify-between items-center gap-4 text-white/20 text-[10px] tracking-widest uppercase font-bold">
