@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import {
     CreditCard, Zap, CheckCircle2, Loader2, BarChart3, Crown,
     User, Key, Bell, Trash2, Check, Copy, Blocks, Github,
