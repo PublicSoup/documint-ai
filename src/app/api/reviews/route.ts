@@ -4,42 +4,47 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { checkFilePermission } from "@/lib/permissions";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 
-const createReviewSchema = z.object({
-    documentationId: z.string().min(1),
-    reviewerId: z.string().optional(),
-    comments: z.string().max(2000).optional(),
-}).strict();
+const createReviewSchema = z
+    .object({
+        documentationId: z.string().trim().min(1).max(100),
+        reviewerId: z.string().trim().min(1).max(100).optional(),
+        comments: z.string().trim().max(2000).optional(),
+    })
+    .strict();
 
 // POST: Create a review request
 export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
-        if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-        const parsed = createReviewSchema.safeParse(await req.json());
-        if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+        if (!session?.user?.id) {
+            throw ApiErrors.unauthorized();
         }
 
-        const { documentationId, reviewerId, comments } = parsed.data;
+        await enforceRateLimit(session.user.id, "api");
+
+        const { documentationId, reviewerId, comments } = await validateBody(req, createReviewSchema);
 
         const doc = await db.documentation.findUnique({
             where: { id: documentationId },
             include: { file: true },
         });
 
-        if (!doc) return NextResponse.json({ error: "Documentation not found" }, { status: 404 });
+        if (!doc) {
+            throw ApiErrors.notFound("Documentation");
+        }
 
         const canRequest = await checkFilePermission(session.user.id, doc.fileId, "edit");
         if (!canRequest) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+            throw ApiErrors.forbidden();
         }
 
         if (reviewerId) {
             const canReviewerAccess = await checkFilePermission(reviewerId, doc.fileId, "view");
             if (!canReviewerAccess) {
-                return NextResponse.json({ error: "Selected reviewer cannot access this file" }, { status: 400 });
+                throw ApiErrors.badRequest("Selected reviewer cannot access this file");
             }
         }
 
@@ -60,8 +65,7 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json({ review });
     } catch (error) {
-        console.error("Create Review Error:", error);
-        return NextResponse.json({ error: "Failed to create review request" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
@@ -69,14 +73,15 @@ export async function POST(req: NextRequest) {
 export async function GET() {
     try {
         const session = await getServerSession(authOptions);
-        if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        if (!session?.user?.id) {
+            throw ApiErrors.unauthorized();
+        }
+
+        await enforceRateLimit(session.user.id, "api");
 
         const reviews = await db.reviewRequest.findMany({
             where: {
-                OR: [
-                    { requesterId: session.user.id },
-                    { reviewerId: session.user.id },
-                ],
+                OR: [{ requesterId: session.user.id }, { reviewerId: session.user.id }],
             },
             include: {
                 documentation: {
@@ -92,7 +97,6 @@ export async function GET() {
 
         return NextResponse.json({ reviews });
     } catch (error) {
-        console.error("Fetch Review Error:", error);
-        return NextResponse.json({ error: "Failed to fetch reviews" }, { status: 500 });
+        return errorResponse(error);
     }
 }
