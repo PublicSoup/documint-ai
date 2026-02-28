@@ -316,6 +316,11 @@ export async function GET() {
                         ? "stability-window-only"
                         : "none";
 
+        const healthSignalVolatilityBand =
+            healthSignalFlapping ? "volatile" :
+            healthSignalTransitionCount >= Math.max(1, HEALTH_SIGNAL_FLAPPING_TRANSITION_THRESHOLD - 1) ? "watch" :
+            "stable";
+
         previousHealthSignalDigest = healthSignalDigest;
         previousHealthSignalObservedAt = generatedAtIso;
 
@@ -373,6 +378,7 @@ export async function GET() {
             healthSignalTransitionCount: true,
             healthSignalFlapping: true,
             healthSignalFlappingReason: true,
+            healthSignalVolatilityBand: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -424,6 +430,7 @@ export async function GET() {
                 healthSignalTransitionCount,
                 healthSignalFlapping,
                 healthSignalFlappingReason,
+                healthSignalVolatilityBand,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
