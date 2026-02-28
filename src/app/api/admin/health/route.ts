@@ -508,6 +508,25 @@ export async function GET() {
             policyMismatchActionTransitionCount >= 2 ? "watch" :
             "stable";
 
+        const policyMismatchActionStabilityWindowMin = Math.max(1 / 60, policyMismatchActionStabilitySec / 60);
+        const policyMismatchActionTransitionVelocityPerMin = Number.parseFloat(
+            (policyMismatchActionTransitionCount / policyMismatchActionStabilityWindowMin).toFixed(2),
+        );
+
+        const policyMismatchActionVolatilityScore = Math.min(
+            100,
+            Math.max(
+                0,
+                Math.round(
+                    Math.min(100, policyMismatchActionTransitionVelocityPerMin * 10) * 0.6 +
+                    Math.min(100, policyMismatchActionTransitionCount * 10) * 0.4,
+                ),
+            ),
+        );
+
+        const policyMismatchActionAlertRecommended =
+            policyMismatchActionVolatilityBand === "volatile" || policyMismatchActionVolatilityScore >= 70;
+
         if (policyMismatchChanged && policyMismatchPreviousDigest) {
             policyMismatchTransitionCount += 1;
         }
@@ -635,7 +654,10 @@ export async function GET() {
             policyMismatchActionStableSince: true,
             policyMismatchActionStabilitySec: true,
             policyMismatchActionTransitionCount: true,
+            policyMismatchActionTransitionVelocityPerMin: true,
             policyMismatchActionVolatilityBand: true,
+            policyMismatchActionVolatilityScore: true,
+            policyMismatchActionAlertRecommended: true,
             policyMismatchStableSince: true,
             policyMismatchStabilitySec: true,
             policyMismatchTransitionCount: true,
@@ -729,7 +751,10 @@ export async function GET() {
                 policyMismatchActionStableSince,
                 policyMismatchActionStabilitySec,
                 policyMismatchActionTransitionCount,
+                policyMismatchActionTransitionVelocityPerMin,
                 policyMismatchActionVolatilityBand,
+                policyMismatchActionVolatilityScore,
+                policyMismatchActionAlertRecommended,
                 policyMismatchStableSince,
                 policyMismatchStabilitySec,
                 policyMismatchTransitionCount,
