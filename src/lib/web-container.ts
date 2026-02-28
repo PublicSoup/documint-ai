@@ -9,6 +9,7 @@ interface SpawnOptions {
 
 const MAX_BOOT_RETRIES = 3;
 const BASE_BACKOFF_MS = 400;
+const DEFAULT_OP_TIMEOUT_MS = 15_000;
 
 let webcontainerInstance: WebContainer | null = null;
 let bootPromise: Promise<WebContainer> | null = null;
@@ -23,7 +24,33 @@ function nextBackoff(attempt: number): number {
     return BASE_BACKOFF_MS * 2 ** Math.max(0, attempt - 1);
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
+    return await Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+            const timeoutError = new Error(`WebContainer ${operation} timed out after ${timeoutMs}ms`);
+            setTimeout(() => reject(timeoutError), timeoutMs);
+        }),
+    ]);
+}
+
 export class WebContainerManager {
+    private static async runWithRecovery<T>(operation: () => Promise<T>, operationName: string): Promise<T> {
+        try {
+            return await withTimeout(operation(), DEFAULT_OP_TIMEOUT_MS, operationName);
+        } catch (error) {
+            const message = error instanceof Error ? error.message.toLowerCase() : "";
+            const isRecoverable = message.includes("webcontainer") || message.includes("timed out") || message.includes("closed");
+
+            if (!isRecoverable) {
+                throw error;
+            }
+
+            await this.reset();
+            return await withTimeout(operation(), DEFAULT_OP_TIMEOUT_MS, `${operationName} (retry)`);
+        }
+    }
+
     static async getInstance(): Promise<WebContainer> {
         if (webcontainerInstance) {
             return webcontainerInstance;
@@ -61,28 +88,36 @@ export class WebContainerManager {
     }
 
     static async mountFiles(files: MountTree): Promise<void> {
-        const instance = await this.getInstance();
-        await instance.mount(files);
+        await this.runWithRecovery(async () => {
+            const instance = await this.getInstance();
+            await instance.mount(files);
+        }, "mount files");
     }
 
     static async writeFile(path: string, content: string): Promise<void> {
         writeQueue = writeQueue.then(async () => {
-            const instance = await this.getInstance();
-            await instance.fs.writeFile(path, content);
+            await this.runWithRecovery(async () => {
+                const instance = await this.getInstance();
+                await instance.fs.writeFile(path, content);
+            }, `write file ${path}`);
         });
 
         return writeQueue;
     }
 
     static async readFile(path: string): Promise<string> {
-        const instance = await this.getInstance();
-        const content = await instance.fs.readFile(path, "utf-8");
-        return content;
+        return await this.runWithRecovery(async () => {
+            const instance = await this.getInstance();
+            const content = await instance.fs.readFile(path, "utf-8");
+            return content;
+        }, `read file ${path}`);
     }
 
     static async spawn(command: string, options: SpawnOptions = {}): Promise<WebContainerProcess> {
-        const instance = await this.getInstance();
-        const process = await instance.spawn(command, options.args ?? []);
+        const process = await this.runWithRecovery(async () => {
+            const instance = await this.getInstance();
+            return await instance.spawn(command, options.args ?? []);
+        }, `spawn ${command}`);
 
         if (options.processId) {
             trackedProcesses.set(options.processId, process);
