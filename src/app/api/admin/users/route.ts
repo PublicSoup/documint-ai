@@ -13,8 +13,8 @@ const querySchema = z.object({
 }).strict();
 
 const updateRoleSchema = z.object({
-    userId: z.string().min(1),
-    role: z.enum(["USER", "ADMIN", "EDITOR"]), // Based on your Prisma schema roles
+    userId: z.string().trim().min(1).max(100),
+    role: z.enum(["USER", "ADMIN", "EDITOR"]),
 }).strict();
 
 /**
@@ -26,11 +26,15 @@ export async function GET(request: NextRequest) {
         const adminCheck = await validateAdmin();
         if (!adminCheck.authorized) return adminCheck.response!;
 
-        // Rate limiting for admin requests
-        if (adminCheck.session?.user?.id) {
-            await enforceRateLimit(adminCheck.session.user.id, "api");
+        const actorUserId = adminCheck.session?.user?.id;
+        if (!actorUserId) {
+            throw ApiErrors.unauthorized();
         }
 
+        // 1. Enforce Rate Limit
+        await enforceRateLimit(actorUserId, "api");
+
+        // 2. Validate Query
         const { searchParams } = new URL(request.url);
         const { page, limit, search } = validateQuery(searchParams, querySchema);
 
@@ -96,10 +100,12 @@ export async function PATCH(req: NextRequest) {
             throw ApiErrors.unauthorized();
         }
 
-        await enforceRateLimit(actorUserId, "api");
+        // 1. Enforce Security Rate Limit
+        await enforceRateLimit(actorUserId, "security");
 
         const { userId, role } = await validateBody(req, updateRoleSchema);
 
+        // 2. Prevention: Self-demotion
         if (userId === actorUserId) {
             throw ApiErrors.badRequest("You cannot change your own role");
         }
@@ -123,6 +129,7 @@ export async function PATCH(req: NextRequest) {
             });
         }
 
+        // 3. Prevention: Last admin demotion
         if (targetUser.role === "ADMIN" && role !== "ADMIN") {
             const adminCount = await db.user.count({ where: { role: "ADMIN" } });
             if (adminCount <= 1) {
@@ -136,7 +143,7 @@ export async function PATCH(req: NextRequest) {
             select: { id: true, email: true, role: true }
         });
 
-        // Audit Logging
+        // 4. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({

@@ -31,13 +31,17 @@ export async function PUT(
         const adminCheck = await validateAdmin();
         if (!adminCheck.authorized) return adminCheck.response!;
 
-        if (adminCheck.session?.user?.id) {
-            await enforceRateLimit(adminCheck.session.user.id, "api");
+        const actorUserId = adminCheck.session?.user?.id;
+        if (!actorUserId) {
+            throw ApiErrors.unauthorized();
         }
+
+        // 1. Enforce Security Rate Limit
+        await enforceRateLimit(actorUserId, "security");
 
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return errorResponse(ApiErrors.badRequest("Invalid user ID"));
+            throw ApiErrors.badRequest("Invalid user ID");
         }
         const { id } = parsedParams.data;
 
@@ -62,11 +66,11 @@ export async function PUT(
             }
         });
 
-        // Audit Logging
+        // 2. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
-                userId: adminCheck.session?.user?.id,
+                userId: actorUserId,
                 action: "ADMIN_UPDATE_USER_DETAILS",
                 entity: "User",
                 entityId: id,
@@ -97,39 +101,51 @@ export async function DELETE(
         const adminCheck = await validateAdmin();
         if (!adminCheck.authorized) return adminCheck.response!;
 
-        if (adminCheck.session?.user?.id) {
-            await enforceRateLimit(adminCheck.session.user.id, "api");
+        const actorUserId = adminCheck.session?.user?.id;
+        if (!actorUserId) {
+            throw ApiErrors.unauthorized();
         }
+
+        // 1. Enforce Security Rate Limit
+        await enforceRateLimit(actorUserId, "security");
 
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return errorResponse(ApiErrors.badRequest("Invalid user ID"));
+            throw ApiErrors.badRequest("Invalid user ID");
         }
         const { id } = parsedParams.data;
 
-        // Prevent deleting self
-        if (adminCheck.session?.user?.id === id) {
-            return errorResponse(ApiErrors.badRequest("Cannot delete yourself"));
+        // 2. Prevention: Self-deletion
+        if (actorUserId === id) {
+            throw ApiErrors.badRequest("You cannot delete your own account via admin tools");
         }
 
         const existingUser = await db.user.findUnique({
             where: { id },
-            select: { id: true }
+            select: { id: true, role: true }
         });
 
         if (!existingUser) {
-            return errorResponse(ApiErrors.notFound("User"));
+            throw ApiErrors.notFound("User");
+        }
+
+        // 3. Prevention: Last admin deletion
+        if (existingUser.role === "ADMIN") {
+            const adminCount = await db.user.count({ where: { role: "ADMIN" } });
+            if (adminCount <= 1) {
+                throw ApiErrors.conflict("Cannot delete the last admin user");
+            }
         }
 
         await db.user.delete({
             where: { id }
         });
 
-        // Audit Logging
+        // 4. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
-                userId: adminCheck.session?.user?.id,
+                userId: actorUserId,
                 action: "ADMIN_DELETE_USER",
                 entity: "User",
                 entityId: id,
@@ -139,7 +155,7 @@ export async function DELETE(
             // Non-blocking
         }
 
-        return NextResponse.json({ success: true, message: "User Deleted" });
+        return NextResponse.json({ success: true, message: "User deleted" });
     } catch (error) {
         return errorResponse(error);
     }
