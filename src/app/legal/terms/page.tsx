@@ -164,7 +164,7 @@ export default function TermsOfService() {
 
                 {/* Footer */}
                 <div className="text-center mt-12 text-slate-400">
-                    <p>© 2025 DocuMint AI. All rights reserved.</p>
+                    <p>© {new Date().getFullYear()} DocuMint AI. All rights reserved.</p>
                 </div>
             </div>
         </div>
