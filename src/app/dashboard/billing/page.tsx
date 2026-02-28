@@ -616,7 +616,7 @@ export default function BillingHub() {
                                                     </div>
                                                 )}
 
-                                                {inviteSuccess && <p className="text-xs text-emerald-400 mb-3" aria-live="polite">{inviteSuccess}</p>}
+                                                {inviteSuccess && <p className="text-xs text-emerald-400 mb-3 animate-fade-in" aria-live="polite">{inviteSuccess}</p>}
                                             </div>
                                         ))}
                                     </div>
