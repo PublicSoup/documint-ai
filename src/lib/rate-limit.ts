@@ -38,10 +38,10 @@ const limiters = {
         prefix: "rl:pro"
     }) : null,
 
-    // High security: 5 attempts per hour (for specific users/emails)
+    // High security: 10 attempts per 30 minutes (relaxed for better UX)
     security: redis ? new Ratelimit({
         redis,
-        limiter: Ratelimit.slidingWindow(5, "1 h"),
+        limiter: Ratelimit.slidingWindow(10, "30 m"),
         prefix: "rl:sec"
     }) : null,
 
@@ -66,7 +66,7 @@ const fallbackLimits: Record<RateLimitTier, { requests: number; windowMs: number
     auth: { requests: 5, windowMs: 15 * 60 * 1000 },
     free: { requests: 100, windowMs: 60 * 1000 },
     pro: { requests: 500, windowMs: 60 * 1000 },
-    security: { requests: 5, windowMs: 60 * 60 * 1000 },
+    security: { requests: 10, windowMs: 30 * 60 * 1000 },
     api: { requests: 300, windowMs: 60 * 1000 },
     upload: { requests: 10, windowMs: 60 * 1000 }
 };

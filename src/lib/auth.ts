@@ -66,13 +66,15 @@ export const authOptions: NextAuthOptions = {
 
                 const email = credentials.email.trim();
 
-                // High-Security Rate Limiting: 5 attempts per hour per email
+                // High-Security Rate Limiting: 10 attempts per 30 minutes per email
                 try {
                     const { enforceRateLimit } = await import("./rate-limit");
-                    await enforceRateLimit(email, "security");
+                    // Relaxed for ADMIN_EMAIL: use 'api' tier (300/m) instead of 'security' (10/30m)
+                    const tier = email === env.ADMIN_EMAIL ? "api" : "security";
+                    await enforceRateLimit(email, tier);
                 } catch (limitError: unknown) {
                     console.warn(`Auth blocked: Rate limit for ${email}`);
-                    const message = limitError instanceof Error ? limitError.message : "Too many attempts. Try again in an hour.";
+                    const message = limitError instanceof Error ? limitError.message : "Too many attempts. Try again in 30 minutes.";
                     throw new Error(message);
                 }
 
@@ -167,7 +169,7 @@ export const authOptions: NextAuthOptions = {
                     action: isNewUser ? "SIGN_UP" : "SIGN_IN",
                     entity: "User",
                     entityId: user.id,
-                    details: { 
+                    details: {
                         method: account?.provider || "credentials",
                         isNewUser: !!isNewUser
                     }

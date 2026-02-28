@@ -51,6 +51,9 @@ const envSchema = z.object({
     // GitHub Integration
     GITHUB_WEBHOOK_SECRET: z.string().optional(),
 
+    // Admin
+    ADMIN_EMAIL: z.string().email().optional(),
+
     // System
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     VERCEL: z.string().optional(),
@@ -101,8 +104,8 @@ export const env = envSchema.parse({
     AUTH0_ISSUER: process.env.AUTH0_ISSUER || undefined,
 
 
-    // GitHub Integration
-    GITHUB_WEBHOOK_SECRET: process.env.GITHUB_WEBHOOK_SECRET || undefined,
+    // Admin
+    ADMIN_EMAIL: process.env.ADMIN_EMAIL,
 
     // System
     NODE_ENV: process.env.NODE_ENV,
