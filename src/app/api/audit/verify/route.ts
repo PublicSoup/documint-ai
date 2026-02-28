@@ -1,26 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { createHash } from "crypto";
+import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { createHash } from "crypto";
 import { validateAdmin } from "@/lib/admin-auth";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateQuery } from "@/lib/api-utils";
+
+const verifyAuditQuerySchema = z
+    .object({
+        limit: z.coerce.number().int().min(1).max(500).default(100),
+    })
+    .strict();
 
 export async function GET(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
+
+        await enforceRateLimit(session.user.id, "api");
 
         const adminCheck = await validateAdmin();
         if (!adminCheck.authorized) {
-            return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 });
+            throw ApiErrors.forbidden("Admin access required");
         }
 
-        const { searchParams } = new URL(request.url);
-        const limit = Math.min(parseInt(searchParams.get("limit") || "100"), 500);
+        const { limit } = validateQuery(request.nextUrl.searchParams, verifyAuditQuerySchema);
 
-        // Fetch logs in ascending order to verify the chain forward
         const logs = await db.auditLog.findMany({
             orderBy: { createdAt: "asc" },
             take: limit,
@@ -30,30 +39,35 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ success: true, message: "No logs to verify" });
         }
 
-        const verificationResults = [];
+        const verificationResults: Array<{
+            id: string;
+            action: string;
+            timestamp: string;
+            isHashValid: boolean;
+            isLinkValid: boolean;
+            entryValid: boolean;
+        }> = [];
+
         let chainValid = true;
 
-        for (let i = 0; i < logs.length; i++) {
+        for (let i = 0; i < logs.length; i += 1) {
             const log = logs[i];
-            
-            // 1. Recalculate hash
-            // Format must match src/lib/audit-logger.ts exactly
+
             const timestamp = log.createdAt.toISOString();
             const dataToHash = `${log.previousHash}|${log.action}|${log.entityId}|${timestamp}|${JSON.stringify(log.details || {})}`;
             const calculatedHash = createHash("sha256").update(dataToHash).digest("hex");
 
             const isHashValid = calculatedHash === log.hash;
-            
-            // 2. Check chain link (previousHash should match the hash of the entry before it)
-            // Note: For the first entry in our fetched set, we can only verify its own hash, 
-            // unless we fetch the one before it too.
+
             let isLinkValid = true;
             if (i > 0) {
-                isLinkValid = log.previousHash === logs[i-1].hash;
+                isLinkValid = log.previousHash === logs[i - 1].hash;
             }
 
             const entryValid = isHashValid && isLinkValid;
-            if (!entryValid) chainValid = false;
+            if (!entryValid) {
+                chainValid = false;
+            }
 
             verificationResults.push({
                 id: log.id,
@@ -61,7 +75,7 @@ export async function GET(request: NextRequest) {
                 timestamp,
                 isHashValid,
                 isLinkValid,
-                entryValid
+                entryValid,
             });
         }
 
@@ -70,13 +84,11 @@ export async function GET(request: NextRequest) {
             totalVerified: logs.length,
             results: verificationResults,
             summary: {
-                tamperedCount: verificationResults.filter(r => !r.entryValid).length,
-                chainIntegrity: chainValid ? "INTACT" : "COMPROMISED"
-            }
+                tamperedCount: verificationResults.filter((result) => !result.entryValid).length,
+                chainIntegrity: chainValid ? "INTACT" : "COMPROMISED",
+            },
         });
-
     } catch (error) {
-        console.error("[AuditVerify_API] Error:", error);
-        return NextResponse.json({ error: "Verification Failed" }, { status: 500 });
+        return errorResponse(error);
     }
 }
