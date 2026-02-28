@@ -30,6 +30,13 @@ Run after each meaningful batch:
 2. `npm run lint` (if configured)
 3. `npm run test` (if configured)
 
+## Search Tooling Fallback
+
+- `rg` (ripgrep) may be unavailable on some hosts.
+- Use `scripts/safe-search.sh <pattern> <path...>` for portable search:
+  - uses `rg` when present
+  - falls back to `grep -RIn` when `rg` is missing
+
 ## Engineering Guardrails
 
 - No `any` types
