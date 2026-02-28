@@ -314,6 +314,7 @@ export default function BillingHub() {
     ];
 
     const usagePercentage = usage ? Math.min((usage.filesProcessed / usage.filesLimit) * 100, 100) : 0;
+    const normalizedCurrentPlanId = usage?.planId?.toLowerCase() ?? null;
 
     return (
         <div className="h-full overflow-y-auto custom-scrollbar">
@@ -422,7 +423,7 @@ export default function BillingHub() {
                                             Checkout was canceled. Your selected plan is still here when you&apos;re ready.
                                         </p>
                                         <div className="flex items-center gap-2">
-                                            {focusedPlanId && usage?.planId !== focusedPlanId && (
+                                            {focusedPlanId && normalizedCurrentPlanId !== focusedPlanId && (
                                                 <Button
                                                     size="sm"
                                                     className="bg-primary hover:bg-primary/90 text-white"
@@ -454,9 +455,9 @@ export default function BillingHub() {
                                                     className="bg-primary hover:bg-primary/90 text-white"
                                                     isLoading={upgrading === focusedPlanId}
                                                     onClick={() => handleUpgrade(focusedPlanId)}
-                                                    disabled={usage?.planId === focusedPlanId}
+                                                    disabled={normalizedCurrentPlanId === focusedPlanId}
                                                 >
-                                                    {usage?.planId === focusedPlanId
+                                                    {normalizedCurrentPlanId === focusedPlanId
                                                         ? "Already Active"
                                                         : `Start ${focusedPlanId.charAt(0).toUpperCase()}${focusedPlanId.slice(1)} Trial`}
                                                 </Button>
@@ -494,7 +495,7 @@ export default function BillingHub() {
                                                         <div className="p-1 rounded-full bg-primary/20"><Zap className="w-3 h-3 text-primary" /></div>
                                                         <span className="font-bold">{plan.limit}</span>
                                                     </li>
-                                                    {usage?.planId === plan.id && (
+                                                    {normalizedCurrentPlanId === plan.id && (
                                                         <li className="flex items-center gap-3 text-xs text-green-400 font-bold bg-green-400/10 p-2 rounded-lg border border-green-400/20">
                                                             <CheckCircle2 className="w-4 h-4" /> CURRENT PLAN
                                                         </li>
@@ -508,14 +509,14 @@ export default function BillingHub() {
                                                 </ul>
                                                 <Button
                                                     onClick={() => handleUpgrade(plan.id)}
-                                                    disabled={upgrading === plan.id || usage?.planId === plan.id}
+                                                    disabled={upgrading === plan.id || normalizedCurrentPlanId === plan.id}
                                                     variant={plan.popular || focusedPlanId === plan.id ? "primary" : "outline"}
                                                     isLoading={upgrading === plan.id}
                                                     className="w-full"
                                                 >
                                                     {upgrading === plan.id
                                                         ? "Processing..."
-                                                        : usage?.planId === plan.id
+                                                        : normalizedCurrentPlanId === plan.id
                                                             ? "Current Plan"
                                                             : focusedPlanId === plan.id
                                                                 ? `Continue with ${plan.name}`
