@@ -388,6 +388,7 @@ export async function GET() {
             contractCompatibilityMode: true,
             responseShapeId: true,
             contractBundleId: true,
+            healthPayloadCompressionHint: true,
         } as const;
 
         const responseGeneratedBy = {
@@ -404,6 +405,7 @@ export async function GET() {
                 contractCompatibilityMode: "strict",
                 responseShapeId: ADMIN_HEALTH_RESPONSE_SHAPE_ID,
                 contractBundleId,
+                healthPayloadCompressionHint: "full",
                 responseSchemaHash: ADMIN_HEALTH_RESPONSE_SCHEMA_HASH,
                 schemaCapabilities,
                 responseGeneratedBy,
