@@ -27,6 +27,7 @@ let currentPolicyMismatchStableSince: string | null = null;
 let policyMismatchTransitionCount = 0;
 let previousPolicyMismatchActionDigest: string | null = null;
 let currentPolicyMismatchActionStableSince: string | null = null;
+let policyMismatchActionTransitionCount = 0;
 
 const HEALTH_SIGNAL_FLAPPING_TRANSITION_THRESHOLD = 3;
 const HEALTH_SIGNAL_FLAPPING_STABILITY_WINDOW_SEC = 300;
@@ -488,6 +489,10 @@ export async function GET() {
         const policyMismatchActionChanged = previousPolicyMismatchActionDigest !== policyMismatchActionDigest;
         const policyMismatchPreviousActionDigest = previousPolicyMismatchActionDigest;
 
+        if (policyMismatchActionChanged && policyMismatchPreviousActionDigest) {
+            policyMismatchActionTransitionCount += 1;
+        }
+
         if (!currentPolicyMismatchActionStableSince || policyMismatchActionChanged) {
             currentPolicyMismatchActionStableSince = generatedAtIso;
         }
@@ -497,6 +502,11 @@ export async function GET() {
             0,
             Math.floor((generatedAtEpochMs - Date.parse(policyMismatchActionStableSince ?? generatedAtIso)) / 1000),
         );
+
+        const policyMismatchActionVolatilityBand =
+            policyMismatchActionTransitionCount >= 5 ? "volatile" :
+            policyMismatchActionTransitionCount >= 2 ? "watch" :
+            "stable";
 
         if (policyMismatchChanged && policyMismatchPreviousDigest) {
             policyMismatchTransitionCount += 1;
@@ -624,6 +634,8 @@ export async function GET() {
             policyMismatchPreviousActionDigest: true,
             policyMismatchActionStableSince: true,
             policyMismatchActionStabilitySec: true,
+            policyMismatchActionTransitionCount: true,
+            policyMismatchActionVolatilityBand: true,
             policyMismatchStableSince: true,
             policyMismatchStabilitySec: true,
             policyMismatchTransitionCount: true,
@@ -716,6 +728,8 @@ export async function GET() {
                 policyMismatchPreviousActionDigest,
                 policyMismatchActionStableSince,
                 policyMismatchActionStabilitySec,
+                policyMismatchActionTransitionCount,
+                policyMismatchActionVolatilityBand,
                 policyMismatchStableSince,
                 policyMismatchStabilitySec,
                 policyMismatchTransitionCount,
