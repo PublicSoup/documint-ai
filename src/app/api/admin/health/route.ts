@@ -301,6 +301,7 @@ export async function GET() {
             opsReadinessScore: true,
             opsReadinessBand: true,
             contractRevision: true,
+            contractCompatibilityMode: true,
         } as const;
 
         const responseGeneratedBy = {
@@ -314,6 +315,7 @@ export async function GET() {
             {
                 healthVersion,
                 contractRevision: ADMIN_HEALTH_CONTRACT_REVISION,
+                contractCompatibilityMode: "strict",
                 responseSchemaHash: ADMIN_HEALTH_RESPONSE_SCHEMA_HASH,
                 schemaCapabilities,
                 responseGeneratedBy,
