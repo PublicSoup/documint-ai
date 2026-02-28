@@ -178,6 +178,19 @@ export async function GET() {
             summaryCodePriority >= 90 ? "priority-threshold" :
             "none";
 
+        const opsEscalationFingerprint = opsEscalationRequired
+            ? createHash("sha256")
+                  .update([
+                      healthSummaryCode,
+                      incidentClass,
+                      degradedComponents.join(","),
+                      criticalComponents.join(","),
+                      opsEscalationReason,
+                  ].join("|"))
+                  .digest("hex")
+                  .slice(0, 16)
+            : "none";
+
         const uniqueFailures = [...new Set(checkFailures)];
 
         const recommendedActions = [
@@ -265,6 +278,7 @@ export async function GET() {
             criticalComponentNamesCsv: true,
             opsEscalationRequired: true,
             opsEscalationReason: true,
+            opsEscalationFingerprint: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -296,6 +310,7 @@ export async function GET() {
                 summaryCodePriority,
                 opsEscalationRequired,
                 opsEscalationReason,
+                opsEscalationFingerprint,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
