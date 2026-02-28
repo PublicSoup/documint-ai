@@ -111,6 +111,14 @@ export async function GET() {
                     ? "degraded"
                     : "healthy";
 
+        const healthSummaryCode =
+            !databaseHealthy ? "CRITICAL_DB" :
+            !auditChainValid ? "CRITICAL_AUDIT" :
+            degradedComponents.includes("webContainer") ? "DEGRADED_WEB" :
+            degradedComponents.includes("rateLimit") ? "DEGRADED_RATELIMIT" :
+            degradedComponents.length > 0 ? "DEGRADED_OTHER" :
+            "OK";
+
         const uniqueFailures = [...new Set(checkFailures)];
 
         const recommendedActions = [
@@ -151,6 +159,7 @@ export async function GET() {
                 schemaCapabilities,
                 status: severity === "healthy" ? "healthy" : "degraded",
                 severity,
+                healthSummaryCode,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
