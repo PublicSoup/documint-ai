@@ -476,6 +476,17 @@ export async function GET() {
             policyMismatchTransitionCount >= 2 ? "watch" :
             "stable";
 
+        const policyMismatchVolatilityScore = Math.min(
+            100,
+            Math.max(
+                0,
+                Math.round(
+                    Math.min(100, policyMismatchTransitionVelocityPerMin * 10) * 0.6 +
+                    Math.min(100, policyMismatchTransitionCount * 10) * 0.4,
+                ),
+            ),
+        );
+
         previousPolicyMismatchDigest = policyMismatchDigest;
 
         const policyMismatchRecommendedActions = policyMismatches
@@ -544,6 +555,7 @@ export async function GET() {
             policyMismatchTransitionCount: true,
             policyMismatchTransitionVelocityPerMin: true,
             policyMismatchVolatilityBand: true,
+            policyMismatchVolatilityScore: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -623,6 +635,7 @@ export async function GET() {
                 policyMismatchTransitionCount,
                 policyMismatchTransitionVelocityPerMin,
                 policyMismatchVolatilityBand,
+                policyMismatchVolatilityScore,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
