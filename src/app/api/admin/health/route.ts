@@ -72,16 +72,24 @@ export async function GET() {
         const redisConfigured = !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
 
         // 5. WebContainer Runtime Health Snapshot
+        const WEB_CONTAINER_RECOVERY_DEGRADED_THRESHOLD = 5;
         let webContainerHealth: ReturnType<typeof WebContainerManager.getHealthSnapshot> | null = null;
+        let webContainerDegraded = false;
+
         try {
             webContainerHealth = WebContainerManager.getHealthSnapshot();
+            webContainerDegraded = webContainerHealth.recoveryCount >= WEB_CONTAINER_RECOVERY_DEGRADED_THRESHOLD;
+
+            if (webContainerDegraded) {
+                checkFailures.push("webContainerRecoveryRate");
+            }
         } catch {
             checkFailures.push("webContainer");
         }
 
         return NextResponse.json(
             {
-                status: databaseHealthy && auditChainValid ? "healthy" : "degraded",
+                status: databaseHealthy && auditChainValid && !webContainerDegraded ? "healthy" : "degraded",
                 timestamp: new Date().toISOString(),
                 checkDurationMs: Date.now() - startedAt,
                 checkFailures,
@@ -103,7 +111,8 @@ export async function GET() {
                     },
                     webContainer: webContainerHealth
                         ? {
-                              status: "online",
+                              status: webContainerDegraded ? "degraded" : "online",
+                              recoveryDegradedThreshold: WEB_CONTAINER_RECOVERY_DEGRADED_THRESHOLD,
                               ...webContainerHealth,
                           }
                         : {
