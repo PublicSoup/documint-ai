@@ -527,13 +527,21 @@ export async function GET() {
         previousPolicyMismatchDigest = policyMismatchDigest;
 
         const policyMismatchRecommendedActions = policyMismatches
-            .map((mismatch) =>
-                mismatch === "volatility-policy"
-                    ? "update-monitor-policy"
-                    : mismatch === "policy-mismatch-alert-policy"
-                        ? "update-mismatch-alert-policy"
-                        : "review-policy-config",
-            )
+            .map((mismatch) => {
+                if (mismatch === "volatility-policy") {
+                    return volatilityPolicyCompatibilityAction === "verify-bundle-config"
+                        ? "verify-volatility-policy-bundle"
+                        : "update-monitor-policy";
+                }
+
+                if (mismatch === "policy-mismatch-alert-policy") {
+                    return policyMismatchAlertPolicyCompatibilityAction === "verify-bundle-config"
+                        ? "verify-mismatch-alert-policy-bundle"
+                        : "update-mismatch-alert-policy";
+                }
+
+                return "review-policy-config";
+            })
             .sort();
 
         const schemaCapabilities = {
