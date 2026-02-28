@@ -527,6 +527,13 @@ export async function GET() {
         const policyMismatchActionAlertRecommended =
             policyMismatchActionVolatilityBand === "volatile" || policyMismatchActionVolatilityScore >= 70;
 
+        const policyMismatchActionAlertSeverityHint =
+            !policyMismatchActionAlertRecommended
+                ? "none"
+                : policyMismatchActionVolatilityScore >= 85
+                    ? "page"
+                    : "watch";
+
         if (policyMismatchChanged && policyMismatchPreviousDigest) {
             policyMismatchTransitionCount += 1;
         }
@@ -658,6 +665,7 @@ export async function GET() {
             policyMismatchActionVolatilityBand: true,
             policyMismatchActionVolatilityScore: true,
             policyMismatchActionAlertRecommended: true,
+            policyMismatchActionAlertSeverityHint: true,
             policyMismatchStableSince: true,
             policyMismatchStabilitySec: true,
             policyMismatchTransitionCount: true,
@@ -755,6 +763,7 @@ export async function GET() {
                 policyMismatchActionVolatilityBand,
                 policyMismatchActionVolatilityScore,
                 policyMismatchActionAlertRecommended,
+                policyMismatchActionAlertSeverityHint,
                 policyMismatchStableSince,
                 policyMismatchStabilitySec,
                 policyMismatchTransitionCount,
