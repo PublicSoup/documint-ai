@@ -445,6 +445,13 @@ export async function GET() {
                     ? "missing-policy-version-in-bundle"
                     : "contract-mode-not-strict";
 
+        const policyMismatchAlertPolicyCompatibilityAction =
+            policyMismatchAlertPolicyCompatibilityReason === "compatible"
+                ? "no-action"
+                : policyMismatchAlertPolicyCompatibilityReason === "missing-policy-version-in-bundle"
+                    ? "verify-bundle-config"
+                    : "update-monitor-policy";
+
         const volatilityPolicyCompatibilityAction =
             volatilityPolicyCompatibilityReason === "compatible"
                 ? "no-action"
@@ -591,6 +598,7 @@ export async function GET() {
             policyMismatchAlertPolicyBundleId: true,
             policyMismatchAlertPolicyCompatible: true,
             policyMismatchAlertPolicyCompatibilityReason: true,
+            policyMismatchAlertPolicyCompatibilityAction: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -677,6 +685,7 @@ export async function GET() {
                 policyMismatchAlertPolicyBundleId,
                 policyMismatchAlertPolicyCompatible,
                 policyMismatchAlertPolicyCompatibilityReason,
+                policyMismatchAlertPolicyCompatibilityAction,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
