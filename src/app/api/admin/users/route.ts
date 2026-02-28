@@ -91,11 +91,44 @@ export async function PATCH(req: NextRequest) {
         const adminCheck = await validateAdmin();
         if (!adminCheck.authorized) return adminCheck.response!;
 
-        if (adminCheck.session?.user?.id) {
-            await enforceRateLimit(adminCheck.session.user.id, "api");
+        const actorUserId = adminCheck.session?.user?.id;
+        if (!actorUserId) {
+            throw ApiErrors.unauthorized();
         }
 
+        await enforceRateLimit(actorUserId, "api");
+
         const { userId, role } = await validateBody(req, updateRoleSchema);
+
+        if (userId === actorUserId) {
+            throw ApiErrors.badRequest("You cannot change your own role");
+        }
+
+        const targetUser = await db.user.findUnique({
+            where: { id: userId },
+            select: { id: true, role: true },
+        });
+
+        if (!targetUser) {
+            throw ApiErrors.notFound("User");
+        }
+
+        if (targetUser.role === role) {
+            return NextResponse.json({
+                user: {
+                    id: targetUser.id,
+                    role: targetUser.role,
+                },
+                unchanged: true,
+            });
+        }
+
+        if (targetUser.role === "ADMIN" && role !== "ADMIN") {
+            const adminCount = await db.user.count({ where: { role: "ADMIN" } });
+            if (adminCount <= 1) {
+                throw ApiErrors.conflict("Cannot demote the last admin user");
+            }
+        }
 
         const updatedUser = await db.user.update({
             where: { id: userId },
@@ -107,11 +140,14 @@ export async function PATCH(req: NextRequest) {
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
-                userId: adminCheck.session?.user?.id,
+                userId: actorUserId,
                 action: "ADMIN_UPDATE_USER_ROLE",
                 entity: "User",
                 entityId: userId,
-                details: { newRole: role }
+                details: {
+                    previousRole: targetUser.role,
+                    newRole: role,
+                }
             });
         } catch {
             // Non-blocking
