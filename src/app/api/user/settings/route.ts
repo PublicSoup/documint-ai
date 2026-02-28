@@ -5,6 +5,7 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 
 const jsonValueSchema: z.ZodType<Prisma.JsonValue> = z.lazy(() =>
     z.union([
@@ -30,12 +31,12 @@ function toSettingsObject(value: Prisma.JsonValue | null | undefined): Prisma.Js
 }
 
 export async function GET(_req: NextRequest) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     try {
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            throw ApiErrors.unauthorized();
+        }
+
         await enforceRateLimit(session.user.id, "api");
 
         const user = await db.user.findUnique({
@@ -45,26 +46,20 @@ export async function GET(_req: NextRequest) {
 
         return NextResponse.json({ settings: toSettingsObject(user?.settings) });
     } catch (error) {
-        console.error("Error fetching settings:", error);
-        return NextResponse.json({ error: "Failed to fetch settings" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
 export async function PATCH(req: NextRequest) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     try {
-        await enforceRateLimit(session.user.id, "api");
-
-        const parsedBody = settingsPatchSchema.safeParse(await req.json());
-        if (!parsedBody.success) {
-            return NextResponse.json({ error: "Invalid settings payload" }, { status: 400 });
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            throw ApiErrors.unauthorized();
         }
 
-        const updates = parsedBody.data;
+        await enforceRateLimit(session.user.id, "api");
+
+        const updates = await validateBody(req, settingsPatchSchema);
 
         const user = await db.user.findUnique({
             where: { id: session.user.id },
@@ -83,9 +78,23 @@ export async function PATCH(req: NextRequest) {
             select: { settings: true },
         });
 
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: session.user.id,
+                action: "UPDATE_USER_SETTINGS",
+                entity: "User",
+                entityId: session.user.id,
+                details: {
+                    updatedFields: Object.keys(updates),
+                },
+            });
+        } catch {
+            // Keep mutation non-blocking if audit persistence fails.
+        }
+
         return NextResponse.json({ settings: toSettingsObject(updatedUser.settings) });
     } catch (error) {
-        console.error("Error updating settings:", error);
-        return NextResponse.json({ error: "Failed to update settings" }, { status: 500 });
+        return errorResponse(error);
     }
 }
