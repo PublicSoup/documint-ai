@@ -12,6 +12,8 @@ import { errorResponse, ApiErrors } from "@/lib/api-utils";
  * Comprehensive system health check for administrators.
  */
 export async function GET() {
+    const startedAt = Date.now();
+
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
@@ -68,28 +70,36 @@ export async function GET() {
         // 4. Rate Limit Check (Redis)
         const redisConfigured = !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
 
-        return NextResponse.json({
-            status: databaseHealthy && auditChainValid ? "healthy" : "degraded",
-            timestamp: new Date().toISOString(),
-            checkFailures,
-            components: {
-                database: {
-                    status: databaseHealthy ? "online" : "offline",
-                    stats: { totalUsers: userCount }
-                },
-                ai: {
-                    status: aiConfigured ? "online" : "unconfigured",
-                    provider: "gemini"
-                },
-                auditTrail: {
-                    status: auditChainValid ? "intact" : "compromised",
-                    tamperedCount
-                },
-                rateLimit: {
-                    status: redisConfigured ? "active" : "disabled"
+        return NextResponse.json(
+            {
+                status: databaseHealthy && auditChainValid ? "healthy" : "degraded",
+                timestamp: new Date().toISOString(),
+                checkDurationMs: Date.now() - startedAt,
+                checkFailures,
+                components: {
+                    database: {
+                        status: databaseHealthy ? "online" : "offline",
+                        stats: { totalUsers: userCount }
+                    },
+                    ai: {
+                        status: aiConfigured ? "online" : "unconfigured",
+                        provider: "gemini"
+                    },
+                    auditTrail: {
+                        status: auditChainValid ? "intact" : "compromised",
+                        tamperedCount
+                    },
+                    rateLimit: {
+                        status: redisConfigured ? "active" : "disabled"
+                    }
                 }
+            },
+            {
+                headers: {
+                    "Cache-Control": "no-store, max-age=0",
+                },
             }
-        });
+        );
 
     } catch (error) {
         return errorResponse(error);
