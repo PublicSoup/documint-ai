@@ -217,6 +217,14 @@ export async function GET() {
             return generatedAtEpochMs - checkedAtMs > COMPONENT_STALE_THRESHOLD_MS ? count + 1 : count;
         }, 0);
 
+        const opsReadinessScore = Math.max(
+            0,
+            100 -
+                (severity === "critical" ? 60 : severity === "degraded" ? 25 : 0) -
+                staleComponentCount * 5 -
+                (responseLatencyBucket === "slow" ? 15 : responseLatencyBucket === "elevated" ? 5 : 0),
+        );
+
         const schemaCapabilities = {
             degradedComponents: true,
             componentSeverity: true,
@@ -234,6 +242,7 @@ export async function GET() {
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
+            opsReadinessScore: true,
         } as const;
 
         const responseGeneratedBy = {
@@ -254,6 +263,7 @@ export async function GET() {
                 incidentClass,
                 incidentRoutingHint,
                 alertSuppressionHint,
+                opsReadinessScore,
                 healthSummaryCode,
                 summaryCodePriority,
                 timestamp: generatedAtIso,
