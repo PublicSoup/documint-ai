@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import { buildProjectGraph } from "@/lib/graph/project-graph";
 import { requireFeature } from "@/lib/feature-gate";
 import { checkFilePermission } from "@/lib/permissions";
+import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 
 const AI_ARCHITECT_SYSTEM_PROMPT = `You are the AI Architect, a Senior Staff Software Engineer paired with a developer.
 Your goal is to provide high-level architectural advice, code refactoring, and deep technical insights.
@@ -51,25 +52,20 @@ export async function POST(req: NextRequest) {
     const gateResponse = await requireFeature("aiArchitect");
     if (gateResponse) return gateResponse;
 
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     try {
-        await enforceRateLimit(session.user.id, "free");
-
-        const parsed = architectRequestSchema.safeParse(await req.json());
-        if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid AI Architect payload" }, { status: 400 });
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            throw ApiErrors.unauthorized();
         }
 
-        const { fileId, code, chatHistory, userPrompt } = parsed.data;
+        await enforceRateLimit(session.user.id, "free");
+
+        const { fileId, code, chatHistory, userPrompt } = await validateBody(req, architectRequestSchema);
 
         if (fileId) {
             const canView = await checkFilePermission(session.user.id, fileId, "view");
             if (!canView) {
-                return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+                throw ApiErrors.forbidden();
             }
         }
 
@@ -133,8 +129,8 @@ export async function POST(req: NextRequest) {
                     }
                 }
             }
-        } catch (contextError) {
-            console.warn("Failed to build project context for AI Architect:", contextError);
+        } catch {
+            // Non-blocking context build failure.
         }
 
         const messages: AIMessage[] = [{ role: "system", content: AI_ARCHITECT_SYSTEM_PROMPT }];
@@ -164,7 +160,7 @@ export async function POST(req: NextRequest) {
         });
 
         if (!result?.content) {
-            return NextResponse.json({ error: "Failed to generate response." }, { status: 500 });
+            throw ApiErrors.internalError("Failed to generate response.");
         }
 
         try {
@@ -211,14 +207,13 @@ export async function POST(req: NextRequest) {
                         },
                     });
                 }
-            } catch (persistError) {
-                console.error("Failed to persist AI chat:", persistError);
+            } catch {
+                // Non-blocking metadata persistence failure.
             }
         }
 
         return NextResponse.json({ response: result.content });
     } catch (error) {
-        console.error("AI Architect API Error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
