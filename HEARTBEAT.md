@@ -13,6 +13,7 @@
 3. Product execution
    - ensure feature-impact notes exist for newly added features under `docs/feature-analysis/`
    - enforce milestone progress against `docs/ENTERPRISE_READINESS_PLAN.md`
+   - explicitly track enterprise-critical pillars: IDE, WebContainer, Mermaid visualizer
    - surface highest-priority next batch if no active run is in progress
 
 4. Batch contract enforcement
