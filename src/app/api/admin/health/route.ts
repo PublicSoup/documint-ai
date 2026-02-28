@@ -432,7 +432,7 @@ export async function GET() {
 
         const policyMismatches = [
             !volatilityPolicyCompatible ? "volatility-policy" : null,
-        ].filter((value): value is string => Boolean(value));
+        ].filter((value): value is string => Boolean(value)).sort();
 
         const policyMismatchCount = policyMismatches.length;
 
