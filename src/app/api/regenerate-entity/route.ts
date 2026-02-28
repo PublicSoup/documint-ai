@@ -6,36 +6,34 @@ import { db } from "@/lib/db";
 import { getAICompletion } from "@/lib/ai";
 import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 
-const regenerateEntitySchema = z.object({
-    code: z.string().trim().min(1).max(20_000),
-    language: z.string().trim().min(1).max(50),
-    type: z.enum(["function", "class", "complex_logic", "code"]).default("code"),
-    name: z.string().trim().max(255).optional(),
-    fileId: z.string().min(1).optional(),
-}).strict();
+const regenerateEntitySchema = z
+    .object({
+        code: z.string().trim().min(1).max(20_000),
+        language: z.string().trim().min(1).max(50),
+        type: z.enum(["function", "class", "complex_logic", "code"]).default("code"),
+        name: z.string().trim().max(255).optional(),
+        fileId: z.string().trim().min(1).max(100).optional(),
+    })
+    .strict();
 
 export async function POST(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
-        const parsed = regenerateEntitySchema.safeParse(await request.json());
-        if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
-        }
-
-        const { code, language, type, name, fileId } = parsed.data;
+        const { code, language, type, name, fileId } = await validateBody(request, regenerateEntitySchema);
 
         let styleGuide = "";
         if (fileId) {
             const canView = await checkFilePermission(session.user.id, fileId, "view");
             if (!canView) {
-                return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+                throw ApiErrors.forbidden();
             }
 
             const file = await db.file.findUnique({
@@ -48,8 +46,7 @@ export async function POST(request: NextRequest) {
                     where: { teamId: file.teamId, type: "TEAM_CONFIG" },
                     select: { config: true },
                 });
-                styleGuide =
-                    (teamConfig?.config as { styleGuide?: string } | null)?.styleGuide || "";
+                styleGuide = (teamConfig?.config as { styleGuide?: string } | null)?.styleGuide || "";
             }
         }
 
@@ -113,11 +110,11 @@ Explanation:`;
             {
                 temperature: 0.1,
                 maxTokens: 1024,
-            }
+            },
         );
 
         if (!aiResult?.content) {
-            return NextResponse.json({ error: "AI generation failed" }, { status: 500 });
+            throw ApiErrors.internalError("AI generation failed");
         }
 
         try {
@@ -139,7 +136,6 @@ Explanation:`;
 
         return NextResponse.json({ doc: aiResult.content });
     } catch (error) {
-        console.error("Regenerate entity error:", error);
-        return NextResponse.json({ error: "Failed to regenerate entity documentation" }, { status: 500 });
+        return errorResponse(error);
     }
 }
