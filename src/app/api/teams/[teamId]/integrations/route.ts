@@ -6,50 +6,54 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { checkTeamPermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 
-const paramsSchema = z.object({
-    teamId: z.string().trim().min(1).max(100),
-}).strict();
+const paramsSchema = z
+    .object({
+        teamId: z.string().trim().min(1).max(100),
+    })
+    .strict();
 
-const jsonValueSchema: z.ZodType<Prisma.JsonValue> = z.lazy(() =>
-    z.union([
-        z.string(),
-        z.number().finite(),
-        z.boolean(),
-        z.null(),
-        z.array(jsonValueSchema),
-        z.record(z.string(), jsonValueSchema),
-    ]),
-);
+const teamConfigSchema = z
+    .object({
+        coverageGoal: z.number().int().min(0).max(100).optional(),
+        requireApproval: z.boolean().optional(),
+        lockApproved: z.boolean().optional(),
+        driftAlerts: z.boolean().optional(),
+        autoGithubSync: z.boolean().optional(),
+        githubRepo: z.string().trim().max(200).optional(),
+        retentionDays: z.number().int().min(0).max(365).optional(),
+        styleGuide: z.string().max(10_000).optional(),
+        apiGuidelines: z.string().max(10_000).optional(),
+    })
+    .strict();
 
-const teamConfigSchema = z.object({
-    coverageGoal: z.number().int().min(0).max(100).optional(),
-    requireApproval: z.boolean().optional(),
-    lockApproved: z.boolean().optional(),
-    driftAlerts: z.boolean().optional(),
-    autoGithubSync: z.boolean().optional(),
-    githubRepo: z.string().trim().max(200).optional(),
-    retentionDays: z.number().int().min(0).max(365).optional(),
-    styleGuide: z.string().max(10_000).optional(),
-    apiGuidelines: z.string().max(10_000).optional(),
-}).strict();
+const webhookIntegrationSchema = z
+    .object({
+        type: z.enum(["SLACK", "DISCORD"]),
+        config: z
+            .object({
+                webhookUrl: z.string().trim().url().max(2048),
+            })
+            .strict(),
+    })
+    .strict();
 
-const webhookIntegrationSchema = z.object({
-    type: z.enum(["SLACK", "DISCORD"]),
-    config: z.object({
-        webhookUrl: z.string().trim().url().max(2048),
-    }).strict(),
-}).strict();
-
-const teamConfigIntegrationSchema = z.object({
-    type: z.literal("TEAM_CONFIG"),
-    config: teamConfigSchema,
-}).strict();
+const teamConfigIntegrationSchema = z
+    .object({
+        type: z.literal("TEAM_CONFIG"),
+        config: teamConfigSchema,
+    })
+    .strict();
 
 const postBodySchema = z.discriminatedUnion("type", [
     teamConfigIntegrationSchema,
     webhookIntegrationSchema,
 ]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 function isValidWebhookForType(type: "SLACK" | "DISCORD", webhookUrl: string): boolean {
     if (type === "SLACK") {
@@ -57,6 +61,43 @@ function isValidWebhookForType(type: "SLACK" | "DISCORD", webhookUrl: string): b
     }
 
     return webhookUrl.startsWith("https://discord.com/api/webhooks/");
+}
+
+function maskWebhookUrl(url: string): string {
+    try {
+        const parsed = new URL(url);
+        const tail = parsed.pathname.split("/").filter(Boolean).slice(-2).join("/");
+        return `${parsed.origin}/.../${tail || "hidden"}`;
+    } catch {
+        return "Webhook URL unavailable";
+    }
+}
+
+function sanitizeConfigForRead(type: string, config: Prisma.JsonValue, canManage: boolean): Prisma.JsonValue {
+    if (canManage) {
+        return config;
+    }
+
+    if ((type === "SLACK" || type === "DISCORD") && isRecord(config)) {
+        const webhookUrl = config.webhookUrl;
+        const maskedWebhook = typeof webhookUrl === "string" ? maskWebhookUrl(webhookUrl) : "Webhook URL unavailable";
+
+        return {
+            ...config,
+            webhookUrl: maskedWebhook,
+        } as Prisma.JsonObject;
+    }
+
+    return config;
+}
+
+async function parseTeamId(params: Promise<{ teamId: string }>): Promise<string> {
+    const parsedParams = paramsSchema.safeParse(await params);
+    if (!parsedParams.success) {
+        throw ApiErrors.badRequest("Invalid team ID", parsedParams.error.flatten());
+    }
+
+    return parsedParams.data.teamId;
 }
 
 /**
@@ -68,25 +109,26 @@ export async function GET(
     { params }: { params: Promise<{ teamId: string }> },
 ) {
     try {
-        const parsedParams = paramsSchema.safeParse(await params);
-        if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid team ID" }, { status: 400 });
-        }
+        const teamId = await parseTeamId(params);
 
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
-        const hasPermission = await checkTeamPermission(session.user.id, parsedParams.data.teamId, "view");
-        if (!hasPermission) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        const [canView, canManage] = await Promise.all([
+            checkTeamPermission(session.user.id, teamId, "view"),
+            checkTeamPermission(session.user.id, teamId, "manage"),
+        ]);
+
+        if (!canView) {
+            throw ApiErrors.forbidden();
         }
 
         const integrations = await db.integration.findMany({
-            where: { teamId: parsedParams.data.teamId },
+            where: { teamId },
             orderBy: { createdAt: "desc" },
             select: {
                 id: true,
@@ -97,10 +139,14 @@ export async function GET(
             },
         });
 
-        return NextResponse.json({ integrations });
+        const sanitizedIntegrations = integrations.map((integration) => ({
+            ...integration,
+            config: sanitizeConfigForRead(integration.type, integration.config, canManage),
+        }));
+
+        return NextResponse.json({ integrations: sanitizedIntegrations, permissions: { canManage } });
     } catch (error) {
-        console.error("[TeamIntegrations_GET] Error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
@@ -113,51 +159,43 @@ export async function POST(
     { params }: { params: Promise<{ teamId: string }> },
 ) {
     try {
-        const parsedParams = paramsSchema.safeParse(await params);
-        if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid team ID" }, { status: 400 });
-        }
+        const teamId = await parseTeamId(params);
 
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
-        const hasPermission = await checkTeamPermission(session.user.id, parsedParams.data.teamId, "manage");
-        if (!hasPermission) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        const canManage = await checkTeamPermission(session.user.id, teamId, "manage");
+        if (!canManage) {
+            throw ApiErrors.forbidden("Team manager access required");
         }
 
-        const parsedBody = postBodySchema.safeParse(await request.json());
-        if (!parsedBody.success) {
-            return NextResponse.json({ error: "Invalid integration payload" }, { status: 400 });
-        }
+        const payload = await validateBody(request, postBodySchema);
 
-        const { type, config } = parsedBody.data;
-
-        if (type === "TEAM_CONFIG") {
+        if (payload.type === "TEAM_CONFIG") {
             const existing = await db.integration.findFirst({
-                where: { teamId: parsedParams.data.teamId, type: "TEAM_CONFIG" },
+                where: { teamId, type: "TEAM_CONFIG" },
                 select: { id: true },
             });
 
-            const payloadConfig = config as Prisma.InputJsonObject;
+            const config = payload.config as Prisma.InputJsonValue;
 
             const integration = existing
                 ? await db.integration.update({
-                    where: { id: existing.id },
-                    data: { config: payloadConfig },
-                })
+                      where: { id: existing.id },
+                      data: { config },
+                  })
                 : await db.integration.create({
-                    data: {
-                        teamId: parsedParams.data.teamId,
-                        type: "TEAM_CONFIG",
-                        config: payloadConfig,
-                        isActive: true,
-                    },
-                });
+                      data: {
+                          teamId,
+                          type: "TEAM_CONFIG",
+                          config,
+                          isActive: true,
+                      },
+                  });
 
             try {
                 const { logAudit } = await import("@/lib/audit-logger");
@@ -165,9 +203,9 @@ export async function POST(
                     userId: session.user.id,
                     action: "UPDATE_TEAM_CONFIG",
                     entity: "Team",
-                    entityId: parsedParams.data.teamId,
+                    entityId: teamId,
                     details: {
-                        keys: Object.keys(config),
+                        keys: Object.keys(payload.config),
                     },
                 });
             } catch {
@@ -177,26 +215,40 @@ export async function POST(
             return NextResponse.json({ integration });
         }
 
+        const { type, config } = payload;
         if (!isValidWebhookForType(type, config.webhookUrl)) {
-            return NextResponse.json({ error: "Invalid webhook URL for selected provider" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid webhook URL for selected provider");
         }
 
-        const integration = await db.integration.create({
-            data: {
-                teamId: parsedParams.data.teamId,
-                type,
-                config: { webhookUrl: config.webhookUrl },
-                isActive: true,
-            },
+        const existingWebhookIntegration = await db.integration.findFirst({
+            where: { teamId, type },
+            select: { id: true },
         });
+
+        const integration = existingWebhookIntegration
+            ? await db.integration.update({
+                  where: { id: existingWebhookIntegration.id },
+                  data: {
+                      config: { webhookUrl: config.webhookUrl },
+                      isActive: true,
+                  },
+              })
+            : await db.integration.create({
+                  data: {
+                      teamId,
+                      type,
+                      config: { webhookUrl: config.webhookUrl },
+                      isActive: true,
+                  },
+              });
 
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
                 userId: session.user.id,
-                action: "CREATE_INTEGRATION",
+                action: existingWebhookIntegration ? "UPDATE_INTEGRATION" : "CREATE_INTEGRATION",
                 entity: "Team",
-                entityId: parsedParams.data.teamId,
+                entityId: teamId,
                 details: {
                     type,
                     integrationId: integration.id,
@@ -206,9 +258,11 @@ export async function POST(
             // Keep mutation non-blocking when audit logging fails.
         }
 
-        return NextResponse.json({ integration }, { status: 201 });
+        return NextResponse.json(
+            { integration },
+            { status: existingWebhookIntegration ? 200 : 201 },
+        );
     } catch (error) {
-        console.error("[TeamIntegrations_POST] Error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
