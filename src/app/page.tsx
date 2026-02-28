@@ -575,6 +575,7 @@ export default function LandingPage() {
             <TrackedLink
               href="https://github.com/documintai"
               target="_blank"
+              rel="noopener noreferrer"
               eventName="landing_secondary_cta_click"
               location="footer_social_github"
               variant={LANDING_EXPERIMENT_VARIANT}
