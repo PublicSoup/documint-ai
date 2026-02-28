@@ -6,7 +6,7 @@ import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { sendNotification } from "@/lib/notifications";
 import { z } from "zod";
-import { errorResponse } from "@/lib/api-utils";
+import { ApiErrors, errorResponse } from "@/lib/api-utils";
 
 const paramsSchema = z.object({
     id: z.string().trim().min(1).max(100),
@@ -24,7 +24,7 @@ export async function POST(
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         // 1. Enforce rate limit
@@ -33,7 +33,7 @@ export async function POST(
         // 2. Validate Params
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid file ID" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid file ID", parsedParams.error.flatten());
         }
 
         const { id: fileId } = parsedParams.data;
@@ -41,7 +41,7 @@ export async function POST(
         // 3. Check permissions
         const hasPermission = await checkFilePermission(session.user.id, fileId, "approve");
         if (!hasPermission) {
-            return NextResponse.json({ error: "Forbidden: You do not have permission to approve documentation" }, { status: 403 });
+            throw ApiErrors.forbidden("You do not have permission to approve documentation");
         }
 
         // 4. Fetch Documentation
@@ -51,7 +51,7 @@ export async function POST(
         });
 
         if (!doc) {
-            return NextResponse.json({ error: "Documentation not found" }, { status: 404 });
+            throw ApiErrors.notFound("Documentation");
         }
 
         // 5. Update documentation status in a transaction
@@ -126,19 +126,21 @@ export async function POST(
                         // Fire-and-forget background sync
                         fetch(`${protocol}://${host}/api/github/pr`, {
                             method: "POST",
-                            headers: { 
+                            headers: {
                                 "Content-Type": "application/json",
-                                "Cookie": req.headers.get("cookie") || "" 
+                                "Cookie": req.headers.get("cookie") || "",
                             },
                             body: JSON.stringify({
                                 fileId,
-                                repoFullName: config.githubRepo
-                            })
-                        }).catch(e => console.error("Auto-GitHub sync failed:", e));
+                                repoFullName: config.githubRepo,
+                            }),
+                        }).catch(() => {
+                            // Non-blocking background sync failure.
+                        });
                     }
                 }
-            } catch (e) {
-                console.error("Post-approval tasks failed:", e);
+            } catch {
+                // Keep post-approval automation non-blocking.
             }
         }
 
