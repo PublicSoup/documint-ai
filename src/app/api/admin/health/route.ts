@@ -11,6 +11,7 @@ import { WebContainerManager } from "@/lib/web-container";
 const ADMIN_HEALTH_RESPONSE_SCHEMA_HASH = "admin-health-2026-02-27-v1";
 const ADMIN_HEALTH_CONTRACT_REVISION = 1;
 const ADMIN_HEALTH_RESPONSE_SHAPE_ID = "ah.v1.core";
+const ADMIN_HEALTH_CONTRACT_COMPATIBILITY_MODE = "strict";
 
 let previousHealthSignalDigest: string | null = null;
 let previousHealthSignalObservedAt: string | null = null;
@@ -400,7 +401,7 @@ export async function GET() {
         const contractBundleId = [
             `rev:${ADMIN_HEALTH_CONTRACT_REVISION}`,
             `shape:${ADMIN_HEALTH_RESPONSE_SHAPE_ID}`,
-            "mode:strict",
+            `mode:${ADMIN_HEALTH_CONTRACT_COMPATIBILITY_MODE}`,
         ].join("|");
 
         const schemaCapabilities = {
@@ -470,7 +471,7 @@ export async function GET() {
             {
                 healthVersion,
                 contractRevision: ADMIN_HEALTH_CONTRACT_REVISION,
-                contractCompatibilityMode: "strict",
+                contractCompatibilityMode: ADMIN_HEALTH_CONTRACT_COMPATIBILITY_MODE,
                 responseShapeId: ADMIN_HEALTH_RESPONSE_SHAPE_ID,
                 contractBundleId,
                 healthPayloadCompressionHint: "full",
