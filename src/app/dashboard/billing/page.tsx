@@ -38,6 +38,8 @@ export default function BillingHub() {
     const [upgrading, setUpgrading] = useState<string | null>(null);
     const [isMounted, setIsMounted] = useState(false);
     const [billingLoading, setBillingLoading] = useState(false);
+    const [focusedPlanId, setFocusedPlanId] = useState<"starter" | "pro" | "team" | null>(null);
+    const [trialIntentActive, setTrialIntentActive] = useState(false);
 
     // Profile State
     const [saving, setSaving] = useState(false);
@@ -64,6 +66,20 @@ export default function BillingHub() {
     useEffect(() => {
         setIsMounted(true);
         fetchUsage();
+
+        const params = new URLSearchParams(window.location.search);
+        const plan = params.get("plan");
+        const intent = params.get("intent");
+
+        if (intent === "trial") {
+            setTrialIntentActive(true);
+            setActiveTab("plans");
+        }
+
+        if (plan === "starter" || plan === "pro" || plan === "team") {
+            setFocusedPlanId(plan);
+            setActiveTab("plans");
+        }
     }, []);
 
     useEffect(() => {
@@ -364,13 +380,25 @@ export default function BillingHub() {
 
                             <div>
                                 <h2 className="text-xl font-bold text-white mb-6">Available Plans</h2>
+                                {trialIntentActive && (
+                                    <div className="mb-5 rounded-xl border border-primary/25 bg-primary/10 p-4 flex items-center justify-between gap-3">
+                                        <p className="text-sm text-white/80">
+                                            Trial intent detected — choose your best-fit plan to continue guided activation.
+                                        </p>
+                                        {focusedPlanId && (
+                                            <span className="text-xs font-black uppercase tracking-widest text-primary">Recommended: {focusedPlanId}</span>
+                                        )}
+                                    </div>
+                                )}
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                     {PLANS.map((plan) => (
                                         <Card
                                             key={plan.id}
+                                            id={`plan-card-${plan.id}`}
                                             className={cn(
                                                 "flex flex-col relative overflow-hidden transition-all duration-300 hover:scale-[1.02]",
-                                                plan.popular ? 'border-primary/50 bg-primary/5 shadow-2xl shadow-primary/10' : 'bg-black/20 hover:bg-black/30'
+                                                plan.popular ? 'border-primary/50 bg-primary/5 shadow-2xl shadow-primary/10' : 'bg-black/20 hover:bg-black/30',
+                                                focusedPlanId === plan.id && 'ring-2 ring-primary/60 border-primary shadow-2xl shadow-primary/20'
                                             )}
                                         >
                                             {plan.popular && (
@@ -407,11 +435,17 @@ export default function BillingHub() {
                                                 <Button
                                                     onClick={() => handleUpgrade(plan.id)}
                                                     disabled={upgrading === plan.id || usage?.planId === plan.id}
-                                                    variant={plan.popular ? "primary" : "outline"}
+                                                    variant={plan.popular || focusedPlanId === plan.id ? "primary" : "outline"}
                                                     isLoading={upgrading === plan.id}
                                                     className="w-full"
                                                 >
-                                                    {upgrading === plan.id ? "Processing..." : usage?.planId === plan.id ? "Current Plan" : `Upgrade to ${plan.name}`}
+                                                    {upgrading === plan.id
+                                                        ? "Processing..."
+                                                        : usage?.planId === plan.id
+                                                            ? "Current Plan"
+                                                            : focusedPlanId === plan.id
+                                                                ? `Continue with ${plan.name}`
+                                                                : `Upgrade to ${plan.name}`}
                                                 </Button>
                                             </CardContent>
                                         </Card>
