@@ -231,6 +231,10 @@ export default function BillingHub() {
     };
 
     const handleInvite = async (teamId: string) => {
+        if (sendingInvite) {
+            return;
+        }
+
         const normalizedEmail = inviteEmail.trim().toLowerCase();
         if (!normalizedEmail) {
             setInviteError("Please enter an email address.");
@@ -576,13 +580,19 @@ export default function BillingHub() {
                                                             <input
                                                                 type="email"
                                                                 value={inviteEmail}
-                                                                onChange={(event) => setInviteEmail(event.target.value)}
+                                                                onChange={(event) => {
+                                                                    setInviteEmail(event.target.value);
+                                                                    if (inviteError) {
+                                                                        setInviteError(null);
+                                                                    }
+                                                                }}
                                                                 placeholder="teammate@company.com"
                                                                 className="glass-input p-2 rounded-lg w-full outline-none"
                                                             />
                                                             <Button
                                                                 size="sm"
                                                                 isLoading={sendingInvite}
+                                                                disabled={sendingInvite || inviteEmail.trim().length === 0}
                                                                 onClick={() => handleInvite(team.id)}
                                                             >
                                                                 Send
