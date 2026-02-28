@@ -92,6 +92,27 @@ function toResetDate(resetEpochSeconds: number): string {
     return new Date(resetEpochSeconds * 1000).toISOString();
 }
 
+function maskIpAddress(ip: string | null | undefined): string | null | undefined {
+    if (!ip) {
+        return ip;
+    }
+
+    if (ip.includes(".")) {
+        return `${ip.split(".").slice(0, 3).join(".")}.x`;
+    }
+
+    if (ip.includes(":")) {
+        const groups = ip.split(":").filter(Boolean);
+        if (groups.length <= 2) {
+            return ip;
+        }
+
+        return `${groups.slice(0, 2).join(":")}::x`;
+    }
+
+    return ip;
+}
+
 // Public API endpoint for external integrations
 export async function POST(request: Request) {
     try {
@@ -117,7 +138,7 @@ export async function POST(request: Request) {
                     entityId: "REDACTED",
                     details: {
                         keyPreview: `${apiKey.substring(0, 4)}...`,
-                        ip,
+                        ip: maskIpAddress(ip),
                     },
                 });
             } catch {
@@ -181,7 +202,7 @@ export async function POST(request: Request) {
                 details: {
                     method: "v1-analyze",
                     requestedLanguage: language ?? null,
-                    ip,
+                    ip: maskIpAddress(ip),
                 },
             });
         } catch {
