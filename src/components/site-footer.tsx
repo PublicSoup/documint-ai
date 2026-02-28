@@ -43,6 +43,7 @@ export function SiteFooter() {
                             </TrackedLink>
                             <a
                                 href="mailto:support@documint.ai"
+                                aria-label="Email DocuMint AI support"
                                 className="text-gray-400 hover:text-white transition-colors"
                             >
                                 Contact
