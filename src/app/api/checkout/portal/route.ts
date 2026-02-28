@@ -7,10 +7,38 @@ import { env } from "@/lib/env";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, ApiErrors } from "@/lib/api-utils";
 
+function isAllowedOrigin(origin: string): boolean {
+    try {
+        const parsedOrigin = new URL(origin);
+
+        if (parsedOrigin.protocol !== "https:" && parsedOrigin.protocol !== "http:") {
+            return false;
+        }
+
+        if (env.NEXT_PUBLIC_APP_URL) {
+            const appUrl = new URL(env.NEXT_PUBLIC_APP_URL);
+            if (parsedOrigin.host === appUrl.host && parsedOrigin.protocol === appUrl.protocol) {
+                return true;
+            }
+        }
+
+        return parsedOrigin.hostname === "localhost" || parsedOrigin.hostname === "127.0.0.1";
+    } catch {
+        return false;
+    }
+}
+
 function resolveOrigin(request: NextRequest): string {
-    const origin = request.headers.get("origin");
-    if (origin) return origin;
-    if (env.NEXT_PUBLIC_APP_URL) return env.NEXT_PUBLIC_APP_URL;
+    const requestOrigin = request.headers.get("origin");
+
+    if (requestOrigin && isAllowedOrigin(requestOrigin)) {
+        return requestOrigin;
+    }
+
+    if (env.NEXT_PUBLIC_APP_URL) {
+        return env.NEXT_PUBLIC_APP_URL;
+    }
+
     return "http://localhost:3000";
 }
 
