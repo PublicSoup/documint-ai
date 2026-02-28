@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Mail, ArrowRight, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,9 +34,9 @@ export default function ContactPage() {
             </CardHeader>
             <CardContent>
               <p className="text-white/60 mb-5">Need security and compliance details for procurement? We support structured enterprise review workflows.</p>
-              <a href="mailto:support@documint.ai" className="inline-flex items-center text-primary font-semibold hover:text-primary/80 transition-colors">
-                <ShieldCheck className="w-4 h-4 mr-2" /> support@documint.ai
-              </a>
+              <Link href="/security" className="inline-flex items-center text-primary font-semibold hover:text-primary/80 transition-colors">
+                <ShieldCheck className="w-4 h-4 mr-2" /> View security overview
+              </Link>
             </CardContent>
           </Card>
         </div>

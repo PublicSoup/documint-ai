@@ -25,7 +25,7 @@ const docsSections = [
   {
     title: "Security + Compliance",
     description: "Review enterprise controls, validation posture, and auditable mutation paths.",
-    href: "/dashboard/settings",
+    href: "/security",
     cta: "View Security Settings",
     icon: ShieldCheck,
     eventName: "landing_secondary_cta_click",
