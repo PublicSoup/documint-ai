@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "../../../lib/db";
 import { generateText } from "../../../lib/ai";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 
 // README Template Types
 type ReadmeStyle = "minimal" | "standard" | "comprehensive" | "enterprise";
@@ -54,6 +57,70 @@ interface ReadmeOptions {
     codeExamples: boolean;
     aiEnhanced: boolean;
 }
+
+const readmeOptionsSchema = z
+    .object({
+        style: z.enum(["minimal", "standard", "comprehensive", "enterprise"]).optional(),
+        projectName: z.string().trim().min(1).max(200).optional(),
+        description: z.string().trim().min(1).max(2000).optional(),
+        badges: z
+            .object({
+                enabled: z.boolean().optional(),
+                style: z.enum(["flat", "flat-square", "for-the-badge", "plastic"]).optional(),
+                license: z.boolean().optional(),
+                version: z.boolean().optional(),
+                build: z.boolean().optional(),
+                coverage: z.boolean().optional(),
+                custom: z.array(z.string().trim().min(1).max(500)).max(20).optional(),
+            })
+            .optional(),
+        sections: z
+            .object({
+                features: z.boolean().optional(),
+                installation: z.boolean().optional(),
+                usage: z.boolean().optional(),
+                api: z.boolean().optional(),
+                configuration: z.boolean().optional(),
+                testing: z.boolean().optional(),
+                deployment: z.boolean().optional(),
+                contributing: z.boolean().optional(),
+                changelog: z.boolean().optional(),
+                roadmap: z.boolean().optional(),
+                faq: z.boolean().optional(),
+                license: z.boolean().optional(),
+                credits: z.boolean().optional(),
+            })
+            .optional(),
+        branding: z
+            .object({
+                logo: z.string().trim().url().max(500).optional(),
+                banner: z.string().trim().url().max(500).optional(),
+                color: z.string().trim().max(50).optional(),
+            })
+            .optional(),
+        social: z
+            .object({
+                github: z.string().trim().url().max(500).optional(),
+                twitter: z.string().trim().url().max(500).optional(),
+                discord: z.string().trim().url().max(500).optional(),
+                website: z.string().trim().url().max(500).optional(),
+            })
+            .optional(),
+        license: z.string().trim().max(100).optional(),
+        author: z.string().trim().max(150).optional(),
+        includeTableOfContents: z.boolean().optional(),
+        includeBackToTop: z.boolean().optional(),
+        codeExamples: z.boolean().optional(),
+        aiEnhanced: z.boolean().optional(),
+    })
+    .strict();
+
+const readmeBodySchema = z
+    .object({
+        fileIds: z.array(z.string().trim().min(1).max(100)).min(1).max(200),
+        options: readmeOptionsSchema.optional(),
+    })
+    .strict();
 
 const DEFAULT_OPTIONS: ReadmeOptions = {
     style: "standard",
@@ -180,8 +247,8 @@ async function generateWithAI(prompt: string, systemPrompt: string): Promise<str
             maxTokens: 4096
         });
         return text || null;
-    } catch (e) {
-        console.error("AI generation failed:", e);
+    } catch {
+        // Non-blocking AI fallback
     }
     return null;
 }
@@ -190,15 +257,12 @@ export async function POST(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
-        const body = await request.json();
-        const { fileIds, options: userOptions } = body;
+        await enforceRateLimit(session.user.id, "pro");
 
-        if (!fileIds || !fileIds.length) {
-            return NextResponse.json({ error: "No files specified" }, { status: 400 });
-        }
+        const { fileIds, options: userOptions } = await validateBody(request, readmeBodySchema);
 
         // Merge user options with defaults
         const options: ReadmeOptions = {
@@ -220,7 +284,7 @@ export async function POST(request: NextRequest) {
         });
 
         if (files.length === 0) {
-            return NextResponse.json({ error: "No files found" }, { status: 404 });
+            throw ApiErrors.notFound("File");
         }
 
         // Collect comprehensive project info
@@ -589,11 +653,7 @@ Use proper ${primaryLang} syntax. Be concise.`;
             }
         });
     } catch (error) {
-        console.error("README generation error:", error);
-        return NextResponse.json(
-            { error: "Failed to generate README" },
-            { status: 500 }
-        );
+        return errorResponse(error);
     }
 }
 
