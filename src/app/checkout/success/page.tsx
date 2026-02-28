@@ -8,6 +8,7 @@ function SuccessContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
+    const [autoRedirectEnabled, setAutoRedirectEnabled] = useState(true);
 
     const tier = searchParams.get("tier");
     const intent = searchParams.get("intent");
@@ -35,7 +36,7 @@ function SuccessContent() {
     }, [searchParams]);
 
     useEffect(() => {
-        if (status !== "success" || intent !== "trial") return;
+        if (status !== "success" || intent !== "trial" || !autoRedirectEnabled) return;
 
         const interval = setInterval(() => {
             setRedirectCountdown((prev) => {
@@ -50,7 +51,7 @@ function SuccessContent() {
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [status, intent, router, dashboardHref]);
+    }, [status, intent, router, dashboardHref, autoRedirectEnabled]);
 
     if (status === "loading") {
         return (
@@ -118,7 +119,10 @@ function SuccessContent() {
                 </div>
 
                 <button
-                    onClick={() => router.push(dashboardHref)}
+                    onClick={() => {
+                        setAutoRedirectEnabled(false);
+                        router.push(dashboardHref);
+                    }}
                     className="w-full py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
                 >
                     {intent === "trial" ? "Continue Trial Onboarding" : "Go to Dashboard"}
