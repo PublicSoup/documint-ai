@@ -73,15 +73,23 @@ export async function GET() {
 
         // 5. WebContainer Runtime Health Snapshot
         const WEB_CONTAINER_RECOVERY_DEGRADED_THRESHOLD = 5;
+        const WEB_CONTAINER_TRACKED_PROCESS_DEGRADED_THRESHOLD = 25;
         let webContainerHealth: ReturnType<typeof WebContainerManager.getHealthSnapshot> | null = null;
         let webContainerDegraded = false;
 
         try {
             webContainerHealth = WebContainerManager.getHealthSnapshot();
-            webContainerDegraded = webContainerHealth.recoveryCount >= WEB_CONTAINER_RECOVERY_DEGRADED_THRESHOLD;
+            const recoveryRateDegraded = webContainerHealth.recoveryCount >= WEB_CONTAINER_RECOVERY_DEGRADED_THRESHOLD;
+            const trackedProcessDegraded = webContainerHealth.trackedProcessCount >= WEB_CONTAINER_TRACKED_PROCESS_DEGRADED_THRESHOLD;
 
-            if (webContainerDegraded) {
+            webContainerDegraded = recoveryRateDegraded || trackedProcessDegraded;
+
+            if (recoveryRateDegraded) {
                 checkFailures.push("webContainerRecoveryRate");
+            }
+
+            if (trackedProcessDegraded) {
+                checkFailures.push("webContainerTrackedProcessPressure");
             }
         } catch {
             checkFailures.push("webContainer");
@@ -113,6 +121,7 @@ export async function GET() {
                         ? {
                               status: webContainerDegraded ? "degraded" : "online",
                               recoveryDegradedThreshold: WEB_CONTAINER_RECOVERY_DEGRADED_THRESHOLD,
+                              trackedProcessDegradedThreshold: WEB_CONTAINER_TRACKED_PROCESS_DEGRADED_THRESHOLD,
                               ...webContainerHealth,
                           }
                         : {
