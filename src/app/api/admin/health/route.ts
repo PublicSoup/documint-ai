@@ -225,6 +225,12 @@ export async function GET() {
                 (responseLatencyBucket === "slow" ? 15 : responseLatencyBucket === "elevated" ? 5 : 0),
         );
 
+        const opsReadinessBand =
+            opsReadinessScore >= 90 ? "excellent" :
+            opsReadinessScore >= 70 ? "good" :
+            opsReadinessScore >= 40 ? "risk" :
+            "critical";
+
         const schemaCapabilities = {
             degradedComponents: true,
             componentSeverity: true,
@@ -243,6 +249,7 @@ export async function GET() {
             incidentRoutingHint: true,
             alertSuppressionHint: true,
             opsReadinessScore: true,
+            opsReadinessBand: true,
         } as const;
 
         const responseGeneratedBy = {
@@ -264,6 +271,7 @@ export async function GET() {
                 incidentRoutingHint,
                 alertSuppressionHint,
                 opsReadinessScore,
+                opsReadinessBand,
                 healthSummaryCode,
                 summaryCodePriority,
                 timestamp: generatedAtIso,
