@@ -120,28 +120,34 @@ export async function GET() {
                 components: {
                     database: {
                         status: databaseHealthy ? "online" : "offline",
+                        severity: databaseHealthy ? "healthy" : "critical",
                         stats: { totalUsers: userCount }
                     },
                     ai: {
                         status: aiConfigured ? "online" : "unconfigured",
+                        severity: aiConfigured ? "healthy" : "degraded",
                         provider: "gemini"
                     },
                     auditTrail: {
                         status: auditChainValid ? "intact" : "compromised",
+                        severity: auditChainValid ? "healthy" : "critical",
                         tamperedCount
                     },
                     rateLimit: {
-                        status: redisConfigured ? "active" : "disabled"
+                        status: redisConfigured ? "active" : "disabled",
+                        severity: redisConfigured ? "healthy" : "degraded",
                     },
                     webContainer: webContainerHealth
                         ? {
                               status: webContainerDegraded ? "degraded" : "online",
+                              severity: webContainerDegraded ? "degraded" : "healthy",
                               recoveryDegradedThreshold: WEB_CONTAINER_RECOVERY_DEGRADED_THRESHOLD,
                               trackedProcessDegradedThreshold: WEB_CONTAINER_TRACKED_PROCESS_DEGRADED_THRESHOLD,
                               ...webContainerHealth,
                           }
                         : {
                               status: "unavailable",
+                              severity: "degraded",
                           },
                 }
             },
