@@ -8,6 +8,8 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, ApiErrors } from "@/lib/api-utils";
 import { WebContainerManager } from "@/lib/web-container";
 
+const ADMIN_HEALTH_RESPONSE_SCHEMA_HASH = "admin-health-2026-02-27-v1";
+
 /**
  * GET /api/admin/health
  * Comprehensive system health check for administrators.
@@ -141,6 +143,7 @@ export async function GET() {
         return NextResponse.json(
             {
                 healthVersion,
+                responseSchemaHash: ADMIN_HEALTH_RESPONSE_SCHEMA_HASH,
                 schemaCapabilities,
                 status: severity === "healthy" ? "healthy" : "degraded",
                 severity,
