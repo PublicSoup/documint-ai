@@ -417,13 +417,25 @@ export default function BillingHub() {
                             <div>
                                 <h2 className="text-xl font-bold text-white mb-6">Available Plans</h2>
                                 {checkoutCanceled && (
-                                    <div className="mb-5 rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 flex items-center justify-between gap-3">
+                                    <div className="mb-5 rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                                         <p className="text-sm text-white/80">
                                             Checkout was canceled. Your selected plan is still here when you&apos;re ready.
                                         </p>
-                                        <Button size="sm" variant="outline" onClick={() => setCheckoutCanceled(false)}>
-                                            Dismiss
-                                        </Button>
+                                        <div className="flex items-center gap-2">
+                                            {focusedPlanId && usage?.planId !== focusedPlanId && (
+                                                <Button
+                                                    size="sm"
+                                                    className="bg-primary hover:bg-primary/90 text-white"
+                                                    isLoading={upgrading === focusedPlanId}
+                                                    onClick={() => handleUpgrade(focusedPlanId)}
+                                                >
+                                                    Resume Checkout
+                                                </Button>
+                                            )}
+                                            <Button size="sm" variant="outline" onClick={() => setCheckoutCanceled(false)}>
+                                                Dismiss
+                                            </Button>
+                                        </div>
                                     </div>
                                 )}
 
