@@ -61,6 +61,9 @@ export const ApiErrors = {
 
     serviceUnavailable: (service = "Service") =>
         new ApiException(`${service} is currently unavailable`, 503, "SERVICE_UNAVAILABLE"),
+
+    tooManyRequests: (message = "Rate limit exceeded. Please try again later.") =>
+        new ApiException(message, 429, "TOO_MANY_REQUESTS"),
 };
 
 /**
@@ -84,7 +87,7 @@ export function formatError(error: unknown): ApiError {
     if (error instanceof Error) {
         return {
             error: "Error",
-            message: error.message,
+            message: "Internal server error",
             statusCode: 500,
         };
     }
@@ -101,14 +104,14 @@ export function formatError(error: unknown): ApiError {
  */
 export function errorResponse(error: unknown): NextResponse {
     const formatted = formatError(error);
-    console.error(`[API Error ${formatted.statusCode}]:`, formatted.message, formatted.details);
+    const details = formatted.statusCode >= 500 ? undefined : formatted.details;
 
     return NextResponse.json(
         {
             error: formatted.error,
             message: formatted.message,
             code: formatted.code,
-            details: formatted.details,
+            details,
         },
         { status: formatted.statusCode }
     );

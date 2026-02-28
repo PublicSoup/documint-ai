@@ -148,7 +148,7 @@ export async function enforceRateLimit(
 
     if (result && !result.success) {
         const waitTime = Math.ceil((result.reset - Date.now() / 1000) / 60);
-        throw ApiErrors.serviceUnavailable(
+        throw ApiErrors.tooManyRequests(
             `Rate limit exceeded. Please try again in ${waitTime} minute${waitTime !== 1 ? 's' : ''}.`
         );
     }
