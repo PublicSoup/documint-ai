@@ -171,11 +171,19 @@ export async function GET() {
             healthSummaryCode === "DEGRADED_OTHER" ? 50 :
             0;
 
-        const opsEscalationRequired = severity === "critical" || criticalComponentCount > 0 || summaryCodePriority >= 90;
+        const escalationSignals = {
+            criticalSeverity: severity === "critical",
+            criticalComponent: criticalComponentCount > 0,
+            priorityThreshold: summaryCodePriority >= 90,
+        } as const;
+
+        const escalationSignalCount = Object.values(escalationSignals).filter(Boolean).length;
+
+        const opsEscalationRequired = escalationSignalCount > 0;
         const opsEscalationReason =
-            severity === "critical" ? "critical-severity" :
-            criticalComponentCount > 0 ? "critical-component" :
-            summaryCodePriority >= 90 ? "priority-threshold" :
+            escalationSignals.criticalSeverity ? "critical-severity" :
+            escalationSignals.criticalComponent ? "critical-component" :
+            escalationSignals.priorityThreshold ? "priority-threshold" :
             "none";
 
         const opsEscalationFingerprint = opsEscalationRequired
@@ -279,6 +287,7 @@ export async function GET() {
             opsEscalationRequired: true,
             opsEscalationReason: true,
             opsEscalationFingerprint: true,
+            escalationSignalCount: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -311,6 +320,7 @@ export async function GET() {
                 opsEscalationRequired,
                 opsEscalationReason,
                 opsEscalationFingerprint,
+                escalationSignalCount,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
