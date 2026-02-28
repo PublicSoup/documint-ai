@@ -26,6 +26,7 @@ let previousPolicyMismatchDigest: string | null = null;
 let currentPolicyMismatchStableSince: string | null = null;
 let policyMismatchTransitionCount = 0;
 let previousPolicyMismatchActionDigest: string | null = null;
+let currentPolicyMismatchActionStableSince: string | null = null;
 
 const HEALTH_SIGNAL_FLAPPING_TRANSITION_THRESHOLD = 3;
 const HEALTH_SIGNAL_FLAPPING_STABILITY_WINDOW_SEC = 300;
@@ -487,6 +488,16 @@ export async function GET() {
         const policyMismatchActionChanged = previousPolicyMismatchActionDigest !== policyMismatchActionDigest;
         const policyMismatchPreviousActionDigest = previousPolicyMismatchActionDigest;
 
+        if (!currentPolicyMismatchActionStableSince || policyMismatchActionChanged) {
+            currentPolicyMismatchActionStableSince = generatedAtIso;
+        }
+
+        const policyMismatchActionStableSince = currentPolicyMismatchActionStableSince;
+        const policyMismatchActionStabilitySec = Math.max(
+            0,
+            Math.floor((generatedAtEpochMs - Date.parse(policyMismatchActionStableSince ?? generatedAtIso)) / 1000),
+        );
+
         if (policyMismatchChanged && policyMismatchPreviousDigest) {
             policyMismatchTransitionCount += 1;
         }
@@ -611,6 +622,8 @@ export async function GET() {
             policyMismatchActionChanged: true,
             policyMismatchPreviousDigest: true,
             policyMismatchPreviousActionDigest: true,
+            policyMismatchActionStableSince: true,
+            policyMismatchActionStabilitySec: true,
             policyMismatchStableSince: true,
             policyMismatchStabilitySec: true,
             policyMismatchTransitionCount: true,
@@ -701,6 +714,8 @@ export async function GET() {
                 policyMismatchActionChanged,
                 policyMismatchPreviousDigest,
                 policyMismatchPreviousActionDigest,
+                policyMismatchActionStableSince,
+                policyMismatchActionStabilitySec,
                 policyMismatchStableSince,
                 policyMismatchStabilitySec,
                 policyMismatchTransitionCount,
