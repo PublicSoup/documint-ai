@@ -12,6 +12,7 @@ const ADMIN_HEALTH_RESPONSE_SCHEMA_HASH = "admin-health-2026-02-27-v1";
 const ADMIN_HEALTH_CONTRACT_REVISION = 1;
 const ADMIN_HEALTH_RESPONSE_SHAPE_ID = "ah.v1.core";
 const ADMIN_HEALTH_CONTRACT_COMPATIBILITY_MODE = "strict";
+const ADMIN_HEALTH_VOLATILITY_ALERT_POLICY_VERSION = "2026-02-27.v1";
 
 let previousHealthSignalDigest: string | null = null;
 let previousHealthSignalObservedAt: string | null = null;
@@ -448,6 +449,7 @@ export async function GET() {
             volatilityTrendConfidence: true,
             volatilityAlertRecommended: true,
             volatilityAlertSeverityHint: true,
+            volatilityAlertPolicyVersion: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -511,6 +513,7 @@ export async function GET() {
                 volatilityTrendConfidence,
                 volatilityAlertRecommended,
                 volatilityAlertSeverityHint,
+                volatilityAlertPolicyVersion: ADMIN_HEALTH_VOLATILITY_ALERT_POLICY_VERSION,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
