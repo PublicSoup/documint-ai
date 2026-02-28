@@ -5,10 +5,13 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { checkTeamPermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse } from "@/lib/api-utils";
 
-const paramsSchema = z.object({
-    teamId: z.string().trim().min(1).max(100),
-}).strict();
+const paramsSchema = z
+    .object({
+        teamId: z.string().trim().min(1).max(100),
+    })
+    .strict();
 
 export async function GET(
     _request: NextRequest,
@@ -17,21 +20,21 @@ export async function GET(
     try {
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid team ID" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid team ID", parsedParams.error.flatten());
         }
 
         const { teamId } = parsedParams.data;
 
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
         const hasPermission = await checkTeamPermission(session.user.id, teamId, "view");
         if (!hasPermission) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+            throw ApiErrors.forbidden();
         }
 
         const reviews = await db.documentation.findMany({
@@ -55,7 +58,6 @@ export async function GET(
 
         return NextResponse.json({ reviews });
     } catch (error) {
-        console.error("[TeamReviews_API] Error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
