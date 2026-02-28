@@ -572,8 +572,8 @@ export default function BillingHub() {
                                                         </h4>
                                                     </div>
                                                     <div className="flex gap-2">
-                                                        <Button variant="ghost" size="sm" onClick={() => fetchMembers(team.id)}>View</Button>
-                                                        <Button variant="outline" size="sm" onClick={() => {
+                                                        <Button variant="ghost" size="sm" className="transition-transform duration-200 hover:-translate-y-0.5" onClick={() => fetchMembers(team.id)}>View</Button>
+                                                        <Button variant="outline" size="sm" className="transition-transform duration-200 hover:-translate-y-0.5" onClick={() => {
                                                             setInvitingTeamId((current) => (current === team.id ? null : team.id));
                                                             setInviteError(null);
                                                         }}>
@@ -583,10 +583,11 @@ export default function BillingHub() {
                                                 </div>
 
                                                 {invitingTeamId === team.id && (
-                                                    <div className="mb-4 p-4 rounded-xl border border-white/10 bg-black/20 space-y-3">
-                                                        <label className="text-xs uppercase tracking-wide text-white/50">Invite by email</label>
-                                                        <div className="flex gap-2">
+                                                    <div className="mb-4 p-4 rounded-xl border border-white/10 bg-black/20 space-y-3 animate-fade-in">
+                                                        <label htmlFor={`invite-email-${team.id}`} className="text-xs uppercase tracking-wide text-white/50">Invite by email</label>
+                                                        <div className="flex flex-col sm:flex-row gap-2">
                                                             <input
+                                                                id={`invite-email-${team.id}`}
                                                                 type="email"
                                                                 value={inviteEmail}
                                                                 onChange={(event) => {
@@ -596,10 +597,11 @@ export default function BillingHub() {
                                                                     }
                                                                 }}
                                                                 placeholder="teammate@company.com"
-                                                                className="glass-input p-2 rounded-lg w-full outline-none"
+                                                                className="glass-input p-2 rounded-lg w-full outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-primary/60"
                                                             />
                                                             <Button
                                                                 size="sm"
+                                                                className="sm:min-w-[92px] transition-transform duration-200 hover:-translate-y-0.5"
                                                                 isLoading={sendingInvite}
                                                                 disabled={sendingInvite || inviteEmail.trim().length === 0 || !isValidInviteEmail(inviteEmail.trim().toLowerCase())}
                                                                 onClick={() => handleInvite(team.id)}
@@ -608,13 +610,13 @@ export default function BillingHub() {
                                                             </Button>
                                                         </div>
                                                         {!inviteError && inviteEmail.trim().length > 0 && !isValidInviteEmail(inviteEmail.trim().toLowerCase()) && (
-                                                            <p className="text-xs text-amber-400">Enter a valid email format before sending.</p>
+                                                            <p className="text-xs text-amber-400" aria-live="polite">Enter a valid email format before sending.</p>
                                                         )}
-                                                        {inviteError && <p className="text-xs text-red-400">{inviteError}</p>}
+                                                        {inviteError && <p className="text-xs text-red-400" aria-live="polite">{inviteError}</p>}
                                                     </div>
                                                 )}
 
-                                                {inviteSuccess && <p className="text-xs text-emerald-400 mb-3">{inviteSuccess}</p>}
+                                                {inviteSuccess && <p className="text-xs text-emerald-400 mb-3" aria-live="polite">{inviteSuccess}</p>}
                                             </div>
                                         ))}
                                     </div>
