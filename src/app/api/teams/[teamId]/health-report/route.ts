@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
@@ -8,10 +9,35 @@ import { sendEmail, emailTemplates } from "@/lib/email";
 import { env } from "@/lib/env";
 import { sendNotification } from "@/lib/notifications";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse } from "@/lib/api-utils";
 
-const paramsSchema = z.object({
-    teamId: z.string().trim().min(1).max(100),
-}).strict();
+const paramsSchema = z
+    .object({
+        teamId: z.string().trim().min(1).max(100),
+    })
+    .strict();
+
+function hasValidSystemToken(request: NextRequest): boolean {
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret) {
+        return false;
+    }
+
+    const authHeader = request.headers.get("authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+        return false;
+    }
+
+    const providedToken = authHeader.slice("Bearer ".length);
+    const expectedBuffer = Buffer.from(cronSecret);
+    const providedBuffer = Buffer.from(providedToken);
+
+    if (providedBuffer.length !== expectedBuffer.length) {
+        return false;
+    }
+
+    return timingSafeEqual(providedBuffer, expectedBuffer);
+}
 
 /**
  * POST /api/teams/[teamId]/health-report
@@ -25,17 +51,13 @@ export async function POST(
     try {
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid team ID" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid team ID", parsedParams.error.flatten());
         }
 
         const { teamId } = parsedParams.data;
 
-        // 0. System Authentication Check (Bypass for Cron)
-        const authHeader = request.headers.get("authorization");
-        const isSystemAction = authHeader === `Bearer ${process.env.CRON_SECRET}`;
+        const isSystemAction = hasValidSystemToken(request);
 
-        // 1. Check feature access (Enterprise feature)
-        // System actions are assumed to have passed feature gates at the trigger level
         if (!isSystemAction) {
             const gateError = await requireFeature("analytics");
             if (gateError) return gateError;
@@ -48,13 +70,12 @@ export async function POST(
         } else {
             const session = await getServerSession(authOptions);
             if (!session?.user?.id) {
-                return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+                throw ApiErrors.unauthorized();
             }
             performerId = session.user.id;
 
             await enforceRateLimit(performerId, "api");
 
-            // 2. Verify caller is Team Admin/Owner
             const membership = await db.teamMember.findUnique({
                 where: {
                     teamId_userId: { teamId, userId: performerId },
@@ -62,7 +83,7 @@ export async function POST(
             });
 
             if (!membership || (membership.role !== "OWNER" && membership.role !== "ADMIN")) {
-                return NextResponse.json({ error: "Forbidden: Team Admin access required" }, { status: 403 });
+                throw ApiErrors.forbidden("Team Admin access required");
             }
         }
 
@@ -79,10 +100,9 @@ export async function POST(
         });
 
         if (!team) {
-            return NextResponse.json({ error: "Team not found" }, { status: 404 });
+            throw ApiErrors.notFound("Team");
         }
 
-        // 3. Aggregate Stats
         const files = await db.file.findMany({
             where: { teamId },
             include: { documentation: true },
@@ -92,12 +112,11 @@ export async function POST(
         const documentedFiles = files.filter((f) => f.documentation).length;
         const coverage = totalFiles > 0 ? Math.round((documentedFiles / totalFiles) * 100) : 0;
 
-        // Drift Detection: Code updated after Docs
         const staleFiles = files.filter((f) => {
             if (!f.documentation) return false;
             const fileUpdated = new Date(f.updatedAt).getTime();
             const docUpdated = new Date(f.documentation.updatedAt).getTime();
-            return fileUpdated > docUpdated + 300000; // 5 min drift buffer
+            return fileUpdated > docUpdated + 300000;
         });
 
         const stats = {
@@ -105,28 +124,31 @@ export async function POST(
             totalFiles,
             documentedFiles,
             staleCount: staleFiles.length,
-            coverageGoal: ((team.integrations.find((i) => i.type === "TEAM_CONFIG")?.config as { coverageGoal?: number } | null)?.coverageGoal) || 80,
+            coverageGoal:
+                ((team.integrations.find((i) => i.type === "TEAM_CONFIG")?.config as { coverageGoal?: number } | null)
+                    ?.coverageGoal) || 80,
         };
 
-        // 4. Send Emails to all team members
         const dashboardUrl = `${env.NEXT_PUBLIC_APP_URL}/dashboard?teamId=${teamId}`;
 
         const emailPromises = team.members
             .filter((m) => m.user.email)
-            .map((m) => sendEmail({
-                to: m.user.email!,
-                subject: `Team Health Report: ${team.name}`,
-                html: emailTemplates.teamHealthReport(team.name, stats, dashboardUrl),
-            }));
+            .map((m) =>
+                sendEmail({
+                    to: m.user.email!,
+                    subject: `Team Health Report: ${team.name}`,
+                    html: emailTemplates.teamHealthReport(team.name, stats, dashboardUrl),
+                }),
+            );
 
-        // Use Promise.allSettled to ensure one bad email doesn't block others
         const emailResults = await Promise.allSettled(emailPromises);
         const successCount = emailResults.filter((r) => r.status === "fulfilled").length;
 
-        // 5. Webhook Notifications (Team Channel + Owner)
         try {
-            const goalStatus = stats.coverage >= stats.coverageGoal ? "✅ TARGET MET" : `📉 ${stats.coverageGoal - stats.coverage}% BELOW TARGET`;
-            const healthSummary = `Documentation Health Summary for *${team.name}*:\n\n` +
+            const goalStatus =
+                stats.coverage >= stats.coverageGoal ? "✅ TARGET MET" : `📉 ${stats.coverageGoal - stats.coverage}% BELOW TARGET`;
+            const healthSummary =
+                `Documentation Health Summary for *${team.name}*:\n\n` +
                 `• Coverage: ${stats.coverage}% (${goalStatus})\n` +
                 `• Target: ${stats.coverageGoal}%\n` +
                 `• Status: ${stats.documentedFiles} of ${stats.totalFiles} files documented\n` +
@@ -140,11 +162,10 @@ export async function POST(
                 title: `Team Health Report: ${team.name}`,
                 message: healthSummary,
             });
-        } catch (webhookErr) {
-            console.error("Webhook notification logic failed for health report:", webhookErr);
+        } catch {
+            // Keep health-report flow non-blocking on notification channel issues.
         }
 
-        // 6. Audit Log (High Integrity)
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -159,8 +180,8 @@ export async function POST(
                     isScheduled: isSystemAction,
                 },
             });
-        } catch (e) {
-            console.error("Failed to audit log health report generation", e);
+        } catch {
+            // Keep health-report flow non-blocking when audit logging degrades.
         }
 
         return NextResponse.json({
@@ -170,7 +191,6 @@ export async function POST(
             targetGoal: stats.coverageGoal,
         });
     } catch (error) {
-        console.error("[HealthReport_API] Error:", error);
-        return NextResponse.json({ error: "Failed to generate health report" }, { status: 500 });
+        return errorResponse(error);
     }
 }
