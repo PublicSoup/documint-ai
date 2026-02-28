@@ -155,6 +155,8 @@ export async function enforceRateLimit(
 }
 
 export function rateLimitResponse(remaining: number, reset: number) {
+    const retryAfterSeconds = Math.max(0, Math.ceil(reset - Date.now() / 1000));
+
     return NextResponse.json(
         { error: "Rate limit exceeded. Please try again later." },
         {
@@ -162,7 +164,7 @@ export function rateLimitResponse(remaining: number, reset: number) {
             headers: {
                 "X-RateLimit-Remaining": remaining.toString(),
                 "X-RateLimit-Reset": reset.toString(),
-                "Retry-After": Math.ceil((reset - Date.now() / 1000)).toString()
+                "Retry-After": retryAfterSeconds.toString()
             }
         }
     );
