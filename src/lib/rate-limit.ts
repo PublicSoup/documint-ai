@@ -171,6 +171,17 @@ export function rateLimitResponse(remaining: number, reset: number) {
 }
 
 // Helpers for API routes
+function isValidIpv4(candidate: string): boolean {
+    const ipv4Pattern = /^(?:\d{1,3}\.){3}\d{1,3}$/;
+
+    if (!ipv4Pattern.test(candidate)) {
+        return false;
+    }
+
+    const octets = candidate.split(".").map((octet) => Number.parseInt(octet, 10));
+    return octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255);
+}
+
 function normalizeClientIp(raw: string | null): string | null {
     if (!raw) {
         return null;
@@ -182,10 +193,9 @@ function normalizeClientIp(raw: string | null): string | null {
         return null;
     }
 
-    const ipv4Pattern = /^(?:\d{1,3}\.){3}\d{1,3}$/;
     const ipv6Pattern = /^[0-9a-fA-F:]+$/;
 
-    if (ipv4Pattern.test(candidate) || ipv6Pattern.test(candidate)) {
+    if (isValidIpv4(candidate) || ipv6Pattern.test(candidate)) {
         return candidate;
     }
 
