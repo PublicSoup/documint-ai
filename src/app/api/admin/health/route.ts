@@ -101,6 +101,12 @@ export async function GET() {
                 timestamp: new Date().toISOString(),
                 checkDurationMs: Date.now() - startedAt,
                 checkFailures: [...new Set(checkFailures)],
+                degradedComponents: [
+                    !databaseHealthy ? "database" : null,
+                    !auditChainValid ? "auditTrail" : null,
+                    webContainerDegraded ? "webContainer" : null,
+                    !redisConfigured ? "rateLimit" : null,
+                ].filter((value): value is string => Boolean(value)),
                 components: {
                     database: {
                         status: databaseHealthy ? "online" : "offline",
