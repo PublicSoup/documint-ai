@@ -344,7 +344,7 @@ export async function GET() {
                 criticalComponentCount,
                 criticalComponentNamesCsv: criticalComponents.join(","),
                 recommendedActions,
-                runbookUrls: [...new Set(runbookUrls)],
+                runbookUrls: [...new Set(runbookUrls)].sort(),
                 dataSourceStatuses,
                 componentLastCheckedAt,
                 staleComponentCount,
