@@ -121,8 +121,20 @@ export default function BillingHub() {
     const handleUpgrade = async (tier: string) => {
         setUpgrading(tier);
         try {
+            const checkoutSource = trialIntentActive
+                ? focusedPlanId === tier
+                    ? "billing_trial_banner"
+                    : "billing_trial_plan_grid"
+                : "billing_plan_grid";
+
             const res = await fetch(`/api/checkout?tier=${tier}`, {
                 method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    source: checkoutSource,
+                    intent: trialIntentActive ? "trial" : "signup",
+                    plan: focusedPlanId ?? undefined,
+                }),
             });
             if (res.ok) {
                 const data = await res.json();

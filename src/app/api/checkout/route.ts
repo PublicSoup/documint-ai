@@ -18,11 +18,26 @@ const PRICE_IDS: Record<z.infer<typeof tierSchema>["tier"], string> = {
     team: env.STRIPE_PRICE_ID_TEAM,
 };
 
+const checkoutContextSchema = z.object({
+    source: z.string().trim().min(1).max(80).regex(/^[a-z0-9_\-]+$/i).optional(),
+    intent: z.enum(["signup", "trial"]).optional(),
+    plan: z.enum(["starter", "pro", "team"]).optional(),
+}).strict();
+
 function resolveOrigin(request: NextRequest): string {
     const origin = request.headers.get("origin");
     if (origin) return origin;
     if (env.NEXT_PUBLIC_APP_URL) return env.NEXT_PUBLIC_APP_URL;
     return "http://localhost:3000";
+}
+
+async function parseCheckoutContext(request: NextRequest): Promise<z.infer<typeof checkoutContextSchema>> {
+    try {
+        const rawBody = await request.json();
+        return checkoutContextSchema.parse(rawBody);
+    } catch {
+        return {};
+    }
 }
 
 /**
@@ -43,6 +58,8 @@ export async function POST(request: NextRequest) {
         const { searchParams } = new URL(request.url);
         const { tier } = validateQuery(searchParams, tierSchema);
 
+        const context = await parseCheckoutContext(request);
+
         const priceId = PRICE_IDS[tier];
 
         if (!priceId || priceId.includes("placeholder")) {
@@ -50,6 +67,10 @@ export async function POST(request: NextRequest) {
         }
 
         const origin = resolveOrigin(request);
+        const cancelParams = new URLSearchParams({ canceled: "true" });
+        if (context.intent) cancelParams.set("intent", context.intent);
+        if (context.plan) cancelParams.set("plan", context.plan);
+        if (context.source) cancelParams.set("source", context.source);
 
         // 3. Fetch User Subscription Context
         const userSubscription = await db.subscription.findUnique({
@@ -63,12 +84,15 @@ export async function POST(request: NextRequest) {
             payment_method_types: ["card"],
             line_items: [{ price: priceId, quantity: 1 }],
             success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${origin}/dashboard/billing?canceled=true`,
+            cancel_url: `${origin}/dashboard/billing?${cancelParams.toString()}`,
             customer: userSubscription?.stripeCustomerId || undefined,
             customer_email: userSubscription?.stripeCustomerId ? undefined : session.user.email,
             metadata: {
                 userId: session.user.id,
                 tier,
+                source: context.source ?? "unknown",
+                intent: context.intent ?? "unknown",
+                plan: context.plan ?? "unknown",
             },
             subscription_data:
                 tier === "pro" || tier === "team"
@@ -86,7 +110,12 @@ export async function POST(request: NextRequest) {
                 action: "CREATE_CHECKOUT_SESSION",
                 entity: "Subscription",
                 entityId: session.user.id,
-                details: { tier },
+                details: {
+                    tier,
+                    source: context.source ?? null,
+                    intent: context.intent ?? null,
+                    plan: context.plan ?? null,
+                },
             });
         } catch {
             // Non-blocking
