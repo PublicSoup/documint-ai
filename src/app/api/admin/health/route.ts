@@ -32,6 +32,8 @@ let policyMismatchActionTransitionCount = 0;
 const HEALTH_SIGNAL_FLAPPING_TRANSITION_THRESHOLD = 3;
 const HEALTH_SIGNAL_FLAPPING_STABILITY_WINDOW_SEC = 300;
 const HEALTH_SIGNAL_TRANSITION_COUNT_MAX = 10_000;
+const POLICY_MISMATCH_TRANSITION_COUNT_MAX = 10_000;
+const POLICY_MISMATCH_ACTION_TRANSITION_COUNT_MAX = 10_000;
 
 /**
  * GET /api/admin/health
@@ -490,7 +492,10 @@ export async function GET() {
         const policyMismatchPreviousActionDigest = previousPolicyMismatchActionDigest;
 
         if (policyMismatchActionChanged && policyMismatchPreviousActionDigest) {
-            policyMismatchActionTransitionCount += 1;
+            policyMismatchActionTransitionCount = Math.min(
+                POLICY_MISMATCH_ACTION_TRANSITION_COUNT_MAX,
+                policyMismatchActionTransitionCount + 1,
+            );
         }
 
         if (!currentPolicyMismatchActionStableSince || policyMismatchActionChanged) {
@@ -502,6 +507,9 @@ export async function GET() {
             0,
             Math.floor((generatedAtEpochMs - Date.parse(policyMismatchActionStableSince ?? generatedAtIso)) / 1000),
         );
+
+        const policyMismatchActionTransitionCountCapped =
+            policyMismatchActionTransitionCount >= POLICY_MISMATCH_ACTION_TRANSITION_COUNT_MAX;
 
         const policyMismatchActionVolatilityBand =
             policyMismatchActionTransitionCount >= 5 ? "volatile" :
@@ -535,7 +543,10 @@ export async function GET() {
                     : "watch";
 
         if (policyMismatchChanged && policyMismatchPreviousDigest) {
-            policyMismatchTransitionCount += 1;
+            policyMismatchTransitionCount = Math.min(
+                POLICY_MISMATCH_TRANSITION_COUNT_MAX,
+                policyMismatchTransitionCount + 1,
+            );
         }
 
         if (!currentPolicyMismatchStableSince || policyMismatchChanged) {
@@ -552,6 +563,9 @@ export async function GET() {
         const policyMismatchTransitionVelocityPerMin = Number.parseFloat(
             (policyMismatchTransitionCount / policyMismatchStabilityWindowMin).toFixed(2),
         );
+
+        const policyMismatchTransitionCountCapped =
+            policyMismatchTransitionCount >= POLICY_MISMATCH_TRANSITION_COUNT_MAX;
 
         const policyMismatchVolatilityBand =
             policyMismatchTransitionCount >= 5 ? "volatile" :
@@ -661,6 +675,7 @@ export async function GET() {
             policyMismatchActionStableSince: true,
             policyMismatchActionStabilitySec: true,
             policyMismatchActionTransitionCount: true,
+            policyMismatchActionTransitionCountCapped: true,
             policyMismatchActionTransitionVelocityPerMin: true,
             policyMismatchActionVolatilityBand: true,
             policyMismatchActionVolatilityScore: true,
@@ -669,6 +684,7 @@ export async function GET() {
             policyMismatchStableSince: true,
             policyMismatchStabilitySec: true,
             policyMismatchTransitionCount: true,
+            policyMismatchTransitionCountCapped: true,
             policyMismatchTransitionVelocityPerMin: true,
             policyMismatchVolatilityBand: true,
             policyMismatchVolatilityScore: true,
@@ -759,6 +775,7 @@ export async function GET() {
                 policyMismatchActionStableSince,
                 policyMismatchActionStabilitySec,
                 policyMismatchActionTransitionCount,
+                policyMismatchActionTransitionCountCapped,
                 policyMismatchActionTransitionVelocityPerMin,
                 policyMismatchActionVolatilityBand,
                 policyMismatchActionVolatilityScore,
@@ -767,6 +784,7 @@ export async function GET() {
                 policyMismatchStableSince,
                 policyMismatchStabilitySec,
                 policyMismatchTransitionCount,
+                policyMismatchTransitionCountCapped,
                 policyMismatchTransitionVelocityPerMin,
                 policyMismatchVolatilityBand,
                 policyMismatchVolatilityScore,
