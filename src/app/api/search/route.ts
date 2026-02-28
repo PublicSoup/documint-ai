@@ -4,11 +4,14 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateQuery } from "@/lib/api-utils";
 
-const searchQuerySchema = z.object({
-    q: z.string().trim().min(2).max(200),
-    type: z.enum(["all", "code", "docs", "files"]).default("all"),
-}).strict();
+const searchQuerySchema = z
+    .object({
+        q: z.string().trim().min(2).max(200),
+        type: z.enum(["all", "code", "docs", "files"]).default("all"),
+    })
+    .strict();
 
 interface SearchResult {
     type: "file" | "code" | "doc";
@@ -23,22 +26,12 @@ export async function GET(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
-        const params = new URL(req.url).searchParams;
-        const parsed = searchQuerySchema.safeParse({
-            q: params.get("q") ?? "",
-            type: params.get("type") ?? "all",
-        });
-
-        if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid search query" }, { status: 400 });
-        }
-
-        const { q: query, type } = parsed.data;
+        const { q: query, type } = validateQuery(req.nextUrl.searchParams, searchQuerySchema);
         const queryLower = query.toLowerCase();
 
         const results: SearchResult[] = [];
@@ -127,7 +120,6 @@ export async function GET(req: NextRequest) {
 
         return NextResponse.json({ query, results, total: results.length });
     } catch (error) {
-        console.error("Search Error:", error);
-        return NextResponse.json({ error: "Search failed" }, { status: 500 });
+        return errorResponse(error);
     }
 }
