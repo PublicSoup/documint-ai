@@ -169,6 +169,27 @@ export function rateLimitResponse(remaining: number, reset: number) {
 }
 
 // Helpers for API routes
+function normalizeClientIp(raw: string | null): string | null {
+    if (!raw) {
+        return null;
+    }
+
+    const candidate = raw.split(",")[0]?.trim().slice(0, 64);
+
+    if (!candidate) {
+        return null;
+    }
+
+    const ipv4Pattern = /^(?:\d{1,3}\.){3}\d{1,3}$/;
+    const ipv6Pattern = /^[0-9a-fA-F:]+$/;
+
+    if (ipv4Pattern.test(candidate) || ipv6Pattern.test(candidate)) {
+        return candidate;
+    }
+
+    return null;
+}
+
 export async function getClientIP(req?: Request): Promise<string> {
     let headersList: Headers | undefined;
 
@@ -186,13 +207,13 @@ export async function getClientIP(req?: Request): Promise<string> {
 
     if (!headersList) return "127.0.0.1";
 
-    const xForwardedFor = headersList.get("x-forwarded-for");
-    const xRealIp = headersList.get("x-real-ip");
-    const cfConnectingIp = headersList.get("cf-connecting-ip"); // Cloudflare
+    const cfConnectingIp = normalizeClientIp(headersList.get("cf-connecting-ip")); // Cloudflare
+    const xRealIp = normalizeClientIp(headersList.get("x-real-ip"));
+    const xForwardedFor = normalizeClientIp(headersList.get("x-forwarded-for"));
 
     if (cfConnectingIp) return cfConnectingIp;
     if (xRealIp) return xRealIp;
-    if (xForwardedFor) return xForwardedFor.split(",")[0].trim();
+    if (xForwardedFor) return xForwardedFor;
 
     return "127.0.0.1";
 }
