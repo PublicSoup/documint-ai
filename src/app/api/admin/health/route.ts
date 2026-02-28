@@ -158,6 +158,14 @@ export async function GET() {
             webContainerSnapshot: true,
             webContainerThresholdSignals: true,
             responseTimingEpochMs: true,
+            responseGeneratedBy: true,
+        } as const;
+
+        const responseGeneratedBy = {
+            service: "documint-web",
+            endpoint: "/api/admin/health",
+            environment: process.env.NODE_ENV ?? "unknown",
+            runtime: "nextjs-route-handler",
         } as const;
 
         return NextResponse.json(
@@ -165,6 +173,7 @@ export async function GET() {
                 healthVersion,
                 responseSchemaHash: ADMIN_HEALTH_RESPONSE_SCHEMA_HASH,
                 schemaCapabilities,
+                responseGeneratedBy,
                 status: severity === "healthy" ? "healthy" : "degraded",
                 severity,
                 healthSummaryCode,
