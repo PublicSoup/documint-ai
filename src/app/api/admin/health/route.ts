@@ -10,6 +10,7 @@ import { WebContainerManager } from "@/lib/web-container";
 
 const ADMIN_HEALTH_RESPONSE_SCHEMA_HASH = "admin-health-2026-02-27-v1";
 const ADMIN_HEALTH_CONTRACT_REVISION = 1;
+const ADMIN_HEALTH_RESPONSE_SHAPE_ID = "ah.v1.core";
 
 /**
  * GET /api/admin/health
@@ -302,6 +303,7 @@ export async function GET() {
             opsReadinessBand: true,
             contractRevision: true,
             contractCompatibilityMode: true,
+            responseShapeId: true,
         } as const;
 
         const responseGeneratedBy = {
@@ -316,6 +318,7 @@ export async function GET() {
                 healthVersion,
                 contractRevision: ADMIN_HEALTH_CONTRACT_REVISION,
                 contractCompatibilityMode: "strict",
+                responseShapeId: ADMIN_HEALTH_RESPONSE_SHAPE_ID,
                 responseSchemaHash: ADMIN_HEALTH_RESPONSE_SCHEMA_HASH,
                 schemaCapabilities,
                 responseGeneratedBy,
