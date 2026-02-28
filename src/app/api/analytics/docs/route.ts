@@ -118,6 +118,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
     try {
+        const gateError = await requireFeature("analytics");
+        if (gateError) {
+            return gateError;
+        }
+
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
             throw ApiErrors.unauthorized();
