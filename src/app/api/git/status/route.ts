@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { authOptions } from "@/lib/auth";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse } from "@/lib/api-utils";
 
 const execFileAsync = promisify(execFile);
 
@@ -10,8 +12,10 @@ export async function GET() {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
+
+        await enforceRateLimit(session.user.id, "api");
 
         const { stdout } = await execFileAsync("git", ["status", "--short", "--branch"], {
             cwd: process.cwd(),
@@ -21,7 +25,6 @@ export async function GET() {
 
         return NextResponse.json({ status: stdout.trim() });
     } catch (error) {
-        console.error("[GitStatus_API] Error:", error);
-        return NextResponse.json({ error: "Failed to read git status" }, { status: 500 });
+        return errorResponse(error);
     }
 }
