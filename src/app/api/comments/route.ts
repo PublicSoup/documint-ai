@@ -10,21 +10,21 @@ import { errorResponse, validateBody, validateQuery, ApiErrors } from "@/lib/api
 
 const createCommentSchema = z.object({
     content: z.string().trim().min(1).max(5000),
-    fileId: z.string().min(1),
-    parentId: z.string().min(1).optional(),
+    fileId: z.string().trim().min(1).max(100),
+    parentId: z.string().trim().min(1).max(100).optional(),
 }).strict();
 
 const getCommentsQuerySchema = z.object({
-    fileId: z.string().min(1),
+    fileId: z.string().trim().min(1).max(100),
 }).strict();
 
 const updateCommentSchema = z.object({
-    id: z.string().min(1),
+    id: z.string().trim().min(1).max(100),
     content: z.string().trim().min(1).max(5000),
 }).strict();
 
 const deleteCommentQuerySchema = z.object({
-    id: z.string().min(1),
+    id: z.string().trim().min(1).max(100),
 }).strict();
 
 /**
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
         const userId = session.user.id;
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
         // 3. Check permissions
         const hasPermission = await checkFilePermission(userId, fileId, "view");
         if (!hasPermission) {
-            return errorResponse(ApiErrors.forbidden("You do not have permission to comment on this file."));
+            throw ApiErrors.forbidden("You do not have permission to comment on this file.");
         }
 
         const file = await db.file.findUnique({
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
         });
 
         if (!file) {
-            return errorResponse(ApiErrors.notFound("File"));
+            throw ApiErrors.notFound("File");
         }
 
         if (parentId) {
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
                 select: { fileId: true },
             });
             if (!parent || parent.fileId !== fileId) {
-                return errorResponse(ApiErrors.badRequest("Invalid parent comment reference."));
+                throw ApiErrors.badRequest("Invalid parent comment reference.");
             }
         }
 
@@ -163,7 +163,7 @@ export async function GET(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
         const userId = session.user.id;
@@ -172,12 +172,12 @@ export async function GET(req: NextRequest) {
         await enforceRateLimit(userId, "api");
 
         // 2. Validate Query
-        const { fileId } = validateQuery(new URL(req.url).searchParams, getCommentsQuerySchema);
+        const { fileId } = validateQuery(req.nextUrl.searchParams, getCommentsQuerySchema);
 
         // 3. Check permissions
         const hasPermission = await checkFilePermission(userId, fileId, "view");
         if (!hasPermission) {
-            return errorResponse(ApiErrors.forbidden("You do not have permission to view comments for this file."));
+            throw ApiErrors.forbidden("You do not have permission to view comments for this file.");
         }
 
         // 4. Fetch Comments
@@ -214,7 +214,7 @@ export async function PATCH(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
         const userId = session.user.id;
@@ -232,11 +232,11 @@ export async function PATCH(req: NextRequest) {
         });
 
         if (!comment) {
-            return errorResponse(ApiErrors.notFound("Comment"));
+            throw ApiErrors.notFound("Comment");
         }
 
         if (comment.userId !== userId) {
-            return errorResponse(ApiErrors.forbidden("You can only edit your own comments."));
+            throw ApiErrors.forbidden("You can only edit your own comments.");
         }
 
         // 4. Update
@@ -273,7 +273,7 @@ export async function DELETE(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
         const userId = session.user.id;
@@ -282,7 +282,7 @@ export async function DELETE(req: NextRequest) {
         await enforceRateLimit(userId, "api");
 
         // 2. Validate Query
-        const { id } = validateQuery(new URL(req.url).searchParams, deleteCommentQuerySchema);
+        const { id } = validateQuery(req.nextUrl.searchParams, deleteCommentQuerySchema);
 
         // 3. Check permissions
         const comment = await db.comment.findUnique({
@@ -291,7 +291,7 @@ export async function DELETE(req: NextRequest) {
         });
 
         if (!comment) {
-            return errorResponse(ApiErrors.notFound("Comment"));
+            throw ApiErrors.notFound("Comment");
         }
 
         let canDelete = comment.userId === userId || comment.file.userId === userId;
@@ -313,7 +313,7 @@ export async function DELETE(req: NextRequest) {
         }
 
         if (!canDelete) {
-            return errorResponse(ApiErrors.forbidden("You do not have permission to delete this comment."));
+            throw ApiErrors.forbidden("You do not have permission to delete this comment.");
         }
 
         // 4. Delete
