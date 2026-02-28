@@ -6,6 +6,7 @@ import { createHash } from "crypto";
 import { validateAdmin } from "@/lib/admin-auth";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, ApiErrors } from "@/lib/api-utils";
+import { WebContainerManager } from "@/lib/web-container";
 
 /**
  * GET /api/admin/health
@@ -70,6 +71,14 @@ export async function GET() {
         // 4. Rate Limit Check (Redis)
         const redisConfigured = !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
 
+        // 5. WebContainer Runtime Health Snapshot
+        let webContainerHealth: ReturnType<typeof WebContainerManager.getHealthSnapshot> | null = null;
+        try {
+            webContainerHealth = WebContainerManager.getHealthSnapshot();
+        } catch {
+            checkFailures.push("webContainer");
+        }
+
         return NextResponse.json(
             {
                 status: databaseHealthy && auditChainValid ? "healthy" : "degraded",
@@ -91,7 +100,15 @@ export async function GET() {
                     },
                     rateLimit: {
                         status: redisConfigured ? "active" : "disabled"
-                    }
+                    },
+                    webContainer: webContainerHealth
+                        ? {
+                              status: "online",
+                              ...webContainerHealth,
+                          }
+                        : {
+                              status: "unavailable",
+                          },
                 }
             },
             {
