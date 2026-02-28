@@ -331,6 +331,14 @@ export async function GET() {
             HEALTH_SIGNAL_TRANSITION_COUNT_MAX - healthSignalTransitionCount,
         );
 
+        const healthSignalTransitionUtilizationPct = Math.min(
+            100,
+            Math.max(
+                0,
+                Math.round((healthSignalTransitionCount / HEALTH_SIGNAL_TRANSITION_COUNT_MAX) * 100),
+            ),
+        );
+
         previousHealthSignalDigest = healthSignalDigest;
         previousHealthSignalObservedAt = generatedAtIso;
 
@@ -388,6 +396,7 @@ export async function GET() {
             healthSignalTransitionCount: true,
             healthSignalTransitionCountCapped: true,
             healthSignalTransitionCountRemaining: true,
+            healthSignalTransitionUtilizationPct: true,
             healthSignalFlapping: true,
             healthSignalFlappingReason: true,
             healthSignalVolatilityBand: true,
@@ -444,6 +453,7 @@ export async function GET() {
                 healthSignalTransitionCount,
                 healthSignalTransitionCountCapped,
                 healthSignalTransitionCountRemaining,
+                healthSignalTransitionUtilizationPct,
                 healthSignalFlapping,
                 healthSignalFlappingReason,
                 healthSignalVolatilityBand,
