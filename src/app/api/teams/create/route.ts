@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 
-const createTeamSchema = z.object({
-    name: z.string().trim().min(2).max(100),
-}).strict();
+const createTeamSchema = z
+    .object({
+        name: z.string().trim().min(2).max(100),
+    })
+    .strict();
 
 function slugifyTeamName(name: string): string {
     const slug = name
@@ -16,6 +20,19 @@ function slugifyTeamName(name: string): string {
         .replace(/^-+|-+$/g, "");
 
     return slug || "team";
+}
+
+function isSlugConflictError(error: unknown): boolean {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+        return false;
+    }
+
+    const target = error.meta?.target;
+    if (Array.isArray(target)) {
+        return target.includes("slug");
+    }
+
+    return typeof target === "string" && target.includes("slug");
 }
 
 async function createUniqueTeamSlug(base: string): Promise<string> {
@@ -41,22 +58,18 @@ export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
-        const parsedBody = createTeamSchema.safeParse(await req.json());
-        if (!parsedBody.success) {
-            return NextResponse.json({ error: "Team name must be between 2 and 100 characters" }, { status: 400 });
-        }
+        const body = await validateBody(req, createTeamSchema);
 
-        const { name } = parsedBody.data;
-        const slug = await createUniqueTeamSlug(slugifyTeamName(name));
+        const slug = await createUniqueTeamSlug(slugifyTeamName(body.name));
 
         const team = await db.team.create({
             data: {
-                name,
+                name: body.name,
                 slug,
                 members: {
                     create: {
@@ -89,14 +102,11 @@ export async function POST(req: NextRequest) {
         }
 
         return NextResponse.json({ team }, { status: 201 });
-    } catch (error: unknown) {
-        console.error("Create team error:", error);
-
-        const message = error instanceof Error ? error.message : "";
-        if (message.includes("Rate limit")) {
-            return NextResponse.json({ error: message }, { status: 429 });
+    } catch (error) {
+        if (isSlugConflictError(error)) {
+            return errorResponse(ApiErrors.conflict("A team with this slug already exists"));
         }
 
-        return NextResponse.json({ error: "Failed to create team" }, { status: 500 });
+        return errorResponse(error);
     }
 }
