@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { requireFeature } from "@/lib/feature-gate";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 
 const jsonValueSchema: z.ZodType<Prisma.JsonValue> = z.lazy(() =>
     z.union([
@@ -59,7 +60,7 @@ export async function PUT(
 
     const userId = await getAuthedUserId();
     if (!userId) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        throw ApiErrors.unauthorized();
     }
 
     try {
@@ -67,20 +68,17 @@ export async function PUT(
 
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid template ID" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid template ID", parsedParams.error.flatten());
         }
 
-        const parsedBody = updateTemplateSchema.safeParse(await request.json());
-        if (!parsedBody.success) {
-            return NextResponse.json({ error: "Invalid template payload" }, { status: 400 });
-        }
+        const parsedBody = await validateBody(request, updateTemplateSchema);
 
         const existingTemplate = await getOwnedTemplate(parsedParams.data.id, userId);
         if (!existingTemplate) {
-            return NextResponse.json({ error: "Not found or unauthorized" }, { status: 404 });
+            throw ApiErrors.notFound("Template");
         }
 
-        const { name, content, description, structure, isPublic } = parsedBody.data;
+        const { name, content, description, structure, isPublic } = parsedBody;
 
         const template = await db.docTemplate.update({
             where: { id: parsedParams.data.id },
@@ -101,7 +99,7 @@ export async function PUT(
                 entity: "DocTemplate",
                 entityId: template.id,
                 details: {
-                    updatedFields: Object.keys(parsedBody.data),
+                    updatedFields: Object.keys(parsedBody),
                 },
             });
         } catch {
@@ -110,8 +108,7 @@ export async function PUT(
 
         return NextResponse.json({ template });
     } catch (error) {
-        console.error("Failed to update template:", error);
-        return NextResponse.json({ error: "Failed to update template" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
@@ -124,7 +121,7 @@ export async function DELETE(
 
     const userId = await getAuthedUserId();
     if (!userId) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        throw ApiErrors.unauthorized();
     }
 
     try {
@@ -132,12 +129,12 @@ export async function DELETE(
 
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid template ID" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid template ID", parsedParams.error.flatten());
         }
 
         const existingTemplate = await getOwnedTemplate(parsedParams.data.id, userId);
         if (!existingTemplate) {
-            return NextResponse.json({ error: "Not found or unauthorized" }, { status: 404 });
+            throw ApiErrors.notFound("Template");
         }
 
         await db.docTemplate.delete({
@@ -158,7 +155,6 @@ export async function DELETE(
 
         return NextResponse.json({ success: true });
     } catch (error) {
-        console.error("Failed to delete template:", error);
-        return NextResponse.json({ error: "Failed to delete template" }, { status: 500 });
+        return errorResponse(error);
     }
 }
