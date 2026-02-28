@@ -52,7 +52,6 @@ export default function BillingHub() {
     const [usage, setUsage] = useState<UsageData | null>(null);
     const [loading, setLoading] = useState(true);
     const [upgrading, setUpgrading] = useState<string | null>(null);
-    const [isMounted, setIsMounted] = useState(false);
     const [billingLoading, setBillingLoading] = useState(false);
     const [focusedPlanId, setFocusedPlanId] = useState<"starter" | "pro" | "team" | null>(null);
     const [trialIntentActive, setTrialIntentActive] = useState(false);
@@ -81,7 +80,6 @@ export default function BillingHub() {
     const [removingMember, setRemovingMember] = useState<string | null>(null);
 
     useEffect(() => {
-        setIsMounted(true);
         fetchUsage();
 
         const params = new URLSearchParams(window.location.search);
