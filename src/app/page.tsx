@@ -607,7 +607,7 @@ export default function LandingPage() {
           </div>
         </div>
         <div className="max-w-7xl mx-auto mt-20 flex flex-col md:flex-row justify-between items-center gap-4 text-white/20 text-[10px] tracking-widest uppercase font-bold">
-          <div>© 2026 DocuMint AI Inc. All rights reserved.</div>
+          <div>© {new Date().getFullYear()} DocuMint AI Inc. All rights reserved.</div>
           <div className="flex gap-6">
             <span>SECURE PAYMENTS BY STRIPE</span>
             <span>BUILT FOR DEVELOPERS</span>
