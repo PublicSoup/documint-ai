@@ -167,13 +167,15 @@ export async function PUT(req: NextRequest) {
                                     <p><strong>Best regards,<br>The DocuMint AI Security Team</strong></p>
                                 </div>
                                 <div class="footer">
-                                    <p>&copy; 2025 DocuMint AI. All rights reserved.</p>
+                                    <p>&copy; ${new Date().getFullYear()} DocuMint AI. All rights reserved.</p>
                                 </div>
                             </div>
                         </body>
                     </html>
                 `,
-            }).catch(e => console.error("Failed to send reset confirmation email:", e));
+            }).catch(() => {
+                // Non-blocking email delivery failure.
+            });
         }
 
         return NextResponse.json({ 
