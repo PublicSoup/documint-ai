@@ -16,6 +16,20 @@ let bootPromise: Promise<WebContainer> | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 const trackedProcesses = new Map<string, WebContainerProcess>();
 
+function trackProcess(processId: string, process: WebContainerProcess): void {
+    trackedProcesses.set(processId, process);
+
+    process.exit
+        .catch(() => {
+            // Swallow process exit errors; tracking cleanup still applies.
+        })
+        .finally(() => {
+            if (trackedProcesses.get(processId) === process) {
+                trackedProcesses.delete(processId);
+            }
+        });
+}
+
 function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -120,7 +134,7 @@ export class WebContainerManager {
         }, `spawn ${command}`);
 
         if (options.processId) {
-            trackedProcesses.set(options.processId, process);
+            trackProcess(options.processId, process);
         }
 
         return process;
@@ -132,14 +146,22 @@ export class WebContainerManager {
             return;
         }
 
-        process.kill();
-        trackedProcesses.delete(processId);
+        try {
+            process.kill();
+        } finally {
+            trackedProcesses.delete(processId);
+        }
     }
 
     static async stopAllProcesses(): Promise<void> {
-        for (const [processId, process] of trackedProcesses.entries()) {
-            process.kill();
-            trackedProcesses.delete(processId);
+        const entries = [...trackedProcesses.entries()];
+
+        for (const [processId, process] of entries) {
+            try {
+                process.kill();
+            } finally {
+                trackedProcesses.delete(processId);
+            }
         }
     }
 
