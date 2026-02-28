@@ -22,6 +22,7 @@ let healthSignalTransitionCount = 0;
 let previousHealthSignalVolatilityScore: number | null = null;
 let previousPolicyMismatchDigest: string | null = null;
 let currentPolicyMismatchStableSince: string | null = null;
+let policyMismatchTransitionCount = 0;
 
 const HEALTH_SIGNAL_FLAPPING_TRANSITION_THRESHOLD = 3;
 const HEALTH_SIGNAL_FLAPPING_STABILITY_WINDOW_SEC = 300;
@@ -451,6 +452,10 @@ export async function GET() {
         const policyMismatchChanged = previousPolicyMismatchDigest !== policyMismatchDigest;
         const policyMismatchPreviousDigest = previousPolicyMismatchDigest;
 
+        if (policyMismatchChanged && policyMismatchPreviousDigest) {
+            policyMismatchTransitionCount += 1;
+        }
+
         if (!currentPolicyMismatchStableSince || policyMismatchChanged) {
             currentPolicyMismatchStableSince = generatedAtIso;
         }
@@ -460,6 +465,11 @@ export async function GET() {
             0,
             Math.floor((generatedAtEpochMs - Date.parse(policyMismatchStableSince ?? generatedAtIso)) / 1000),
         );
+
+        const policyMismatchVolatilityBand =
+            policyMismatchTransitionCount >= 5 ? "volatile" :
+            policyMismatchTransitionCount >= 2 ? "watch" :
+            "stable";
 
         previousPolicyMismatchDigest = policyMismatchDigest;
 
@@ -526,6 +536,7 @@ export async function GET() {
             policyMismatchPreviousDigest: true,
             policyMismatchStableSince: true,
             policyMismatchStabilitySec: true,
+            policyMismatchVolatilityBand: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -602,6 +613,7 @@ export async function GET() {
                 policyMismatchPreviousDigest,
                 policyMismatchStableSince,
                 policyMismatchStabilitySec,
+                policyMismatchVolatilityBand,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
