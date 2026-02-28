@@ -429,6 +429,7 @@ export default function BillingHub() {
                                                     className="bg-primary hover:bg-primary/90 text-white"
                                                     isLoading={upgrading === focusedPlanId}
                                                     onClick={() => handleUpgrade(focusedPlanId)}
+                                                    title={`Resume checkout for ${focusedPlanId} plan`}
                                                 >
                                                     Resume Checkout
                                                 </Button>
