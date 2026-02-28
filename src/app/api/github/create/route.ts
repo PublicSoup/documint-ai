@@ -7,12 +7,14 @@ import { enforceRateLimit } from "../../../../lib/rate-limit";
 import { errorResponse, validateBody, ApiErrors } from "../../../../lib/api-utils";
 import { decrypt } from "../../../../lib/security/encryption";
 
-const createRepoSchema = z.object({
-    name: z.string().trim().min(1).max(100),
-    description: z.string().trim().max(500).optional(),
-    isPrivate: z.boolean().default(true),
-    autoInit: z.boolean().default(true),
-}).strict();
+const createRepoSchema = z
+    .object({
+        name: z.string().trim().min(1).max(100),
+        description: z.string().trim().max(500).optional(),
+        isPrivate: z.boolean().default(true),
+        autoInit: z.boolean().default(true),
+    })
+    .strict();
 
 /**
  * POST /api/github/create
@@ -22,33 +24,29 @@ export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
-        // 1. Enforce Rate Limit
         await enforceRateLimit(session.user.id, "api");
 
-        // 2. Validate Body
         const { name, description, isPrivate, autoInit } = await validateBody(req, createRepoSchema);
 
-        // 3. Fetch token from DB and decrypt
         const connection = await db.gitHubConnection.findUnique({
-            where: { userId: session.user.id }
+            where: { userId: session.user.id },
+            select: { accessToken: true },
         });
 
-        if (!connection || !connection.accessToken) {
-            return errorResponse(ApiErrors.badRequest("GitHub account not connected."));
+        if (!connection?.accessToken) {
+            throw ApiErrors.badRequest("GitHub account not connected.");
         }
 
         let decryptedToken: string;
         try {
             decryptedToken = decrypt(connection.accessToken);
-        } catch (e) {
-            console.error("Token decryption failed:", e);
-            return errorResponse(ApiErrors.internalError("Failed to access GitHub credentials."));
+        } catch {
+            throw ApiErrors.internalError("Failed to access GitHub credentials.");
         }
 
-        // 4. Create the repository via GitHub API
         const gitRes = await fetch("https://api.github.com/user/repos", {
             method: "POST",
             headers: {
@@ -65,15 +63,25 @@ export async function POST(req: NextRequest) {
         });
 
         if (!gitRes.ok) {
-            const errorData = await gitRes.json().catch(() => ({}));
-            return NextResponse.json({
-                error: errorData.message || "Failed to create repository on GitHub"
-            }, { status: gitRes.status });
+            if (gitRes.status === 401) {
+                throw ApiErrors.unauthorized("GitHub token is invalid or expired.");
+            }
+
+            if (gitRes.status === 422) {
+                throw ApiErrors.conflict("Repository name is unavailable or invalid.");
+            }
+
+            throw ApiErrors.serviceUnavailable("GitHub API");
         }
 
-        const repoData = await gitRes.json();
+        const repoData = (await gitRes.json()) as {
+            id: number;
+            name: string;
+            full_name: string;
+            html_url: string;
+            private: boolean;
+        };
 
-        // 5. Audit Logging
         try {
             const { logAudit } = await import("../../../../lib/audit-logger");
             await logAudit({
@@ -81,26 +89,29 @@ export async function POST(req: NextRequest) {
                 action: "GITHUB_CREATE_REPO",
                 entity: "GitHubRepository",
                 entityId: repoData.id.toString(),
-                details: { 
-                    name: repoData.name, 
+                details: {
+                    name: repoData.name,
                     fullName: repoData.full_name,
-                    private: repoData.private
-                }
+                    private: repoData.private,
+                },
             });
         } catch {
             // Non-blocking
         }
 
-        return NextResponse.json({
-            message: "Repository created successfully",
-            repo: {
-                id: repoData.id,
-                name: repoData.name,
-                full_name: repoData.full_name,
-                html_url: repoData.html_url,
-                private: repoData.private,
-            }
-        }, { status: 201 });
+        return NextResponse.json(
+            {
+                message: "Repository created successfully",
+                repo: {
+                    id: repoData.id,
+                    name: repoData.name,
+                    full_name: repoData.full_name,
+                    html_url: repoData.html_url,
+                    private: repoData.private,
+                },
+            },
+            { status: 201 },
+        );
     } catch (error) {
         return errorResponse(error);
     }
