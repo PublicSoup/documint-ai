@@ -5,6 +5,7 @@ import { stripe } from "@/lib/stripe";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse } from "@/lib/api-utils";
 
 function resolveOrigin(request: NextRequest): string {
     const origin = request.headers.get("origin");
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id || !session?.user?.email) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
@@ -57,10 +58,7 @@ export async function POST(request: NextRequest) {
         }
 
         if (!customerId) {
-            return NextResponse.json(
-                { error: "No billing account found. Upgrade to a paid plan first." },
-                { status: 400 }
-            );
+            throw ApiErrors.badRequest("No billing account found. Upgrade to a paid plan first.");
         }
 
         const portalSession = await stripe.billingPortal.sessions.create({
@@ -83,7 +81,6 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ url: portalSession.url });
     } catch (error) {
-        console.error("Portal error:", error);
-        return NextResponse.json({ error: "Failed to create billing portal session" }, { status: 500 });
+        return errorResponse(error);
     }
 }
