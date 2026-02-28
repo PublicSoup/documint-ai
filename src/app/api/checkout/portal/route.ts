@@ -67,10 +67,15 @@ export async function POST(request: NextRequest) {
         }
 
         // 3. Create Portal Session
+        const resolvedOrigin = resolveOrigin(request);
         const portalSession = await stripe.billingPortal.sessions.create({
             customer: user.subscription.stripeCustomerId,
-            return_url: `${resolveOrigin(request)}/dashboard/settings?tab=billing`,
+            return_url: `${resolvedOrigin}/dashboard/settings?tab=billing`,
         });
+
+        if (!portalSession.url) {
+            throw ApiErrors.serviceUnavailable("Unable to create billing portal session");
+        }
 
         // 4. Audit Log
         try {
@@ -80,13 +85,23 @@ export async function POST(request: NextRequest) {
                 action: "CREATE_BILLING_PORTAL_SESSION",
                 entity: "Subscription",
                 entityId: session.user.id,
-                details: { customerId: user.subscription.stripeCustomerId },
+                details: {
+                    customerId: user.subscription.stripeCustomerId,
+                    returnOrigin: resolvedOrigin,
+                },
             });
         } catch {
             // Non-blocking
         }
 
-        return NextResponse.json({ url: portalSession.url });
+        return NextResponse.json(
+            { url: portalSession.url },
+            {
+                headers: {
+                    "Cache-Control": "no-store, max-age=0",
+                },
+            },
+        );
     } catch (error) {
         return errorResponse(error);
     }
