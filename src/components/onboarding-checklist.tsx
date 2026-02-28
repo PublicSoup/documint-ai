@@ -127,7 +127,9 @@ export function OnboardingChecklist({ onboardingContext }: OnboardingChecklistPr
                     location="onboarding_checklist_upgrade"
                     variant={onboardingContext?.intent === "trial" ? "trial_intent_v1" : "control"}
                 >
-                    <Button size="sm" variant="primary" className="h-7 text-xs border-0">Upgrade</Button>
+                    <Button size="sm" variant="primary" className="h-7 text-xs border-0">
+                        {onboardingContext?.intent === "trial" ? "Activate Trial" : "Upgrade"}
+                    </Button>
                 </TrackedLink>
             )
         }

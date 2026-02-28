@@ -167,7 +167,7 @@ export default function LoginPage() {
                             disabled={loading}
                             className="w-full h-12 bg-primary hover:bg-primary/90 text-white rounded-xl shadow-lg shadow-primary/20 font-bold transition-all disabled:opacity-50"
                         >
-                            {loading ? "Authenticating..." : "Sign In"}
+                            {loading ? "Authenticating..." : intent === "trial" ? "Continue Trial Setup" : "Sign In"}
                             {!loading && <ArrowRight className="w-4 h-4 ml-2" />}
                         </Button>
                     </form>
