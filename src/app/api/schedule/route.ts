@@ -53,7 +53,7 @@ export async function GET() {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
         // 1. Enforce Rate Limit
@@ -88,7 +88,7 @@ export async function PUT(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
         // 1. Enforce Rate Limit
@@ -158,7 +158,7 @@ export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
         // 1. Enforce Rate Limit
@@ -196,7 +196,7 @@ export async function POST(req: NextRequest) {
 
         const host = req.headers.get("host");
         if (!host) {
-            return errorResponse(ApiErrors.badRequest("Missing request host."));
+            throw ApiErrors.badRequest("Missing request host.");
         }
 
         const protocol = host.includes("localhost") ? "http" : "https";
