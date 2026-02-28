@@ -168,7 +168,7 @@ export default function BillingHub() {
             let data;
             try {
                 data = await res.json();
-            } catch (e) {
+            } catch {
                 throw new Error("Invalid response from server");
             }
 
