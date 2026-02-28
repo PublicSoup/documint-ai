@@ -202,6 +202,21 @@ export async function GET() {
             ai: aiConfigured ? "online" : "unconfigured",
         } as const;
 
+        const COMPONENT_STALE_THRESHOLD_MS = 5_000;
+
+        const staleComponentCount = Object.values(componentLastCheckedAt).reduce((count, timestamp) => {
+            if (!timestamp) {
+                return count + 1;
+            }
+
+            const checkedAtMs = Date.parse(timestamp);
+            if (Number.isNaN(checkedAtMs)) {
+                return count + 1;
+            }
+
+            return generatedAtEpochMs - checkedAtMs > COMPONENT_STALE_THRESHOLD_MS ? count + 1 : count;
+        }, 0);
+
         const schemaCapabilities = {
             degradedComponents: true,
             componentSeverity: true,
@@ -215,6 +230,7 @@ export async function GET() {
             diagnosticDataFreshnessSec: true,
             dataSourceStatuses: true,
             componentLastCheckedAt: true,
+            staleComponentCount: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -252,6 +268,7 @@ export async function GET() {
                 runbookUrls: [...new Set(runbookUrls)],
                 dataSourceStatuses,
                 componentLastCheckedAt,
+                staleComponentCount,
                 components: {
                     database: {
                         status: databaseHealthy ? "online" : "offline",
