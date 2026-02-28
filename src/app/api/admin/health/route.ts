@@ -229,9 +229,11 @@ export async function GET() {
         const generatedAtEpochMs = Date.now();
         const generatedAtIso = new Date(generatedAtEpochMs).toISOString();
 
+        const checkDurationMs = generatedAtEpochMs - startedAt;
+
         const responseLatencyBucket =
-            generatedAtEpochMs - startedAt >= 500 ? "slow" :
-            generatedAtEpochMs - startedAt >= 200 ? "elevated" :
+            checkDurationMs >= 500 ? "slow" :
+            checkDurationMs >= 200 ? "elevated" :
             "normal";
 
         const diagnosticDataFreshnessSec = Math.max(0, Math.floor((Date.now() - generatedAtEpochMs) / 1000));
@@ -293,6 +295,7 @@ export async function GET() {
             dataSourceStatuses: true,
             componentLastCheckedAt: true,
             staleComponentCount: true,
+            checkFailureCount: true,
             degradedComponentCount: true,
             degradedComponentNamesCsv: true,
             criticalComponentCount: true,
@@ -347,10 +350,11 @@ export async function GET() {
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
-                checkDurationMs: generatedAtEpochMs - startedAt,
+                checkDurationMs,
                 responseLatencyBucket,
                 diagnosticDataFreshnessSec,
                 checkFailures: uniqueFailures,
+                checkFailureCount: uniqueFailures.length,
                 degradedComponents,
                 degradedComponentCount,
                 degradedComponentNamesCsv: degradedComponents.join(","),
