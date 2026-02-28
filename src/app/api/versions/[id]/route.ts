@@ -5,30 +5,34 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse } from "@/lib/api-utils";
 
-const paramsSchema = z.object({
-    id: z.string().min(1),
-}).strict();
+const paramsSchema = z
+    .object({
+        id: z.string().trim().min(1).max(100),
+    })
+    .strict();
+
+async function parseVersionId(params: Promise<{ id: string }>): Promise<string> {
+    const parsedParams = paramsSchema.safeParse(await params);
+    if (!parsedParams.success) {
+        throw ApiErrors.badRequest("Invalid version id", parsedParams.error.flatten());
+    }
+
+    return parsedParams.data.id;
+}
 
 // POST: rollback to a specific version
-export async function POST(
-    _req: NextRequest,
-    props: { params: Promise<{ id: string }> }
-) {
+export async function POST(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
-        const parsedParams = paramsSchema.safeParse(await props.params);
-        if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid version id" }, { status: 400 });
-        }
-
-        const { id: versionId } = parsedParams.data;
+        const versionId = await parseVersionId(props.params);
 
         const version = await db.docVersion.findUnique({
             where: { id: versionId },
@@ -40,12 +44,12 @@ export async function POST(
         });
 
         if (!version) {
-            return NextResponse.json({ error: "Version not found" }, { status: 404 });
+            throw ApiErrors.notFound("Version");
         }
 
         const canEdit = await checkFilePermission(session.user.id, version.documentation.fileId, "edit");
         if (!canEdit) {
-            return NextResponse.json({ error: "Access denied" }, { status: 403 });
+            throw ApiErrors.forbidden("Access denied");
         }
 
         await db.$transaction(async (tx) => {
@@ -98,30 +102,21 @@ export async function POST(
             rolledBackVersion: version.version,
         });
     } catch (error) {
-        console.error("Rollback error:", error);
-        return NextResponse.json({ error: "Rollback failed" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
 // GET: fetch one version with permissions
-export async function GET(
-    _req: NextRequest,
-    props: { params: Promise<{ id: string }> }
-) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
-        const parsedParams = paramsSchema.safeParse(await props.params);
-        if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid version id" }, { status: 400 });
-        }
-
-        const { id } = parsedParams.data;
+        const id = await parseVersionId(props.params);
 
         const version = await db.docVersion.findUnique({
             where: { id },
@@ -133,12 +128,12 @@ export async function GET(
         });
 
         if (!version) {
-            return NextResponse.json({ error: "Version not found" }, { status: 404 });
+            throw ApiErrors.notFound("Version");
         }
 
         const canView = await checkFilePermission(session.user.id, version.documentation.fileId, "view");
         if (!canView) {
-            return NextResponse.json({ error: "Access denied" }, { status: 403 });
+            throw ApiErrors.forbidden("Access denied");
         }
 
         return NextResponse.json({
@@ -146,7 +141,6 @@ export async function GET(
             fileName: version.documentation.file.name,
         });
     } catch (error) {
-        console.error("Version fetch error:", error);
-        return NextResponse.json({ error: "Failed to fetch version" }, { status: 500 });
+        return errorResponse(error);
     }
 }
