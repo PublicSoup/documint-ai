@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id || !session?.user?.email) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
         // 1. Enforce Rate Limit
@@ -117,13 +117,13 @@ export async function POST(request: NextRequest) {
         const context = await parseCheckoutContext(request);
 
         if (context.plan && context.plan !== tier) {
-            return errorResponse(ApiErrors.badRequest("Checkout plan context must match requested tier"));
+            throw ApiErrors.badRequest("Checkout plan context must match requested tier");
         }
 
         const priceId = PRICE_IDS[tier];
 
         if (!priceId || priceId.includes("placeholder")) {
-            return errorResponse(ApiErrors.serviceUnavailable("Billing system is not fully configured. Please contact support."));
+            throw ApiErrors.serviceUnavailable("Billing system is not fully configured. Please contact support.");
         }
 
         const origin = resolveOrigin(request);
@@ -156,14 +156,15 @@ export async function POST(request: NextRequest) {
         const normalizedCurrentPlan = userSubscription?.plan?.toLowerCase();
         const normalizedCurrentStatus = userSubscription?.status?.toLowerCase();
 
+        // 4. Prevention: Already subscribed check
         if (
             normalizedCurrentPlan === tier &&
             (normalizedCurrentStatus === "active" || normalizedCurrentStatus === "trialing")
         ) {
-            return errorResponse(ApiErrors.badRequest("You are already subscribed to this plan."));
+            throw ApiErrors.badRequest("You are already subscribed to this plan.");
         }
 
-        // 4. Create Stripe Checkout Session
+        // 5. Create Stripe Checkout Session
         const checkoutSession = await stripe.checkout.sessions.create({
             mode: "subscription",
             payment_method_types: ["card"],
@@ -187,7 +188,7 @@ export async function POST(request: NextRequest) {
                     : undefined,
         });
 
-        // 5. Audit Log
+        // 6. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({

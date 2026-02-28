@@ -195,7 +195,8 @@ export async function PATCH(
             throw ApiErrors.unauthorized();
         }
 
-        await enforceRateLimit(session.user.id, "api");
+        // 1. Enforce Security Rate Limit for role updates
+        await enforceRateLimit(session.user.id, "security");
 
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
@@ -212,16 +213,19 @@ export async function PATCH(
             throw ApiErrors.notFound("Team member");
         }
 
+        // 2. Authz: Only OWNER or ADMIN can change roles
         if (requesterMembership.role !== "OWNER" && requesterMembership.role !== "ADMIN") {
-            throw ApiErrors.forbidden("Insufficient permissions");
+            throw ApiErrors.forbidden("Insufficient permissions to update roles");
         }
 
+        // 3. Authz: Only OWNER can promote/demote other OWNERs
         if (newRole === "OWNER" || targetMembership.role === "OWNER") {
             if (requesterMembership.role !== "OWNER") {
                 throw ApiErrors.forbidden("Only team owners can manage owner roles");
             }
         }
 
+        // 4. Authz: ADMIN cannot manage other ADMINs
         if (
             requesterMembership.role === "ADMIN" &&
             targetMembership.role === "ADMIN" &&
@@ -230,6 +234,7 @@ export async function PATCH(
             throw ApiErrors.forbidden("Admins cannot manage other admin roles");
         }
 
+        // 5. Validation: Cannot remove the last owner
         if (targetMembership.role === "OWNER" && newRole !== "OWNER") {
             const ownerCount = await db.teamMember.count({
                 where: { teamId, role: "OWNER" },
@@ -255,6 +260,7 @@ export async function PATCH(
             },
         });
 
+        // 6. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
