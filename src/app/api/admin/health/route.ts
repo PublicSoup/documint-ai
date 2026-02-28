@@ -13,6 +13,7 @@ const ADMIN_HEALTH_CONTRACT_REVISION = 1;
 const ADMIN_HEALTH_RESPONSE_SHAPE_ID = "ah.v1.core";
 const ADMIN_HEALTH_CONTRACT_COMPATIBILITY_MODE = "strict";
 const ADMIN_HEALTH_VOLATILITY_ALERT_POLICY_VERSION = "2026-02-27.v1";
+const ADMIN_HEALTH_VOLATILITY_ALERT_POLICY_MODE = "score-threshold-v1";
 
 let previousHealthSignalDigest: string | null = null;
 let previousHealthSignalObservedAt: string | null = null;
@@ -405,6 +406,11 @@ export async function GET() {
             `mode:${ADMIN_HEALTH_CONTRACT_COMPATIBILITY_MODE}`,
         ].join("|");
 
+        const volatilityAlertPolicyBundleId = [
+            `version:${ADMIN_HEALTH_VOLATILITY_ALERT_POLICY_VERSION}`,
+            `mode:${ADMIN_HEALTH_VOLATILITY_ALERT_POLICY_MODE}`,
+        ].join("|");
+
         const schemaCapabilities = {
             degradedComponents: true,
             componentSeverity: true,
@@ -450,6 +456,7 @@ export async function GET() {
             volatilityAlertRecommended: true,
             volatilityAlertSeverityHint: true,
             volatilityAlertPolicyVersion: true,
+            volatilityAlertPolicyBundleId: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -514,6 +521,7 @@ export async function GET() {
                 volatilityAlertRecommended,
                 volatilityAlertSeverityHint,
                 volatilityAlertPolicyVersion: ADMIN_HEALTH_VOLATILITY_ALERT_POLICY_VERSION,
+                volatilityAlertPolicyBundleId,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
