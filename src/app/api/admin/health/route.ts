@@ -178,6 +178,14 @@ export async function GET() {
 
         const diagnosticDataFreshnessSec = Math.max(0, Math.floor((Date.now() - generatedAtEpochMs) / 1000));
 
+        const dataSourceStatuses = {
+            database: databaseHealthy ? "online" : "offline",
+            auditTrail: auditChainValid ? "intact" : "compromised",
+            webContainer: webContainerHealth ? (webContainerDegraded ? "degraded" : "online") : "unavailable",
+            rateLimit: redisConfigured ? "active" : "disabled",
+            ai: aiConfigured ? "online" : "unconfigured",
+        } as const;
+
         const schemaCapabilities = {
             degradedComponents: true,
             componentSeverity: true,
@@ -189,6 +197,7 @@ export async function GET() {
             responseGeneratedBy: true,
             responseLatencyBucket: true,
             diagnosticDataFreshnessSec: true,
+            dataSourceStatuses: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -224,6 +233,7 @@ export async function GET() {
                 degradedComponents,
                 recommendedActions,
                 runbookUrls: [...new Set(runbookUrls)],
+                dataSourceStatuses,
                 components: {
                     database: {
                         status: databaseHealthy ? "online" : "offline",
