@@ -59,12 +59,40 @@ function resolveOrigin(request: NextRequest): string {
     return "http://localhost:3000";
 }
 
+const MAX_CHECKOUT_CONTEXT_BYTES = 10_000;
+
 async function parseCheckoutContext(request: NextRequest): Promise<z.infer<typeof checkoutContextSchema>> {
-    try {
-        const rawBody = await request.json();
-        return checkoutContextSchema.parse(rawBody);
-    } catch {
+    const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
+
+    if (!contentType.includes("application/json")) {
         return {};
+    }
+
+    const rawBody = await request.text();
+
+    if (!rawBody.trim()) {
+        return {};
+    }
+
+    if (rawBody.length > MAX_CHECKOUT_CONTEXT_BYTES) {
+        throw ApiErrors.badRequest("Checkout context payload too large");
+    }
+
+    let parsedBody: unknown;
+    try {
+        parsedBody = JSON.parse(rawBody);
+    } catch {
+        throw ApiErrors.badRequest("Invalid checkout context JSON payload");
+    }
+
+    try {
+        return checkoutContextSchema.parse(parsedBody);
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            throw ApiErrors.validationError(error.issues);
+        }
+
+        throw error;
     }
 }
 
