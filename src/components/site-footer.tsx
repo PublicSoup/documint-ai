@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import React from 'react';
+import { TrackedLink } from '@/components/marketing/tracked-link';
 
 export function SiteFooter() {
     const currentYear = new Date().getFullYear();
@@ -18,22 +19,28 @@ export function SiteFooter() {
                             Generate comprehensive docs, audits, and diagrams automatically.
                         </p>
                         <div className="flex space-x-4">
-                            <Link
+                            <TrackedLink
                                 href="https://github.com/documintai"
                                 target="_blank"
                                 rel="noopener noreferrer"
+                                eventName="landing_secondary_cta_click"
+                                location="site_footer_social_github"
+                                variant="control"
                                 className="text-gray-400 hover:text-white transition-colors"
                             >
                                 GitHub
-                            </Link>
-                            <Link
+                            </TrackedLink>
+                            <TrackedLink
                                 href="https://twitter.com/documint_ai"
                                 target="_blank"
                                 rel="noopener noreferrer"
+                                eventName="landing_secondary_cta_click"
+                                location="site_footer_social_twitter"
+                                variant="control"
                                 className="text-gray-400 hover:text-white transition-colors"
                             >
                                 Twitter
-                            </Link>
+                            </TrackedLink>
                             <a
                                 href="mailto:support@documint.ai"
                                 className="text-gray-400 hover:text-white transition-colors"
