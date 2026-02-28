@@ -171,6 +171,8 @@ export async function GET() {
             healthSummaryCode === "DEGRADED_OTHER" ? 50 :
             0;
 
+        const opsEscalationRequired = severity === "critical" || criticalComponentCount > 0 || summaryCodePriority >= 90;
+
         const uniqueFailures = [...new Set(checkFailures)];
 
         const recommendedActions = [
@@ -256,6 +258,7 @@ export async function GET() {
             degradedComponentNamesCsv: true,
             criticalComponentCount: true,
             criticalComponentNamesCsv: true,
+            opsEscalationRequired: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -285,6 +288,7 @@ export async function GET() {
                 opsReadinessBand,
                 healthSummaryCode,
                 summaryCodePriority,
+                opsEscalationRequired,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
