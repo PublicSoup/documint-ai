@@ -2,12 +2,10 @@
 
 import React, { useEffect, useState } from "react";
 import {
-    CreditCard, Zap, CheckCircle2, Loader2, BarChart3, Crown,
-    User, Key, Bell, Trash2, Check, Copy, Blocks, Github,
-    Users, Shield, Layout, ArrowRight, FileText, History, Settings
+    CreditCard, Zap, CheckCircle2, Loader2, BarChart3,
+    User, Key, Bell, Check, Copy, Blocks, Github,
+    Users, Shield, Layout
 } from "lucide-react";
-import Link from "next/link";
-import Image from "next/image";
 import { useSession, signOut } from "next-auth/react";
 import { useToast } from "@/components/toast";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -69,15 +67,8 @@ export default function BillingHub() {
     // Team State
     const [teams, setTeams] = useState<TeamSummary[]>([]);
     const [loadingTeams, setLoadingTeams] = useState(false);
-    const [inviteEmail, setInviteEmail] = useState("");
-    const [invitingTeamId, setInvitingTeamId] = useState<string | null>(null);
-    const [sendingInvite, setSendingInvite] = useState(false);
-    const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
-    const [inviteError, setInviteError] = useState<string | null>(null);
     const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null);
     const [teamMembers, setTeamMembers] = useState<Record<string, TeamMember[]>>({});
-    const [loadingMembers, setLoadingMembers] = useState(false);
-    const [removingMember, setRemovingMember] = useState<string | null>(null);
 
     useEffect(() => {
         fetchUsage();
@@ -234,37 +225,11 @@ export default function BillingHub() {
         }
     };
 
-    const handleInvite = async (teamId: string) => {
-        if (!inviteEmail) return;
-        setSendingInvite(true);
-        try {
-            const res = await fetch("/api/teams/invite", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email: inviteEmail, teamId }),
-            });
-            const data = await res.json();
-            if (res.ok) {
-                setInviteSuccess(`Invitation sent to ${inviteEmail}`);
-                setInviteEmail("");
-                setInvitingTeamId(null);
-                setTimeout(() => setInviteSuccess(null), 3000);
-            } else {
-                setInviteError(data.error || "Failed to send invite");
-            }
-        } catch {
-            setInviteError("Something went wrong");
-        } finally {
-            setSendingInvite(false);
-        }
-    };
-
     const fetchMembers = async (teamId: string) => {
         if (teamMembers[teamId]) {
             setExpandedTeamId(expandedTeamId === teamId ? null : teamId);
             return;
         }
-        setLoadingMembers(true);
         setExpandedTeamId(teamId);
         try {
             const res = await fetch(`/api/teams/${teamId}/members`);
@@ -274,27 +239,6 @@ export default function BillingHub() {
             }
         } catch (error) {
             console.error("Failed to fetch members", error);
-        } finally {
-            setLoadingMembers(false);
-        }
-    };
-
-    const handleRemoveMember = async (teamId: string, userId: string) => {
-        if (!confirm("Are you sure?")) return;
-        setRemovingMember(userId);
-        try {
-            const res = await fetch(`/api/teams/${teamId}/members?userId=${userId}`, { method: "DELETE" });
-            if (res.ok) {
-                setTeamMembers(prev => ({
-                    ...prev,
-                    [teamId]: prev[teamId].filter((member) => member.userId !== userId)
-                }));
-                toast("Member removed", "success");
-            }
-        } catch {
-            toast("Something went wrong", "error");
-        } finally {
-            setRemovingMember(null);
         }
     };
 
@@ -578,7 +522,13 @@ export default function BillingHub() {
                                                     </div>
                                                     <div className="flex gap-2">
                                                         <Button variant="ghost" size="sm" onClick={() => fetchMembers(team.id)}>View</Button>
-                                                        <Button variant="outline" size="sm" onClick={() => setInvitingTeamId(team.id)}>Invite</Button>
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() => toast("Team invite workflow will be re-enabled in a dedicated hardening batch.", "success")}
+                                                        >
+                                                            Invite
+                                                        </Button>
                                                     </div>
                                                 </div>
                                             </div>
