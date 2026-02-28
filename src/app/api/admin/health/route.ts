@@ -436,6 +436,16 @@ export async function GET() {
 
         const policyMismatchCount = policyMismatches.length;
 
+        const policyMismatchDigest = createHash("sha256")
+            .update([
+                policyMismatches.join(","),
+                policyMismatchRecommendedActions.join(","),
+                volatilityPolicyCompatibilityReason,
+                volatilityPolicyCompatibilityAction,
+            ].join("|"))
+            .digest("hex")
+            .slice(0, 16);
+
         const policyMismatchRecommendedActions = policyMismatches
             .map((mismatch) =>
                 mismatch === "volatility-policy" ? "update-monitor-policy" : "review-policy-config",
@@ -494,6 +504,7 @@ export async function GET() {
             policyMismatchCount: true,
             policyMismatchNamesCsv: true,
             policyMismatchRecommendedActionCsv: true,
+            policyMismatchDigest: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -565,6 +576,7 @@ export async function GET() {
                 policyMismatchCount,
                 policyMismatchNamesCsv: policyMismatches.join(",") || "none",
                 policyMismatchRecommendedActionCsv: policyMismatchRecommendedActions.join(",") || "none",
+                policyMismatchDigest,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
