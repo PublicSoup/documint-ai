@@ -129,10 +129,19 @@ export async function GET() {
         const runbookUrls = degradedComponents.map((component) => runbooks[component]).filter((value): value is string => Boolean(value));
 
         const healthVersion = "2026-02-27.v1";
+        const schemaCapabilities = {
+            degradedComponents: true,
+            componentSeverity: true,
+            recommendedActions: true,
+            runbookUrls: true,
+            webContainerSnapshot: true,
+            webContainerThresholdSignals: true,
+        } as const;
 
         return NextResponse.json(
             {
                 healthVersion,
+                schemaCapabilities,
                 status: severity === "healthy" ? "healthy" : "degraded",
                 severity,
                 timestamp: new Date().toISOString(),
