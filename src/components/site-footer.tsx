@@ -21,6 +21,7 @@ export function SiteFooter() {
                             <Link
                                 href="https://github.com/documintai"
                                 target="_blank"
+                                rel="noopener noreferrer"
                                 className="text-gray-400 hover:text-white transition-colors"
                             >
                                 GitHub
@@ -28,16 +29,17 @@ export function SiteFooter() {
                             <Link
                                 href="https://twitter.com/documint_ai"
                                 target="_blank"
+                                rel="noopener noreferrer"
                                 className="text-gray-400 hover:text-white transition-colors"
                             >
                                 Twitter
                             </Link>
-                            <Link
+                            <a
                                 href="mailto:support@documint.ai"
                                 className="text-gray-400 hover:text-white transition-colors"
                             >
                                 Contact
-                            </Link>
+                            </a>
                         </div>
                     </div>
 

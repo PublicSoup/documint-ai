@@ -122,7 +122,7 @@ export default function LandingPage() {
                 Launch Dashboard <ArrowRight className="w-5 h-5 ml-2" />
               </Button>
             </TrackedLink>
-            <TrackedLink href="https://github.com" target="_blank" eventName="landing_secondary_cta_click" location="hero_secondary_github" variant={LANDING_EXPERIMENT_VARIANT}>
+            <TrackedLink href="https://github.com" target="_blank" rel="noopener noreferrer" eventName="landing_secondary_cta_click" location="hero_secondary_github" variant={LANDING_EXPERIMENT_VARIANT}>
               <Button size="lg" variant="outline" className="h-14 px-8 text-lg border-white/10 hover:bg-white/5 rounded-2xl">
                 <Github className="w-5 h-5 mr-2" /> View on GitHub
               </Button>
