@@ -131,6 +131,9 @@ export async function GET() {
         const runbookUrls = degradedComponents.map((component) => runbooks[component]).filter((value): value is string => Boolean(value));
 
         const healthVersion = "2026-02-27.v1";
+        const generatedAtEpochMs = Date.now();
+        const generatedAtIso = new Date(generatedAtEpochMs).toISOString();
+
         const schemaCapabilities = {
             degradedComponents: true,
             componentSeverity: true,
@@ -138,6 +141,7 @@ export async function GET() {
             runbookUrls: true,
             webContainerSnapshot: true,
             webContainerThresholdSignals: true,
+            responseTimingEpochMs: true,
         } as const;
 
         return NextResponse.json(
@@ -147,8 +151,10 @@ export async function GET() {
                 schemaCapabilities,
                 status: severity === "healthy" ? "healthy" : "degraded",
                 severity,
-                timestamp: new Date().toISOString(),
-                checkDurationMs: Date.now() - startedAt,
+                timestamp: generatedAtIso,
+                checkStartedAtEpochMs: startedAt,
+                generatedAtEpochMs,
+                checkDurationMs: generatedAtEpochMs - startedAt,
                 checkFailures: uniqueFailures,
                 degradedComponents,
                 recommendedActions,
