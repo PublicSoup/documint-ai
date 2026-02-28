@@ -302,9 +302,19 @@ export async function GET() {
             Math.floor((generatedAtEpochMs - Date.parse(healthSignalStableSince ?? generatedAtIso)) / 1000),
         );
 
-        const healthSignalFlapping =
-            healthSignalTransitionCount >= HEALTH_SIGNAL_FLAPPING_TRANSITION_THRESHOLD &&
-            healthSignalStabilitySec <= HEALTH_SIGNAL_FLAPPING_STABILITY_WINDOW_SEC;
+        const flappingByTransitionCount = healthSignalTransitionCount >= HEALTH_SIGNAL_FLAPPING_TRANSITION_THRESHOLD;
+        const flappingByStabilityWindow = healthSignalStabilitySec <= HEALTH_SIGNAL_FLAPPING_STABILITY_WINDOW_SEC;
+
+        const healthSignalFlapping = flappingByTransitionCount && flappingByStabilityWindow;
+
+        const healthSignalFlappingReason =
+            healthSignalFlapping
+                ? "transition-threshold-and-stability-window"
+                : flappingByTransitionCount
+                    ? "transition-threshold-only"
+                    : flappingByStabilityWindow
+                        ? "stability-window-only"
+                        : "none";
 
         previousHealthSignalDigest = healthSignalDigest;
         previousHealthSignalObservedAt = generatedAtIso;
@@ -362,6 +372,7 @@ export async function GET() {
             healthSignalStabilitySec: true,
             healthSignalTransitionCount: true,
             healthSignalFlapping: true,
+            healthSignalFlappingReason: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -412,6 +423,7 @@ export async function GET() {
                 healthSignalStabilitySec,
                 healthSignalTransitionCount,
                 healthSignalFlapping,
+                healthSignalFlappingReason,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
