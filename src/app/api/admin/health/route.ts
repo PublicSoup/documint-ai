@@ -436,6 +436,10 @@ export async function GET() {
 
         const policyMismatchCount = policyMismatches.length;
 
+        const policyMismatchRecommendedActions = policyMismatches.map((mismatch) =>
+            mismatch === "volatility-policy" ? "update-monitor-policy" : "review-policy-config",
+        );
+
         const schemaCapabilities = {
             degradedComponents: true,
             componentSeverity: true,
@@ -487,6 +491,7 @@ export async function GET() {
             volatilityPolicyCompatibilityAction: true,
             policyMismatchCount: true,
             policyMismatchNamesCsv: true,
+            policyMismatchRecommendedActionCsv: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -557,6 +562,7 @@ export async function GET() {
                 volatilityPolicyCompatibilityAction,
                 policyMismatchCount,
                 policyMismatchNamesCsv: policyMismatches.join(",") || "none",
+                policyMismatchRecommendedActionCsv: policyMismatchRecommendedActions.join(",") || "none",
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
