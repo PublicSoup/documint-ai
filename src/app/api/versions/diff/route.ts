@@ -7,11 +7,14 @@ import { db } from "@/lib/db";
 import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { safeJsonParse } from "@/lib/utils";
+import { ApiErrors, errorResponse, validateQuery } from "@/lib/api-utils";
 
-const diffQuerySchema = z.object({
-    v1: z.string().min(1),
-    v2: z.string().min(1),
-}).strict();
+const diffQuerySchema = z
+    .object({
+        v1: z.string().trim().min(1).max(100),
+        v2: z.string().trim().min(1).max(100),
+    })
+    .strict();
 
 interface ParsedDocContent {
     summary?: string;
@@ -21,21 +24,12 @@ export async function GET(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
-        const parsed = diffQuerySchema.safeParse({
-            v1: new URL(req.url).searchParams.get("v1") ?? "",
-            v2: new URL(req.url).searchParams.get("v2") ?? "",
-        });
-
-        if (!parsed.success) {
-            return NextResponse.json({ error: "v1 and v2 required" }, { status: 400 });
-        }
-
-        const { v1: versionId1, v2: versionId2 } = parsed.data;
+        const { v1: versionId1, v2: versionId2 } = validateQuery(req.nextUrl.searchParams, diffQuerySchema);
 
         const [version1, version2] = await Promise.all([
             db.docVersion.findUnique({
@@ -49,23 +43,23 @@ export async function GET(req: NextRequest) {
         ]);
 
         if (!version1 || !version2) {
-            return NextResponse.json({ error: "Version not found" }, { status: 404 });
+            throw ApiErrors.notFound("Version");
         }
 
         if (version1.documentationId !== version2.documentationId) {
-            return NextResponse.json({ error: "Versions must belong to the same documentation" }, { status: 400 });
+            throw ApiErrors.badRequest("Versions must belong to the same documentation");
         }
 
         const canView = await checkFilePermission(session.user.id, version1.documentation.fileId, "view");
         if (!canView) {
-            return NextResponse.json({ error: "Access denied" }, { status: 403 });
+            throw ApiErrors.forbidden("Access denied");
         }
 
         const parsed1 = safeJsonParse<ParsedDocContent>(version1.content, {});
         const parsed2 = safeJsonParse<ParsedDocContent>(version2.content, {});
 
-        const content1 = (parsed1.summary && parsed1.summary.trim()) ? parsed1.summary : version1.content;
-        const content2 = (parsed2.summary && parsed2.summary.trim()) ? parsed2.summary : version2.content;
+        const content1 = parsed1.summary && parsed1.summary.trim() ? parsed1.summary : version1.content;
+        const content2 = parsed2.summary && parsed2.summary.trim() ? parsed2.summary : version2.content;
 
         const diffResult = Diff.diffLines(content1, content2);
 
@@ -88,7 +82,6 @@ export async function GET(req: NextRequest) {
             stats,
         });
     } catch (error) {
-        console.error("Diff error:", error);
-        return NextResponse.json({ error: "Diff failed" }, { status: 500 });
+        return errorResponse(error);
     }
 }
