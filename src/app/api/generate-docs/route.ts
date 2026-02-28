@@ -9,7 +9,7 @@ import { getFileContent } from "@/lib/files";
 import { safeJsonParse } from "@/lib/utils";
 import { generateText } from "@/lib/ai";
 import { z } from "zod";
-import { errorResponse, validateBody, successResponse } from "@/lib/api-utils";
+import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 
 // Documentation tone personalities
 type DocTone = "technical" | "friendly" | "enterprise" | "minimal" | "educational";
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         // Rate limiting
@@ -112,11 +112,11 @@ export async function POST(request: NextRequest) {
         });
 
         if (!file) {
-            return NextResponse.json({ error: "File not found" }, { status: 404 });
+            throw ApiErrors.notFound("File");
         }
 
         if (!file.documentation?.content) {
-            return NextResponse.json({ error: "No documentation found for this file. Please analyze the file first." }, { status: 400 });
+            throw ApiErrors.badRequest("No documentation found for this file. Please analyze the file first.");
         }
 
         const doc = safeJsonParse<ParsedDoc>(file.documentation.content, {});
@@ -135,7 +135,9 @@ export async function POST(request: NextRequest) {
                     template: options.template || "none"
                 },
             });
-        } catch (e) {}
+        } catch {
+            // Non-blocking
+        }
 
         // Handle Templates (Custom & Built-in)
         const templateId = options.template;
@@ -181,7 +183,7 @@ Output: Return ONLY the documentation content. Do not include wrapping JSON or e
 
             const content = await getFileContent(fileId);
             if (!content) {
-                return NextResponse.json({ error: "Could not fetch file content" }, { status: 500 });
+                throw ApiErrors.internalError("Could not fetch file content");
             }
 
             const userPrompt = `Source Code (${file.language}):
@@ -206,8 +208,8 @@ ${JSON.stringify(doc.entities ? doc.entities.slice(0, 20) : "No entities", null,
                         source: "gemini"
                     });
                 }
-            } catch (e) {
-                console.error("Template generation failed", e);
+            } catch {
+                // Fall back to deterministic local formatter path.
             }
         }
 
@@ -363,7 +365,9 @@ function generateMarkdownDocs(file: { name: string; language: string }, doc: Par
     return md;
 }
 
-function generateHtmlDocs(file: { name: string; language: string }, doc: ParsedDoc, functions: DocEntity[], classes: DocEntity[], options: DocOptions): string {
+function generateHtmlDocs(file: { name: string; language: string }, doc: ParsedDoc, functions: DocEntity[], classes: DocEntity[], _options: DocOptions): string {
+    void _options;
+
     let html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -420,7 +424,9 @@ function generateHtmlDocs(file: { name: string; language: string }, doc: ParsedD
     return html;
 }
 
-function generateRstDocs(file: { name: string; language: string }, doc: ParsedDoc, functions: DocEntity[], classes: DocEntity[], options: DocOptions): string {
+function generateRstDocs(file: { name: string; language: string }, doc: ParsedDoc, functions: DocEntity[], classes: DocEntity[], _options: DocOptions): string {
+    void _options;
+
     let rst = `${"=".repeat(file.name.length)}\n${file.name}\n${"=".repeat(file.name.length)}\n\n`;
 
     if (doc.summary) {
@@ -446,7 +452,9 @@ function generateRstDocs(file: { name: string; language: string }, doc: ParsedDo
     return rst;
 }
 
-function generateAsciidocDocs(file: { name: string; language: string }, doc: ParsedDoc, functions: DocEntity[], classes: DocEntity[], options: DocOptions): string {
+function generateAsciidocDocs(file: { name: string; language: string }, doc: ParsedDoc, functions: DocEntity[], classes: DocEntity[], _options: DocOptions): string {
+    void _options;
+
     let adoc = `= ${file.name}\n:toc:\n:source-highlighter: highlight.js\n\n`;
 
     if (doc.summary) {
