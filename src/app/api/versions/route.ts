@@ -5,41 +5,37 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateBody, validateQuery } from "@/lib/api-utils";
 
-const getVersionsQuerySchema = z.object({
-    fileId: z.string().min(1),
-    limit: z.coerce.number().int().min(1).max(100).default(20),
-}).strict();
+const getVersionsQuerySchema = z
+    .object({
+        fileId: z.string().trim().min(1).max(100),
+        limit: z.coerce.number().int().min(1).max(100).default(20),
+    })
+    .strict();
 
-const createVersionSchema = z.object({
-    fileId: z.string().min(1),
-    message: z.string().trim().max(500).optional(),
-}).strict();
+const createVersionSchema = z
+    .object({
+        fileId: z.string().trim().min(1).max(100),
+        message: z.string().trim().max(500).optional(),
+    })
+    .strict();
 
 // GET: list versions for a documentation file
 export async function GET(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
-        const parsed = getVersionsQuerySchema.safeParse({
-            fileId: new URL(req.url).searchParams.get("fileId") ?? "",
-            limit: new URL(req.url).searchParams.get("limit") ?? 20,
-        });
-
-        if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid query" }, { status: 400 });
-        }
-
-        const { fileId, limit } = parsed.data;
+        const { fileId, limit } = validateQuery(req.nextUrl.searchParams, getVersionsQuerySchema);
 
         const canView = await checkFilePermission(session.user.id, fileId, "view");
         if (!canView) {
-            return NextResponse.json({ error: "Access denied" }, { status: 403 });
+            throw ApiErrors.forbidden("Access denied");
         }
 
         const file = await db.file.findUnique({
@@ -48,7 +44,7 @@ export async function GET(req: NextRequest) {
         });
 
         if (!file?.documentation) {
-            return NextResponse.json({ error: "Documentation not found" }, { status: 404 });
+            throw ApiErrors.notFound("Documentation");
         }
 
         const versions = await db.docVersion.findMany({
@@ -62,8 +58,7 @@ export async function GET(req: NextRequest) {
             currentVersion: versions[0]?.version || 1,
         });
     } catch (error) {
-        console.error("Version list error:", error);
-        return NextResponse.json({ error: "Failed to fetch versions" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
@@ -72,21 +67,16 @@ export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
-        const parsed = createVersionSchema.safeParse(await req.json());
-        if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
-        }
-
-        const { fileId, message } = parsed.data;
+        const { fileId, message } = await validateBody(req, createVersionSchema);
 
         const canEdit = await checkFilePermission(session.user.id, fileId, "edit");
         if (!canEdit) {
-            return NextResponse.json({ error: "Access denied" }, { status: 403 });
+            throw ApiErrors.forbidden("Access denied");
         }
 
         const file = await db.file.findUnique({
@@ -95,7 +85,7 @@ export async function POST(req: NextRequest) {
         });
 
         if (!file?.documentation) {
-            return NextResponse.json({ error: "Documentation not found" }, { status: 404 });
+            throw ApiErrors.notFound("Documentation");
         }
 
         const version = await db.$transaction(async (tx) => {
@@ -140,7 +130,6 @@ export async function POST(req: NextRequest) {
             message: `Created version ${version.version}`,
         });
     } catch (error) {
-        console.error("Version create error:", error);
-        return NextResponse.json({ error: "Failed to create version" }, { status: 500 });
+        return errorResponse(error);
     }
 }
