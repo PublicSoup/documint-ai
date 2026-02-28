@@ -111,6 +111,14 @@ export async function GET() {
                     ? "degraded"
                     : "healthy";
 
+        const incidentClass =
+            !databaseHealthy ? "availability" :
+            !auditChainValid ? "integrity" :
+            degradedComponents.includes("webContainer") ? "runtime" :
+            degradedComponents.includes("rateLimit") ? "throttling" :
+            degradedComponents.length > 0 ? "operations" :
+            "none";
+
         const healthSummaryCode =
             !databaseHealthy ? "CRITICAL_DB" :
             !auditChainValid ? "CRITICAL_AUDIT" :
@@ -165,6 +173,7 @@ export async function GET() {
             responseTimingEpochMs: true,
             responseGeneratedBy: true,
             responseLatencyBucket: true,
+            incidentClass: true,
         } as const;
 
         const responseGeneratedBy = {
@@ -182,6 +191,7 @@ export async function GET() {
                 responseGeneratedBy,
                 status: severity === "healthy" ? "healthy" : "degraded",
                 severity,
+                incidentClass,
                 healthSummaryCode,
                 summaryCodePriority,
                 timestamp: generatedAtIso,
