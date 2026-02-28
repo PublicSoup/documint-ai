@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -6,7 +6,6 @@ import { createHash } from "crypto";
 import { validateAdmin } from "@/lib/admin-auth";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, ApiErrors } from "@/lib/api-utils";
-import { z } from "zod";
 
 /**
  * GET /api/admin/health
@@ -27,14 +26,16 @@ export async function GET() {
         // Rate limit admin user
         await enforceRateLimit(session.user.id, "api");
 
+        const checkFailures: string[] = [];
+
         // 1. Database Check
         let databaseHealthy = false;
         let userCount = 0;
         try {
             userCount = await db.user.count();
             databaseHealthy = true;
-        } catch (e) {
-            console.error("Health Check: DB Failed", e);
+        } catch {
+            checkFailures.push("database");
         }
 
         // 2. AI Check
@@ -54,22 +55,23 @@ export async function GET() {
                 const detailsStr = log.details ? JSON.stringify(log.details) : "{}";
                 const dataToHash = `${log.previousHash || ""}|${log.action}|${log.entityId}|${timestamp}|${detailsStr}`;
                 const calculatedHash = createHash("sha256").update(dataToHash).digest("hex");
-                
+
                 if (calculatedHash !== log.hash) {
                     auditChainValid = false;
                     tamperedCount += 1;
                 }
             }
-        } catch (e) {
-            console.error("Health Check: Audit Check Failed", e);
+        } catch {
+            checkFailures.push("auditTrail");
         }
 
         // 4. Rate Limit Check (Redis)
         const redisConfigured = !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
 
         return NextResponse.json({
-            status: databaseHealthy ? "healthy" : "degraded",
+            status: databaseHealthy && auditChainValid ? "healthy" : "degraded",
             timestamp: new Date().toISOString(),
+            checkFailures,
             components: {
                 database: {
                     status: databaseHealthy ? "online" : "offline",
