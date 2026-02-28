@@ -7,6 +7,7 @@ import { requireFeature } from "@/lib/feature-gate";
 import { checkTeamPermission } from "@/lib/permissions";
 import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
 import { getAnalyticsData } from "@/lib/analytics";
+import { ApiErrors, errorResponse } from "@/lib/api-utils";
 
 const analyticsQuerySchema = z.object({
     teamId: z.string().trim().min(1).max(100).optional(),
@@ -18,6 +19,30 @@ const trackViewSchema = z.object({
     duration: z.coerce.number().int().min(0).max(60 * 60 * 12).default(0),
 }).strict();
 
+type TeamConfig = {
+    coverageGoal?: number;
+};
+
+function sanitizeSessionId(value: string | null | undefined): string | null {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    return trimmed.slice(0, 255);
+}
+
+async function parseTrackViewBody(request: NextRequest): Promise<z.infer<typeof trackViewSchema> | null> {
+    let rawBody: unknown;
+
+    try {
+        rawBody = await request.json();
+    } catch {
+        return null;
+    }
+
+    const parsedBody = trackViewSchema.safeParse(rawBody);
+    return parsedBody.success ? parsedBody.data : null;
+}
+
 export async function GET(request: NextRequest) {
     try {
         const gateError = await requireFeature("analytics");
@@ -25,7 +50,7 @@ export async function GET(request: NextRequest) {
 
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
@@ -36,7 +61,7 @@ export async function GET(request: NextRequest) {
         });
 
         if (!parsedQuery.success) {
-            return NextResponse.json({ error: "Invalid query parameters" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid query parameters", parsedQuery.error.flatten());
         }
 
         const { teamId, days } = parsedQuery.data;
@@ -44,13 +69,13 @@ export async function GET(request: NextRequest) {
         if (teamId) {
             const canView = await checkTeamPermission(session.user.id, teamId, "view");
             if (!canView) {
-                return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+                throw ApiErrors.forbidden();
             }
         }
 
         const data = await getAnalyticsData(session.user.id, teamId, days);
 
-        let teamInfo;
+        let teamInfo: { name: string; memberCount: number; coverageGoal: number } | undefined;
         if (teamId) {
             const team = await db.team.findUnique({
                 where: { id: teamId },
@@ -66,7 +91,7 @@ export async function GET(request: NextRequest) {
 
             if (team) {
                 const rawConfig = team.integrations[0]?.config;
-                const config = (rawConfig && typeof rawConfig === "object" ? rawConfig : {}) as { coverageGoal?: number };
+                const config = (rawConfig && typeof rawConfig === "object" ? rawConfig : {}) as TeamConfig;
 
                 teamInfo = {
                     name: team.name,
@@ -78,8 +103,7 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({ ...data, teamInfo });
     } catch (error) {
-        console.error("Analytics error:", error);
-        return NextResponse.json({ error: "Failed to fetch analytics" }, { status: 500 });
+        return errorResponse(error);
     }
 }
 
@@ -87,17 +111,17 @@ export async function POST(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
-        const parsedBody = trackViewSchema.safeParse(await request.json());
-        if (!parsedBody.success) {
-            return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+        const body = await parseTrackViewBody(request);
+        if (!body) {
+            throw ApiErrors.badRequest("Invalid payload");
         }
 
-        const { fileId, duration } = parsedBody.data;
+        const { fileId, duration } = body;
 
         const file = await db.file.findUnique({
             where: { id: fileId },
@@ -105,32 +129,48 @@ export async function POST(request: NextRequest) {
         });
 
         if (!file) {
-            return NextResponse.json({ error: "File not found" }, { status: 404 });
+            throw ApiErrors.notFound("File");
         }
 
         if (file.teamId) {
             const canView = await checkTeamPermission(session.user.id, file.teamId, "view");
             if (!canView) {
-                return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+                throw ApiErrors.forbidden();
             }
         } else if (file.userId !== session.user.id) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+            throw ApiErrors.forbidden();
         }
 
         const ip = await getClientIP(request);
+        const sessionId = sanitizeSessionId(request.headers.get("x-session-id")) ?? ip;
 
         await db.docView.create({
             data: {
                 fileId,
                 userId: session.user.id,
-                sessionId: request.headers.get("x-session-id") || ip,
+                sessionId,
                 duration,
             },
         });
 
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: session.user.id,
+                action: "TRACK_DOC_VIEW",
+                entity: "DocView",
+                entityId: fileId,
+                details: {
+                    duration,
+                    teamId: file.teamId ?? null,
+                },
+            });
+        } catch {
+            // Keep analytics ingestion non-blocking if audit persistence fails.
+        }
+
         return NextResponse.json({ success: true });
     } catch (error) {
-        console.error("Track view error:", error);
-        return NextResponse.json({ error: "Failed to track view" }, { status: 500 });
+        return errorResponse(error);
     }
 }
