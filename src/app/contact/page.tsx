@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { Mail, ArrowRight, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TrackedLink } from "@/components/marketing/tracked-link";
 
 export default function ContactPage() {
   return (
@@ -41,14 +41,24 @@ export default function ContactPage() {
         </div>
 
         <div className="flex gap-3">
-          <Link href="/auth/register?source=contact_page&intent=trial&plan=pro">
+          <TrackedLink
+            href="/auth/register?source=contact_page_primary&intent=trial&plan=pro"
+            eventName="landing_final_cta_click"
+            location="contact_page_primary"
+            variant="control"
+          >
             <Button className="bg-primary hover:bg-primary/90 text-white rounded-xl">
               Start Free Trial <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
-          </Link>
-          <Link href="/">
+          </TrackedLink>
+          <TrackedLink
+            href="/"
+            eventName="landing_secondary_cta_click"
+            location="contact_page_back_home"
+            variant="control"
+          >
             <Button variant="outline" className="border-white/20 hover:bg-white/10 rounded-xl">Back to Home</Button>
-          </Link>
+          </TrackedLink>
         </div>
       </div>
     </main>
