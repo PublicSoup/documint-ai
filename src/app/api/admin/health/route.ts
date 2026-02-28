@@ -119,6 +119,15 @@ export async function GET() {
             uniqueFailures.includes("rateLimit") ? "Confirm Upstash Redis credentials and network reachability; fallback mode should only be temporary." : null,
         ].filter((value): value is string => Boolean(value));
 
+        const runbooks: Record<string, string> = {
+            database: "/docs/ops/runbooks/database-connectivity",
+            auditTrail: "/docs/ops/runbooks/audit-integrity",
+            webContainer: "/docs/ops/runbooks/webcontainer-runtime",
+            rateLimit: "/docs/ops/runbooks/rate-limit-backend",
+        };
+
+        const runbookUrls = degradedComponents.map((component) => runbooks[component]).filter((value): value is string => Boolean(value));
+
         return NextResponse.json(
             {
                 status: severity === "healthy" ? "healthy" : "degraded",
@@ -128,6 +137,7 @@ export async function GET() {
                 checkFailures: uniqueFailures,
                 degradedComponents,
                 recommendedActions,
+                runbookUrls: [...new Set(runbookUrls)],
                 components: {
                     database: {
                         status: databaseHealthy ? "online" : "offline",
