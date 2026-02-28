@@ -156,7 +156,7 @@ export async function GET() {
             uniqueFailures.includes("webContainerRecoveryRate") ? "Restart IDE runtime sessions and inspect WebContainer recovery churn for repeated boot failures." : null,
             uniqueFailures.includes("webContainerTrackedProcessPressure") ? "Stop stale WebContainer processes and investigate process leak sources in terminal/runner workflows." : null,
             uniqueFailures.includes("rateLimit") ? "Confirm Upstash Redis credentials and network reachability; fallback mode should only be temporary." : null,
-        ].filter((value): value is string => Boolean(value));
+        ].filter((value): value is string => Boolean(value)).sort();
 
         const runbooks: Record<string, string> = {
             database: "/docs/ops/runbooks/database-connectivity",
