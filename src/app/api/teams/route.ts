@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { errorResponse } from "@/lib/api-utils";
+import { ApiErrors, errorResponse } from "@/lib/api-utils";
 
 /**
  * GET /api/teams
@@ -13,7 +13,7 @@ export async function GET() {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
@@ -61,12 +61,14 @@ export async function GET() {
                     image: member.user.image,
                 },
             })),
-            invites: membership.team.invites.map((invite) => ({
-                id: invite.id,
-                email: invite.email,
-                role: invite.role,
-                createdAt: invite.createdAt,
-            })),
+            invites: (membership.role === "OWNER" || membership.role === "ADMIN")
+                ? membership.team.invites.map((invite) => ({
+                    id: invite.id,
+                    email: invite.email,
+                    role: invite.role,
+                    createdAt: invite.createdAt,
+                }))
+                : [],
             joinedAt: membership.joinedAt,
             slug: membership.team.slug,
         }));
