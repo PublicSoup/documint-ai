@@ -27,7 +27,7 @@ export async function GET(
 
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
         // 1. Enforce Rate Limit
@@ -36,14 +36,14 @@ export async function GET(
         // 2. Validate Params
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return errorResponse(ApiErrors.badRequest("Invalid team ID"));
+            throw ApiErrors.badRequest("Invalid team ID", parsedParams.error.flatten());
         }
         const { teamId } = parsedParams.data;
 
         // 3. Check permissions
         const hasPermission = await checkTeamPermission(session.user.id, teamId, "view");
         if (!hasPermission) {
-            return errorResponse(ApiErrors.forbidden());
+            throw ApiErrors.forbidden();
         }
 
         // 4. Fetch all documented files for this team
