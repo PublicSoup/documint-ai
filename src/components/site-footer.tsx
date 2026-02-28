@@ -56,36 +56,48 @@ export function SiteFooter() {
                         <h4 className="text-white font-semibold mb-4">Product</h4>
                         <ul className="space-y-2">
                             <li>
-                                <Link
+                                <TrackedLink
                                     href="/dashboard"
+                                    eventName="landing_secondary_cta_click"
+                                    location="site_footer_product_dashboard"
+                                    variant="control"
                                     className="text-gray-400 hover:text-white transition-colors"
                                 >
                                     Dashboard
-                                </Link>
+                                </TrackedLink>
                             </li>
                             <li>
-                                <Link
+                                <TrackedLink
                                     href="/dashboard/analytics"
+                                    eventName="landing_secondary_cta_click"
+                                    location="site_footer_product_analytics"
+                                    variant="control"
                                     className="text-gray-400 hover:text-white transition-colors"
                                 >
                                     Analytics
-                                </Link>
+                                </TrackedLink>
                             </li>
                             <li>
-                                <Link
+                                <TrackedLink
                                     href="/dashboard/billing"
+                                    eventName="landing_secondary_cta_click"
+                                    location="site_footer_product_billing"
+                                    variant="control"
                                     className="text-gray-400 hover:text-white transition-colors"
                                 >
                                     Billing
-                                </Link>
+                                </TrackedLink>
                             </li>
                             <li>
-                                <Link
+                                <TrackedLink
                                     href="/dashboard/settings"
+                                    eventName="landing_secondary_cta_click"
+                                    location="site_footer_product_settings"
+                                    variant="control"
                                     className="text-gray-400 hover:text-white transition-colors"
                                 >
                                     Settings
-                                </Link>
+                                </TrackedLink>
                             </li>
                         </ul>
                     </div>
