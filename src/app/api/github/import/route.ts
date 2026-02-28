@@ -39,6 +39,24 @@ function iteratorToStream(iterator: AsyncGenerator<Uint8Array, void, unknown>) {
 
 const encoder = new TextEncoder();
 
+interface GitHubRepoContentItem {
+    type: "file" | "dir";
+    name: string;
+    path: string;
+    download_url: string | null;
+}
+
+function isSupportedCodeFile(
+    file: GitHubRepoContentItem,
+): file is GitHubRepoContentItem & { download_url: string } {
+    if (file.type !== "file" || !file.download_url) {
+        return false;
+    }
+
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    return Boolean(ext && SUPPORTED_EXTENSIONS.includes(ext));
+}
+
 /**
  * POST /api/github/import
  * Imports multiple files from a GitHub repository, analyzes them, and stores results.
@@ -48,7 +66,7 @@ export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
         // 1. Enforce Rate Limit
@@ -58,7 +76,9 @@ export async function POST(req: NextRequest) {
         const { owner, repo, branch, path, teamId } = body;
 
         const userId = await resolveUserId(session);
-        if (!userId) return errorResponse(ApiErrors.notFound("User"));
+        if (!userId) {
+            throw ApiErrors.notFound("User");
+        }
 
         // Fetch GitHub Connection and decrypt token
         const connection = await db.gitHubConnection.findUnique({
@@ -66,15 +86,14 @@ export async function POST(req: NextRequest) {
         });
 
         if (!connection || !connection.accessToken) {
-            return errorResponse(ApiErrors.badRequest("GitHub account not connected."));
+            throw ApiErrors.badRequest("GitHub account not connected.");
         }
 
         let decryptedToken: string;
         try {
             decryptedToken = decrypt(connection.accessToken);
-        } catch (e) {
-            console.error("Token decryption failed:", e);
-            return errorResponse(ApiErrors.internalError("Failed to access GitHub credentials."));
+        } catch {
+            throw ApiErrors.internalError("Failed to access GitHub credentials.");
         }
 
         const headers: HeadersInit = {
@@ -87,7 +106,7 @@ export async function POST(req: NextRequest) {
             const { checkTeamPermission } = await import("@/lib/permissions");
             const hasPermission = await checkTeamPermission(userId, teamId, "edit");
             if (!hasPermission) {
-                return errorResponse(ApiErrors.forbidden("You do not have permission to import to this team."));
+                throw ApiErrors.forbidden("You do not have permission to import to this team.");
             }
         }
 
@@ -108,15 +127,11 @@ export async function POST(req: NextRequest) {
                     return;
                 }
 
-                const contents = await contentsRes.json();
+                const contents = (await contentsRes.json()) as GitHubRepoContentItem | GitHubRepoContentItem[];
                 const files = Array.isArray(contents) ? contents : [contents];
 
                 // Filter code files
-                const codeFiles = files.filter((file: any) => {
-                    if (file.type !== "file") return false;
-                    const ext = file.name.split(".").pop()?.toLowerCase();
-                    return ext && SUPPORTED_EXTENSIONS.includes(ext);
-                });
+                const codeFiles = files.filter(isSupportedCodeFile);
 
                 yield encoder.encode(JSON.stringify({
                     status: "found_files",
@@ -159,15 +174,17 @@ export async function POST(req: NextRequest) {
                         let entities: CodeEntity[] = [];
                         try {
                             entities = await parseCode(content, extension);
-                        } catch (e) {
-                            console.warn(`Parsing failed for ${file.name}`);
+                        } catch {
+                            // Keep import flow resilient if parsing fails.
                         }
 
                         let analysisResult = null;
                         try {
                             const { analyzeCodeQuality } = await import("../../../../lib/parsing/code-quality");
                             analysisResult = analyzeCodeQuality(content, entities, extension);
-                        } catch (e) { }
+                        } catch {
+                            // Non-blocking analysis failure.
+                        }
 
                         let styleGuide = "";
                         if (teamId) {
@@ -197,7 +214,9 @@ export async function POST(req: NextRequest) {
                                     },
                                     quality: analysisResult
                                 }),
-                                metadata: analysisResult as any
+                                metadata: analysisResult
+                                    ? (analysisResult as unknown as Prisma.InputJsonValue)
+                                    : Prisma.JsonNull,
                             },
                         });
 
@@ -208,8 +227,7 @@ export async function POST(req: NextRequest) {
                             imported: successfulImports
                         }) + "\n");
 
-                    } catch (err) {
-                        console.error(`Failed to process ${file.name}:`, err);
+                    } catch {
                         yield encoder.encode(JSON.stringify({ status: "file_error", file: file.name, error: "Failed to process" }) + "\n");
                     }
                 }
@@ -231,12 +249,13 @@ export async function POST(req: NextRequest) {
                             teamId: teamId || null
                         }
                     });
-                } catch (e) {}
+                } catch {
+                    // Non-blocking
+                }
 
                 yield encoder.encode(JSON.stringify({ status: "complete", imported: successfulImports, total: limit }) + "\n");
 
-            } catch (error) {
-                console.error("GitHub import stream error:", error);
+            } catch {
                 yield encoder.encode(JSON.stringify({ error: "Internal server error during import" }) + "\n");
             }
         }
