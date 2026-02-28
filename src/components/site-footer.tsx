@@ -107,36 +107,48 @@ export function SiteFooter() {
                         <h4 className="text-white font-semibold mb-4">Legal</h4>
                         <ul className="space-y-2">
                             <li>
-                                <Link
+                                <TrackedLink
                                     href="/legal/terms"
+                                    eventName="landing_secondary_cta_click"
+                                    location="site_footer_legal_terms"
+                                    variant="control"
                                     className="text-gray-400 hover:text-white transition-colors"
                                 >
                                     Terms of Service
-                                </Link>
+                                </TrackedLink>
                             </li>
                             <li>
-                                <Link
+                                <TrackedLink
                                     href="/legal/privacy"
+                                    eventName="landing_secondary_cta_click"
+                                    location="site_footer_legal_privacy"
+                                    variant="control"
                                     className="text-gray-400 hover:text-white transition-colors"
                                 >
                                     Privacy Policy
-                                </Link>
+                                </TrackedLink>
                             </li>
                             <li>
-                                <Link
+                                <TrackedLink
                                     href="/legal/security"
+                                    eventName="landing_secondary_cta_click"
+                                    location="site_footer_legal_security"
+                                    variant="control"
                                     className="text-gray-400 hover:text-white transition-colors"
                                 >
                                     Security
-                                </Link>
+                                </TrackedLink>
                             </li>
                             <li>
-                                <Link
+                                <TrackedLink
                                     href="/legal/cookies"
+                                    eventName="landing_secondary_cta_click"
+                                    location="site_footer_legal_cookies"
+                                    variant="control"
                                     className="text-gray-400 hover:text-white transition-colors"
                                 >
                                     Cookie Policy
-                                </Link>
+                                </TrackedLink>
                             </li>
                         </ul>
                     </div>
