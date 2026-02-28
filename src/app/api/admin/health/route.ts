@@ -261,6 +261,21 @@ export async function GET() {
             return generatedAtEpochMs - checkedAtMs > COMPONENT_STALE_THRESHOLD_MS ? count + 1 : count;
         }, 0);
 
+        const healthSignalDigest = createHash("sha256")
+            .update([
+                severity,
+                healthSummaryCode,
+                incidentClass,
+                degradedComponents.join(","),
+                criticalComponents.join(","),
+                uniqueFailures.join(","),
+                responseLatencyBucket,
+                String(staleComponentCount),
+                String(escalationSignalCount),
+            ].join("|"))
+            .digest("hex")
+            .slice(0, 16);
+
         const opsReadinessScore = Math.max(
             0,
             100 -
@@ -306,6 +321,7 @@ export async function GET() {
             opsEscalationFingerprint: true,
             escalationSignalCount: true,
             escalationSignalNamesCsv: true,
+            healthSignalDigest: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -348,6 +364,7 @@ export async function GET() {
                 opsEscalationFingerprint,
                 escalationSignalCount,
                 escalationSignalNamesCsv: escalationSignalNames.join(","),
+                healthSignalDigest,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
