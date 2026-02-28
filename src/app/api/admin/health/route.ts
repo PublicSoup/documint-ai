@@ -423,6 +423,13 @@ export async function GET() {
                     ? "missing-policy-version-in-bundle"
                     : "contract-mode-not-strict";
 
+        const volatilityPolicyCompatibilityAction =
+            volatilityPolicyCompatibilityReason === "compatible"
+                ? "no-action"
+                : volatilityPolicyCompatibilityReason === "missing-policy-version-in-bundle"
+                    ? "verify-bundle-config"
+                    : "update-monitor-policy";
+
         const schemaCapabilities = {
             degradedComponents: true,
             componentSeverity: true,
@@ -471,6 +478,7 @@ export async function GET() {
             volatilityAlertPolicyBundleId: true,
             volatilityPolicyCompatible: true,
             volatilityPolicyCompatibilityReason: true,
+            volatilityPolicyCompatibilityAction: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -538,6 +546,7 @@ export async function GET() {
                 volatilityAlertPolicyBundleId,
                 volatilityPolicyCompatible,
                 volatilityPolicyCompatibilityReason,
+                volatilityPolicyCompatibilityAction,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
