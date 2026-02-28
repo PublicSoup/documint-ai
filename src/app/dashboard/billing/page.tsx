@@ -67,6 +67,11 @@ export default function BillingHub() {
     // Team State
     const [teams, setTeams] = useState<TeamSummary[]>([]);
     const [loadingTeams, setLoadingTeams] = useState(false);
+    const [invitingTeamId, setInvitingTeamId] = useState<string | null>(null);
+    const [inviteEmail, setInviteEmail] = useState("");
+    const [sendingInvite, setSendingInvite] = useState(false);
+    const [inviteError, setInviteError] = useState<string | null>(null);
+    const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
     const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null);
     const [teamMembers, setTeamMembers] = useState<Record<string, TeamMember[]>>({});
 
@@ -222,6 +227,39 @@ export default function BillingHub() {
             console.error("Failed to fetch teams", error);
         } finally {
             setLoadingTeams(false);
+        }
+    };
+
+    const handleInvite = async (teamId: string) => {
+        const normalizedEmail = inviteEmail.trim().toLowerCase();
+        if (!normalizedEmail) {
+            setInviteError("Please enter an email address.");
+            return;
+        }
+
+        setSendingInvite(true);
+        setInviteError(null);
+
+        try {
+            const res = await fetch("/api/teams/invite", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email: normalizedEmail, teamId }),
+            });
+
+            const data = await res.json().catch(() => ({}));
+            if (res.ok) {
+                setInviteSuccess(`Invite sent to ${normalizedEmail}`);
+                setInviteEmail("");
+                setInvitingTeamId(null);
+                setTimeout(() => setInviteSuccess(null), 3000);
+            } else {
+                setInviteError(data.error || "Failed to send invite.");
+            }
+        } catch {
+            setInviteError("Failed to send invite.");
+        } finally {
+            setSendingInvite(false);
         }
     };
 
@@ -522,15 +560,39 @@ export default function BillingHub() {
                                                     </div>
                                                     <div className="flex gap-2">
                                                         <Button variant="ghost" size="sm" onClick={() => fetchMembers(team.id)}>View</Button>
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                            onClick={() => toast("Team invite workflow will be re-enabled in a dedicated hardening batch.", "success")}
-                                                        >
+                                                        <Button variant="outline" size="sm" onClick={() => {
+                                                            setInvitingTeamId((current) => (current === team.id ? null : team.id));
+                                                            setInviteError(null);
+                                                        }}>
                                                             Invite
                                                         </Button>
                                                     </div>
                                                 </div>
+
+                                                {invitingTeamId === team.id && (
+                                                    <div className="mb-4 p-4 rounded-xl border border-white/10 bg-black/20 space-y-3">
+                                                        <label className="text-xs uppercase tracking-wide text-white/50">Invite by email</label>
+                                                        <div className="flex gap-2">
+                                                            <input
+                                                                type="email"
+                                                                value={inviteEmail}
+                                                                onChange={(event) => setInviteEmail(event.target.value)}
+                                                                placeholder="teammate@company.com"
+                                                                className="glass-input p-2 rounded-lg w-full outline-none"
+                                                            />
+                                                            <Button
+                                                                size="sm"
+                                                                isLoading={sendingInvite}
+                                                                onClick={() => handleInvite(team.id)}
+                                                            >
+                                                                Send
+                                                            </Button>
+                                                        </div>
+                                                        {inviteError && <p className="text-xs text-red-400">{inviteError}</p>}
+                                                    </div>
+                                                )}
+
+                                                {inviteSuccess && <p className="text-xs text-emerald-400 mb-3">{inviteSuccess}</p>}
                                             </div>
                                         ))}
                                     </div>
