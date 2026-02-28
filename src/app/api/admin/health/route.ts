@@ -210,7 +210,7 @@ export async function GET() {
                   .slice(0, 16)
             : "none";
 
-        const uniqueFailures = [...new Set(checkFailures)];
+        const uniqueFailures = [...new Set(checkFailures)].sort();
 
         const recommendedActions = [
             uniqueFailures.includes("database") ? "Verify database connectivity and Prisma migrations, then rerun admin health checks." : null,
