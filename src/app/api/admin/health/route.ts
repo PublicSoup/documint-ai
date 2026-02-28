@@ -120,10 +120,12 @@ export async function GET() {
             !redisConfigured ? "rateLimit" : null,
         ].filter((value): value is string => Boolean(value)).sort();
 
+        const degradedComponentCount = degradedComponents.length;
+
         const severity: "healthy" | "degraded" | "critical" =
             !databaseHealthy || !auditChainValid
                 ? "critical"
-                : degradedComponents.length > 0
+                : degradedComponentCount > 0
                     ? "degraded"
                     : "healthy";
 
@@ -140,7 +142,7 @@ export async function GET() {
             !auditChainValid ? "CRITICAL_AUDIT" :
             degradedComponents.includes("webContainer") ? "DEGRADED_WEB" :
             degradedComponents.includes("rateLimit") ? "DEGRADED_RATELIMIT" :
-            degradedComponents.length > 0 ? "DEGRADED_OTHER" :
+            degradedComponentCount > 0 ? "DEGRADED_OTHER" :
             "OK";
 
         const alertSuppressionHint =
@@ -245,6 +247,7 @@ export async function GET() {
             dataSourceStatuses: true,
             componentLastCheckedAt: true,
             staleComponentCount: true,
+            degradedComponentCount: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -282,6 +285,7 @@ export async function GET() {
                 diagnosticDataFreshnessSec,
                 checkFailures: uniqueFailures,
                 degradedComponents,
+                degradedComponentCount,
                 recommendedActions,
                 runbookUrls: [...new Set(runbookUrls)],
                 dataSourceStatuses,
