@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
     CreditCard, Zap, CheckCircle2, Loader2, BarChart3,
     User, Key, Bell, Check, Copy, Blocks, Github,
