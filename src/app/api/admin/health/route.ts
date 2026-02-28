@@ -121,6 +121,7 @@ export async function GET() {
         ].filter((value): value is string => Boolean(value)).sort();
 
         const degradedComponentCount = degradedComponents.length;
+        const criticalComponentCount = Number(!databaseHealthy) + Number(!auditChainValid);
 
         const severity: "healthy" | "degraded" | "critical" =
             !databaseHealthy || !auditChainValid
@@ -248,6 +249,7 @@ export async function GET() {
             componentLastCheckedAt: true,
             staleComponentCount: true,
             degradedComponentCount: true,
+            criticalComponentCount: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -286,6 +288,7 @@ export async function GET() {
                 checkFailures: uniqueFailures,
                 degradedComponents,
                 degradedComponentCount,
+                criticalComponentCount,
                 recommendedActions,
                 runbookUrls: [...new Set(runbookUrls)],
                 dataSourceStatuses,
