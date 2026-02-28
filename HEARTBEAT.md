@@ -12,7 +12,12 @@
 
 3. Product execution
    - ensure feature-impact notes exist for newly added features under `docs/feature-analysis/`
+   - enforce milestone progress against `docs/ENTERPRISE_READINESS_PLAN.md`
    - surface highest-priority next batch if no active run is in progress
+
+4. Batch contract enforcement
+   - confirm each autonomous batch reports: changed files, verification, risks, next plan
+   - if a batch misses contract fields, flag and require correction in next batch
 
 ## Quiet Rule
 
