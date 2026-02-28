@@ -33,6 +33,14 @@ export async function GET() {
 
         const checkFailures: string[] = [];
 
+        const componentLastCheckedAt = {
+            database: null as string | null,
+            ai: null as string | null,
+            auditTrail: null as string | null,
+            rateLimit: null as string | null,
+            webContainer: null as string | null,
+        };
+
         // 1. Database Check
         let databaseHealthy = false;
         let userCount = 0;
@@ -41,10 +49,13 @@ export async function GET() {
             databaseHealthy = true;
         } catch {
             checkFailures.push("database");
+        } finally {
+            componentLastCheckedAt.database = new Date().toISOString();
         }
 
         // 2. AI Check
         const aiConfigured = !!process.env.GOOGLE_API_KEY;
+        componentLastCheckedAt.ai = new Date().toISOString();
 
         // 3. Audit Integrity (Sample check of last 5)
         let auditChainValid = true;
@@ -68,10 +79,13 @@ export async function GET() {
             }
         } catch {
             checkFailures.push("auditTrail");
+        } finally {
+            componentLastCheckedAt.auditTrail = new Date().toISOString();
         }
 
         // 4. Rate Limit Check (Redis)
         const redisConfigured = !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+        componentLastCheckedAt.rateLimit = new Date().toISOString();
 
         // 5. WebContainer Runtime Health Snapshot
         const WEB_CONTAINER_RECOVERY_DEGRADED_THRESHOLD = 5;
@@ -95,6 +109,8 @@ export async function GET() {
             }
         } catch {
             checkFailures.push("webContainer");
+        } finally {
+            componentLastCheckedAt.webContainer = new Date().toISOString();
         }
 
         const degradedComponents = [
@@ -198,6 +214,7 @@ export async function GET() {
             responseLatencyBucket: true,
             diagnosticDataFreshnessSec: true,
             dataSourceStatuses: true,
+            componentLastCheckedAt: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -234,6 +251,7 @@ export async function GET() {
                 recommendedActions,
                 runbookUrls: [...new Set(runbookUrls)],
                 dataSourceStatuses,
+                componentLastCheckedAt,
                 components: {
                     database: {
                         status: databaseHealthy ? "online" : "offline",
