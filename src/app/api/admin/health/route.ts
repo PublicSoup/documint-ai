@@ -150,6 +150,11 @@ export async function GET() {
         const generatedAtEpochMs = Date.now();
         const generatedAtIso = new Date(generatedAtEpochMs).toISOString();
 
+        const responseLatencyBucket =
+            generatedAtEpochMs - startedAt >= 500 ? "slow" :
+            generatedAtEpochMs - startedAt >= 200 ? "elevated" :
+            "normal";
+
         const schemaCapabilities = {
             degradedComponents: true,
             componentSeverity: true,
@@ -159,6 +164,7 @@ export async function GET() {
             webContainerThresholdSignals: true,
             responseTimingEpochMs: true,
             responseGeneratedBy: true,
+            responseLatencyBucket: true,
         } as const;
 
         const responseGeneratedBy = {
@@ -182,6 +188,7 @@ export async function GET() {
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
                 checkDurationMs: generatedAtEpochMs - startedAt,
+                responseLatencyBucket,
                 checkFailures: uniqueFailures,
                 degradedComponents,
                 recommendedActions,
