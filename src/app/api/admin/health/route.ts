@@ -119,6 +119,14 @@ export async function GET() {
             degradedComponents.length > 0 ? "DEGRADED_OTHER" :
             "OK";
 
+        const summaryCodePriority =
+            healthSummaryCode === "CRITICAL_DB" ? 100 :
+            healthSummaryCode === "CRITICAL_AUDIT" ? 95 :
+            healthSummaryCode === "DEGRADED_WEB" ? 70 :
+            healthSummaryCode === "DEGRADED_RATELIMIT" ? 60 :
+            healthSummaryCode === "DEGRADED_OTHER" ? 50 :
+            0;
+
         const uniqueFailures = [...new Set(checkFailures)];
 
         const recommendedActions = [
@@ -160,6 +168,7 @@ export async function GET() {
                 status: severity === "healthy" ? "healthy" : "degraded",
                 severity,
                 healthSummaryCode,
+                summaryCodePriority,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
