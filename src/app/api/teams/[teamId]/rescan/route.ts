@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
@@ -6,12 +7,37 @@ import { db } from "@/lib/db";
 import { checkTeamPermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { sendNotification } from "@/lib/notifications";
+import { ApiErrors, errorResponse } from "@/lib/api-utils";
 
-const paramsSchema = z.object({
-    teamId: z.string().trim().min(1).max(100),
-}).strict();
+const paramsSchema = z
+    .object({
+        teamId: z.string().trim().min(1).max(100),
+    })
+    .strict();
 
 const DRIFT_BUFFER_MS = 5 * 60 * 1000;
+
+function hasValidSystemToken(request: NextRequest): boolean {
+    const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret) {
+        return false;
+    }
+
+    const authHeader = request.headers.get("authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+        return false;
+    }
+
+    const providedToken = authHeader.slice("Bearer ".length);
+    const expectedBuffer = Buffer.from(cronSecret);
+    const providedBuffer = Buffer.from(providedToken);
+
+    if (providedBuffer.length !== expectedBuffer.length) {
+        return false;
+    }
+
+    return timingSafeEqual(providedBuffer, expectedBuffer);
+}
 
 /**
  * POST /api/teams/[teamId]/rescan
@@ -24,13 +50,12 @@ export async function POST(
     try {
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid team ID" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid team ID", parsedParams.error.flatten());
         }
 
         const { teamId } = parsedParams.data;
 
-        const authHeader = request.headers.get("authorization");
-        const isSystemAction = authHeader === `Bearer ${process.env.CRON_SECRET}`;
+        const isSystemAction = hasValidSystemToken(request);
 
         let performerId: string | null = null;
 
@@ -39,14 +64,14 @@ export async function POST(
         } else {
             const session = await getServerSession(authOptions);
             if (!session?.user?.id) {
-                return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+                throw ApiErrors.unauthorized();
             }
 
             performerId = session.user.id;
 
             const hasPermission = await checkTeamPermission(performerId, teamId, "manage");
             if (!hasPermission) {
-                return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 });
+                throw ApiErrors.forbidden("Admin access required");
             }
 
             await enforceRateLimit(performerId, "api");
@@ -58,7 +83,7 @@ export async function POST(
         });
 
         if (!team) {
-            return NextResponse.json({ error: "Team not found" }, { status: 404 });
+            throw ApiErrors.notFound("Team");
         }
 
         const files = await db.file.findMany({
@@ -134,7 +159,6 @@ export async function POST(
             },
         });
     } catch (error) {
-        console.error("[TeamRescan_API] Error:", error);
-        return NextResponse.json({ error: "Failed to perform project rescan" }, { status: 500 });
+        return errorResponse(error);
     }
 }
