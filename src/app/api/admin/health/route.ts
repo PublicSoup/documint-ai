@@ -100,7 +100,7 @@ export async function GET() {
             !auditChainValid ? "auditTrail" : null,
             webContainerDegraded ? "webContainer" : null,
             !redisConfigured ? "rateLimit" : null,
-        ].filter((value): value is string => Boolean(value));
+        ].filter((value): value is string => Boolean(value)).sort();
 
         const severity: "healthy" | "degraded" | "critical" =
             !databaseHealthy || !auditChainValid
