@@ -7,6 +7,16 @@ const paramsSchema = z.object({
     teamId: z.string().trim().min(1).max(100),
 }).strict();
 
+function textResponse(message: string, status: number): NextResponse {
+    return new NextResponse(message, {
+        status,
+        headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "no-store",
+        },
+    });
+}
+
 function getCoverageColor(coverage: number): string {
     if (coverage >= 90) return "#10b981";
     if (coverage >= 70) return "#3b82f6";
@@ -57,7 +67,7 @@ export async function GET(
 
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return new NextResponse("Invalid team ID", { status: 400 });
+            return textResponse("Invalid team ID", 400);
         }
 
         const { teamId } = parsedParams.data;
@@ -68,7 +78,7 @@ export async function GET(
         });
 
         if (!team) {
-            return new NextResponse("Team Not Found", { status: 404 });
+            return textResponse("Team Not Found", 404);
         }
 
         const [totalFiles, documentedFiles] = await Promise.all([
@@ -94,8 +104,7 @@ export async function GET(
                 "Cache-Control": "public, max-age=3600, s-maxage=3600, stale-while-revalidate=86400",
             },
         });
-    } catch (error) {
-        console.error("[Badge_API] Error:", error);
-        return new NextResponse("Internal Error", { status: 500 });
+    } catch {
+        return textResponse("Internal Error", 500);
     }
 }
