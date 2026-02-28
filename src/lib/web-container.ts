@@ -16,6 +16,18 @@ let bootPromise: Promise<WebContainer> | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 const trackedProcesses = new Map<string, WebContainerProcess>();
 
+const runtimeHealth = {
+    recoveryCount: 0,
+    lastRecoveryAt: null as string | null,
+    lastRecoveryReason: null as string | null,
+};
+
+function recordRecovery(reason: string): void {
+    runtimeHealth.recoveryCount += 1;
+    runtimeHealth.lastRecoveryAt = new Date().toISOString();
+    runtimeHealth.lastRecoveryReason = reason;
+}
+
 function trackProcess(processId: string, process: WebContainerProcess): void {
     trackedProcesses.set(processId, process);
 
@@ -60,6 +72,7 @@ export class WebContainerManager {
                 throw error;
             }
 
+            recordRecovery(`${operationName}: ${message || "recoverable failure"}`);
             await this.reset();
             return await withTimeout(operation(), DEFAULT_OP_TIMEOUT_MS, `${operationName} (retry)`);
         }
@@ -163,6 +176,20 @@ export class WebContainerManager {
                 trackedProcesses.delete(processId);
             }
         }
+    }
+
+    static getHealthSnapshot(): {
+        trackedProcessCount: number;
+        recoveryCount: number;
+        lastRecoveryAt: string | null;
+        lastRecoveryReason: string | null;
+    } {
+        return {
+            trackedProcessCount: trackedProcesses.size,
+            recoveryCount: runtimeHealth.recoveryCount,
+            lastRecoveryAt: runtimeHealth.lastRecoveryAt,
+            lastRecoveryReason: runtimeHealth.lastRecoveryReason,
+        };
     }
 
     static async reset(): Promise<void> {
