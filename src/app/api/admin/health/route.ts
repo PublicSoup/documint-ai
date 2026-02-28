@@ -12,6 +12,9 @@ const ADMIN_HEALTH_RESPONSE_SCHEMA_HASH = "admin-health-2026-02-27-v1";
 const ADMIN_HEALTH_CONTRACT_REVISION = 1;
 const ADMIN_HEALTH_RESPONSE_SHAPE_ID = "ah.v1.core";
 
+let previousHealthSignalDigest: string | null = null;
+let previousHealthSignalObservedAt: string | null = null;
+
 /**
  * GET /api/admin/health
  * Comprehensive system health check for administrators.
@@ -276,6 +279,13 @@ export async function GET() {
             .digest("hex")
             .slice(0, 16);
 
+        const healthSignalChanged = previousHealthSignalDigest !== healthSignalDigest;
+        const healthSignalPreviousDigest = previousHealthSignalDigest;
+        const healthSignalPreviousObservedAt = previousHealthSignalObservedAt;
+
+        previousHealthSignalDigest = healthSignalDigest;
+        previousHealthSignalObservedAt = generatedAtIso;
+
         const opsReadinessScore = Math.max(
             0,
             100 -
@@ -322,6 +332,9 @@ export async function GET() {
             escalationSignalCount: true,
             escalationSignalNamesCsv: true,
             healthSignalDigest: true,
+            healthSignalChanged: true,
+            healthSignalPreviousDigest: true,
+            healthSignalPreviousObservedAt: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -365,6 +378,9 @@ export async function GET() {
                 escalationSignalCount,
                 escalationSignalNamesCsv: escalationSignalNames.join(","),
                 healthSignalDigest,
+                healthSignalChanged,
+                healthSignalPreviousDigest,
+                healthSignalPreviousObservedAt,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
