@@ -1,36 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { Prisma } from "@prisma/client";
+import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { requireFeature } from "@/lib/feature-gate";
 import { validateAdmin } from "@/lib/admin-auth";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateQuery } from "@/lib/api-utils";
+
+const auditExportQuerySchema = z
+    .object({
+        format: z.enum(["json", "csv"]).default("json"),
+        start: z.string().datetime().optional(),
+        end: z.string().datetime().optional(),
+        action: z.string().trim().min(1).max(120).optional(),
+        userId: z.string().trim().min(1).max(100).optional(),
+    })
+    .strict();
 
 // GET: Export audit logs as CSV or JSON
 export async function GET(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
-        // Check feature access
+        await enforceRateLimit(session.user.id, "api");
+
         const gate = await requireFeature("auditLog");
         if (gate) return gate;
 
         const adminCheck = await validateAdmin();
         const isAdmin = adminCheck.authorized;
 
-        const { searchParams } = new URL(req.url);
-        const format = searchParams.get("format") || "json"; // json, csv
-        const startDate = searchParams.get("start");
-        const endDate = searchParams.get("end");
-        const action = searchParams.get("action");
-        const targetUserId = searchParams.get("userId");
+        const { format, start: startDate, end: endDate, action, userId: targetUserId } = validateQuery(
+            req.nextUrl.searchParams,
+            auditExportQuerySchema,
+        );
 
-        // Build query filters with strict ownership enforcement
         const where: Prisma.AuditLogWhereInput = {};
-        
+
         if (!isAdmin) {
             where.userId = session.user.id;
         } else if (targetUserId) {
@@ -43,20 +54,20 @@ export async function GET(req: NextRequest) {
             if (endDate) createdAt.lte = new Date(endDate);
             where.createdAt = createdAt;
         }
+
         if (action) {
             where.action = action;
         }
 
         const logs = await db.auditLog.findMany({
             where,
-            orderBy: { createdAt: 'desc' },
-            take: 5000 // Performance ceiling for synchronous export
+            orderBy: { createdAt: "desc" },
+            take: 5000,
         });
 
         if (format === "csv") {
-            // Generate CSV
             const headers = ["ID", "Action", "Entity", "EntityID", "Details", "IP", "User", "Timestamp"];
-            const rows = logs.map(log => [
+            const rows = logs.map((log) => [
                 log.id,
                 log.action,
                 log.entity,
@@ -64,34 +75,31 @@ export async function GET(req: NextRequest) {
                 JSON.stringify(log.details || {}),
                 log.ip || "",
                 log.userId || "SYSTEM",
-                log.createdAt.toISOString()
+                log.createdAt.toISOString(),
             ]);
 
             const csv = [
                 headers.join(","),
-                ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+                ...rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")),
             ].join("\n");
 
             return new NextResponse(csv, {
                 headers: {
                     "Content-Type": "text/csv",
-                    "Content-Disposition": `attachment; filename="audit-export-${new Date().toISOString().split('T')[0]}.csv"`
-                }
+                    "Content-Disposition": `attachment; filename="audit-export-${new Date().toISOString().split("T")[0]}.csv"`,
+                },
             });
         }
 
-        // JSON format
         return NextResponse.json({
             logs,
             meta: {
                 total: logs.length,
                 exportedAt: new Date().toISOString(),
-                filters: { startDate, endDate, action, targetUserId }
-            }
+                filters: { startDate, endDate, action, targetUserId },
+            },
         });
-
     } catch (error) {
-        console.error("[AuditExport_Admin_API] Error:", error);
-        return NextResponse.json({ error: "Export failed" }, { status: 500 });
+        return errorResponse(error);
     }
 }
