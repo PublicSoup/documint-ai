@@ -6,6 +6,7 @@ import { Prisma } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse } from "@/lib/api-utils";
 
 const jsonValueSchema: z.ZodType<Prisma.JsonValue> = z.lazy(() =>
     z.union([
@@ -33,6 +34,12 @@ const userUpdateSchema = z.object({
         path: ["currentPassword"],
     });
 
+const DISALLOWED_SETTINGS_KEYS = new Set([
+    "apiKey",
+    "apiKeyLabel",
+    "apiKeyCreatedAt",
+]);
+
 function toSettingsObject(value: Prisma.JsonValue | null | undefined): Prisma.JsonObject {
     if (value && typeof value === "object" && !Array.isArray(value)) {
         return value as Prisma.JsonObject;
@@ -41,20 +48,31 @@ function toSettingsObject(value: Prisma.JsonValue | null | undefined): Prisma.Js
 }
 
 export async function PATCH(request: NextRequest) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     try {
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            throw ApiErrors.unauthorized();
+        }
+
         await enforceRateLimit(session.user.id, "api");
 
-        const parsed = userUpdateSchema.safeParse(await request.json());
+        let rawBody: unknown;
+        try {
+            rawBody = await request.json();
+        } catch {
+            throw ApiErrors.badRequest("Invalid JSON body");
+        }
+
+        const parsed = userUpdateSchema.safeParse(rawBody);
         if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid request payload" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid request payload", parsed.error.flatten());
         }
 
         const { name, currentPassword, newPassword, settings } = parsed.data;
+
+        if (newPassword) {
+            await enforceRateLimit(session.user.id, "security");
+        }
         const updateData: Prisma.UserUpdateInput = {};
 
         if (name !== undefined) {
@@ -62,6 +80,11 @@ export async function PATCH(request: NextRequest) {
         }
 
         if (settings !== undefined) {
+            const blockedKey = Object.keys(settings).find((key) => DISALLOWED_SETTINGS_KEYS.has(key));
+            if (blockedKey) {
+                throw ApiErrors.forbidden(`Updating settings key '${blockedKey}' is not allowed via this endpoint`);
+            }
+
             const user = await db.user.findUnique({
                 where: { id: session.user.id },
                 select: { settings: true },
@@ -83,32 +106,23 @@ export async function PATCH(request: NextRequest) {
             });
 
             if (!user?.password) {
-                return NextResponse.json(
-                    { error: "Cannot change password for OAuth accounts" },
-                    { status: 400 },
-                );
+                throw ApiErrors.badRequest("Cannot change password for OAuth accounts");
             }
 
             if (!currentPassword) {
-                return NextResponse.json(
-                    { error: "Current password is required to set a new password" },
-                    { status: 400 },
-                );
+                throw ApiErrors.badRequest("Current password is required to set a new password");
             }
 
             const isValid = await compare(currentPassword, user.password);
             if (!isValid) {
-                return NextResponse.json(
-                    { error: "Current password is incorrect" },
-                    { status: 403 },
-                );
+                throw ApiErrors.forbidden("Current password is incorrect");
             }
 
             updateData.password = await hash(newPassword, 12);
         }
 
         if (Object.keys(updateData).length === 0) {
-            return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+            throw ApiErrors.badRequest("No fields to update");
         }
 
         const updatedUser = await db.user.update({
@@ -155,7 +169,6 @@ export async function PATCH(request: NextRequest) {
 
         return NextResponse.json({ success: true, user: updatedUser });
     } catch (error) {
-        console.error("Failed to update user:", error);
-        return NextResponse.json({ error: "Failed to update profile" }, { status: 500 });
+        return errorResponse(error);
     }
 }
