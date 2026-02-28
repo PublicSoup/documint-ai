@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { TrackedLink } from '@/components/marketing/tracked-link';
 
 export function SiteFooter() {
