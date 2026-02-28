@@ -25,8 +25,9 @@ export async function proxy(request: NextRequest) {
         const isDbAdmin = token?.role === "ADMIN";
 
         if (!token || (!isEnvAdmin && !isDbAdmin)) {
-            console.warn(`Unauthorized access attempt to ${request.nextUrl.pathname} from ${ip}`);
-            return NextResponse.redirect(new URL("/", request.url));
+            const redirectResponse = NextResponse.redirect(new URL("/", request.url));
+            redirectResponse.headers.set("x-documint-security-event", "admin-authz-denied");
+            return redirectResponse;
         }
     }
 
@@ -35,6 +36,10 @@ export async function proxy(request: NextRequest) {
     response.headers.set("X-Content-Type-Options", "nosniff");
     response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
     response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+    response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
+    response.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+    response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
+    response.headers.set("Origin-Agent-Cluster", "?1");
 
     const csp = `
     default-src 'self';
@@ -56,5 +61,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-    matcher: ["/((?!_next/static|_next/image|favicon.ico|public/).*)"],
+    matcher: ["/((?!api|_next/static|_next/image|favicon.ico|public/).*)"],
 };
