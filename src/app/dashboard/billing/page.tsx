@@ -381,13 +381,28 @@ export default function BillingHub() {
                             <div>
                                 <h2 className="text-xl font-bold text-white mb-6">Available Plans</h2>
                                 {trialIntentActive && (
-                                    <div className="mb-5 rounded-xl border border-primary/25 bg-primary/10 p-4 flex items-center justify-between gap-3">
+                                    <div className="mb-5 rounded-xl border border-primary/25 bg-primary/10 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                                         <p className="text-sm text-white/80">
                                             Trial intent detected — choose your best-fit plan to continue guided activation.
                                         </p>
-                                        {focusedPlanId && (
-                                            <span className="text-xs font-black uppercase tracking-widest text-primary">Recommended: {focusedPlanId}</span>
-                                        )}
+                                        <div className="flex items-center gap-3">
+                                            {focusedPlanId && (
+                                                <span className="text-xs font-black uppercase tracking-widest text-primary">Recommended: {focusedPlanId}</span>
+                                            )}
+                                            {focusedPlanId && (
+                                                <Button
+                                                    size="sm"
+                                                    className="bg-primary hover:bg-primary/90 text-white"
+                                                    isLoading={upgrading === focusedPlanId}
+                                                    onClick={() => handleUpgrade(focusedPlanId)}
+                                                    disabled={usage?.planId === focusedPlanId}
+                                                >
+                                                    {usage?.planId === focusedPlanId
+                                                        ? "Already Active"
+                                                        : `Start ${focusedPlanId.charAt(0).toUpperCase()}${focusedPlanId.slice(1)} Trial`}
+                                                </Button>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
