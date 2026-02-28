@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { TrackedLink } from "@/components/marketing/tracked-link";
 
 export default function SupportPage() {
   return (
@@ -13,12 +13,29 @@ export default function SupportPage() {
           </p>
           <p>
             For enterprise onboarding and security reviews, visit our
-            <Link href="/security" className="text-primary hover:text-primary/80"> security overview</Link>
-            {" "}or contact the team at support.
+            <TrackedLink
+              href="/security"
+              eventName="landing_secondary_cta_click"
+              location="support_page_security_overview"
+              variant="control"
+              className="text-primary hover:text-primary/80"
+            >
+              {" "}security overview
+            </TrackedLink>
+            {" "}or contact the team at
+            <a className="text-primary hover:text-primary/80" href="mailto:support@documint.ai"> support@documint.ai</a>.
           </p>
         </div>
         <div className="mt-10">
-          <Link href="/docs" className="text-primary hover:text-primary/80">Browse documentation →</Link>
+          <TrackedLink
+            href="/docs"
+            eventName="landing_secondary_cta_click"
+            location="support_page_docs"
+            variant="control"
+            className="text-primary hover:text-primary/80"
+          >
+            Browse documentation →
+          </TrackedLink>
         </div>
       </div>
     </main>
