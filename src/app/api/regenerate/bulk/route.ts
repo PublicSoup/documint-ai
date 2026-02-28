@@ -10,9 +10,11 @@ import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
 
-const bulkRegenerateSchema = z.object({
-    fileIds: z.array(z.string().min(1)).min(1).max(100).optional(),
-}).strict();
+const bulkRegenerateSchema = z
+    .object({
+        fileIds: z.array(z.string().trim().min(1).max(100)).min(1).max(100).optional(),
+    })
+    .strict();
 
 interface RegenerateResult {
     fileId: string;
@@ -43,11 +45,12 @@ export async function POST(req: NextRequest) {
         }
 
         const { fileIds } = await validateBody(req, bulkRegenerateSchema);
+        const normalizedFileIds = fileIds ? Array.from(new Set(fileIds.map((id) => id.trim()))) : undefined;
 
         // 3. Fetch files with permission-aware filtering
         const files = await db.file.findMany({
             where: {
-                ...(fileIds ? { id: { in: fileIds } } : {}),
+                ...(normalizedFileIds ? { id: { in: normalizedFileIds } } : {}),
                 OR: [
                     { userId: session.user.id },
                     { team: { members: { some: { userId: session.user.id } } } },
@@ -144,8 +147,7 @@ export async function POST(req: NextRequest) {
                 });
 
                 results.push({ fileId: file.id, name: file.name, success: true });
-            } catch (error) {
-                console.error(`[BulkRegenerate] Failed to regenerate ${file.name}:`, error);
+            } catch {
                 results.push({
                     fileId: file.id,
                     name: file.name,
@@ -166,7 +168,7 @@ export async function POST(req: NextRequest) {
                 entity: "Documentation",
                 entityId: session.user.id,
                 details: {
-                    requested: fileIds?.length || "all",
+                    requested: normalizedFileIds?.length || "all",
                     processed: files.length,
                     success: successCount,
                     failed: files.length - successCount,
