@@ -95,18 +95,28 @@ export async function GET() {
             checkFailures.push("webContainer");
         }
 
+        const degradedComponents = [
+            !databaseHealthy ? "database" : null,
+            !auditChainValid ? "auditTrail" : null,
+            webContainerDegraded ? "webContainer" : null,
+            !redisConfigured ? "rateLimit" : null,
+        ].filter((value): value is string => Boolean(value));
+
+        const severity: "healthy" | "degraded" | "critical" =
+            !databaseHealthy || !auditChainValid
+                ? "critical"
+                : degradedComponents.length > 0
+                    ? "degraded"
+                    : "healthy";
+
         return NextResponse.json(
             {
-                status: databaseHealthy && auditChainValid && !webContainerDegraded ? "healthy" : "degraded",
+                status: severity === "healthy" ? "healthy" : "degraded",
+                severity,
                 timestamp: new Date().toISOString(),
                 checkDurationMs: Date.now() - startedAt,
                 checkFailures: [...new Set(checkFailures)],
-                degradedComponents: [
-                    !databaseHealthy ? "database" : null,
-                    !auditChainValid ? "auditTrail" : null,
-                    webContainerDegraded ? "webContainer" : null,
-                    !redisConfigured ? "rateLimit" : null,
-                ].filter((value): value is string => Boolean(value)),
+                degradedComponents,
                 components: {
                     database: {
                         status: databaseHealthy ? "online" : "offline",
