@@ -6,35 +6,34 @@ import { env } from "@/lib/env";
 import { validateBody, errorResponse, successResponse, ApiErrors } from "@/lib/api-utils";
 import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
 
-const registerSchema = z.object({
-    name: z.string().min(1, "Name is required").max(100, "Name too long"),
-    email: z.string().min(1, "Email is required").email("Invalid email address"),
-    password: z.string()
-        .min(8, "Password must be at least 8 characters")
-        .max(100, "Password too long")
-        .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
-        .regex(/[a-z]/, "Password must contain at least one lowercase letter")
-        .regex(/[0-9]/, "Password must contain at least one number"),
-});
+const registerSchema = z
+    .object({
+        name: z.string().trim().min(1, "Name is required").max(100, "Name too long"),
+        email: z.string().trim().toLowerCase().min(1, "Email is required").email("Invalid email address"),
+        password: z.string()
+            .min(8, "Password must be at least 8 characters")
+            .max(100, "Password too long")
+            .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+            .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+            .regex(/[0-9]/, "Password must contain at least one number"),
+    })
+    .strict();
 
 export async function POST(req: Request) {
     try {
-        // Rate limit: 5 registration attempts per 15 minutes per IP
+        // Rate limit: registration attempts per IP
         const clientIp = await getClientIP(req);
         await enforceRateLimit(clientIp, "auth");
-
-        // Additional Security: Rate limit per email (5 per hour)
-        const body = await req.clone().json();
-        if (body.email) {
-            await enforceRateLimit(body.email.trim().toLowerCase(), "security");
-        }
 
         // Validate request body
         const { email, name, password } = await validateBody(req, registerSchema);
 
+        // Additional Security: rate limit per normalized email
+        await enforceRateLimit(email, "security");
+
         // Check if user exists
         const existingUser = await db.user.findUnique({
-            where: { email }
+            where: { email },
         });
 
         if (existingUser) {
@@ -49,11 +48,22 @@ export async function POST(req: Request) {
             data: {
                 name,
                 email,
-                password: hashedPassword
-            }
+                password: hashedPassword,
+            },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                image: true,
+                createdAt: true,
+                updatedAt: true,
+                role: true,
+                isActive: true,
+                emailVerified: true,
+            },
         });
 
-        // Audit Logging
+        // Audit logging (non-blocking)
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -61,32 +71,29 @@ export async function POST(req: Request) {
                 action: "SIGN_UP",
                 entity: "User",
                 entityId: newUser.id,
-                details: { method: "credentials", email: newUser.email }
+                details: { method: "credentials", email: newUser.email },
             });
-        } catch (e) {}
+        } catch {
+            // Non-blocking
+        }
 
         // Send welcome email (non-blocking)
         sendEmail({
             to: email,
             subject: "Welcome to DocuMint AI! 🎉",
             html: emailTemplates.welcome(name, `${env.NEXT_PUBLIC_APP_URL}/dashboard`),
-        }).catch(emailError => {
-            console.error("Failed to send welcome email:", emailError);
+        }).catch(() => {
+            // Non-blocking email delivery failure
         });
 
-        // Return success (exclude password)
-        const { password: _password, ...userWithoutPassword } = newUser;
-
-        return successResponse({
-            user: userWithoutPassword,
-            message: "User created successfully"
-        }, 201);
-
+        return successResponse(
+            {
+                user: newUser,
+                message: "User created successfully",
+            },
+            201,
+        );
     } catch (error) {
-        console.error("[Register] Error:", error instanceof Error ? error.message : error);
-        if (error instanceof Error && error.stack) {
-            console.error("[Register] Stack:", error.stack);
-        }
         return errorResponse(error);
     }
 }
