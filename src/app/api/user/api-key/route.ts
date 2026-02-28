@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { randomBytes } from "crypto";
 import { Prisma } from "@prisma/client";
@@ -36,7 +36,7 @@ export async function GET() {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
         // 1. Enforce Rate Limit
@@ -44,10 +44,14 @@ export async function GET() {
 
         const user = await db.user.findUnique({
             where: { id: session.user.id },
-            select: { settings: true },
+            select: { id: true, settings: true },
         });
 
-        const settings = toSettingsObject(user?.settings);
+        if (!user) {
+            throw ApiErrors.notFound("User");
+        }
+
+        const settings = toSettingsObject(user.settings);
         const apiKey = getApiKeyFromSettings(settings);
 
         return NextResponse.json({ apiKey: maskApiKey(apiKey) });
@@ -64,7 +68,7 @@ export async function POST() {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
         // 1. Enforce Security Rate Limit (Rotation is sensitive)
@@ -74,10 +78,14 @@ export async function POST() {
 
         const user = await db.user.findUnique({
             where: { id: session.user.id },
-            select: { settings: true },
+            select: { id: true, settings: true },
         });
 
-        const currentSettings = toSettingsObject(user?.settings);
+        if (!user) {
+            throw ApiErrors.notFound("User");
+        }
+
+        const currentSettings = toSettingsObject(user.settings);
 
         // 2. Update settings in DB
         await db.user.update({
