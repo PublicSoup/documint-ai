@@ -273,6 +273,12 @@ export async function GET() {
             opsReadinessScore >= 40 ? "risk" :
             "critical";
 
+        const contractBundleId = [
+            `rev:${ADMIN_HEALTH_CONTRACT_REVISION}`,
+            `shape:${ADMIN_HEALTH_RESPONSE_SHAPE_ID}`,
+            "mode:strict",
+        ].join("|");
+
         const schemaCapabilities = {
             degradedComponents: true,
             componentSeverity: true,
@@ -304,6 +310,7 @@ export async function GET() {
             contractRevision: true,
             contractCompatibilityMode: true,
             responseShapeId: true,
+            contractBundleId: true,
         } as const;
 
         const responseGeneratedBy = {
@@ -319,6 +326,7 @@ export async function GET() {
                 contractRevision: ADMIN_HEALTH_CONTRACT_REVISION,
                 contractCompatibilityMode: "strict",
                 responseShapeId: ADMIN_HEALTH_RESPONSE_SHAPE_ID,
+                contractBundleId,
                 responseSchemaHash: ADMIN_HEALTH_RESPONSE_SCHEMA_HASH,
                 schemaCapabilities,
                 responseGeneratedBy,
