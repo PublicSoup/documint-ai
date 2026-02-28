@@ -176,6 +176,8 @@ export async function GET() {
             generatedAtEpochMs - startedAt >= 200 ? "elevated" :
             "normal";
 
+        const diagnosticDataFreshnessSec = Math.max(0, Math.floor((Date.now() - generatedAtEpochMs) / 1000));
+
         const schemaCapabilities = {
             degradedComponents: true,
             componentSeverity: true,
@@ -186,6 +188,7 @@ export async function GET() {
             responseTimingEpochMs: true,
             responseGeneratedBy: true,
             responseLatencyBucket: true,
+            diagnosticDataFreshnessSec: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -216,6 +219,7 @@ export async function GET() {
                 generatedAtEpochMs,
                 checkDurationMs: generatedAtEpochMs - startedAt,
                 responseLatencyBucket,
+                diagnosticDataFreshnessSec,
                 checkFailures: uniqueFailures,
                 degradedComponents,
                 recommendedActions,
