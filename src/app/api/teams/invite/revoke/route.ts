@@ -5,10 +5,13 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { checkTeamPermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateQuery } from "@/lib/api-utils";
 
-const querySchema = z.object({
-    inviteId: z.string().trim().min(1).max(100),
-}).strict();
+const querySchema = z
+    .object({
+        inviteId: z.string().trim().min(1).max(100),
+    })
+    .strict();
 
 /**
  * DELETE /api/teams/invite/revoke?inviteId=xxx
@@ -18,20 +21,12 @@ export async function DELETE(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
-        const parsedQuery = querySchema.safeParse({
-            inviteId: req.nextUrl.searchParams.get("inviteId") ?? undefined,
-        });
-
-        if (!parsedQuery.success) {
-            return NextResponse.json({ error: "inviteId is required" }, { status: 400 });
-        }
-
-        const { inviteId } = parsedQuery.data;
+        const { inviteId } = validateQuery(req.nextUrl.searchParams, querySchema);
 
         const invite = await db.teamInvite.findUnique({
             where: { id: inviteId },
@@ -43,12 +38,12 @@ export async function DELETE(req: NextRequest) {
         });
 
         if (!invite) {
-            return NextResponse.json({ error: "Invitation not found" }, { status: 404 });
+            throw ApiErrors.notFound("Invitation");
         }
 
         const canManageTeam = await checkTeamPermission(session.user.id, invite.teamId, "manage");
         if (!canManageTeam) {
-            return NextResponse.json({ error: "Forbidden: Team Admin access required" }, { status: 403 });
+            throw ApiErrors.forbidden("Team admin access required");
         }
 
         await db.teamInvite.delete({
@@ -74,7 +69,6 @@ export async function DELETE(req: NextRequest) {
 
         return NextResponse.json({ success: true, message: "Invitation revoked" });
     } catch (error) {
-        console.error("[RevokeInvite_API] Error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }
