@@ -27,6 +27,22 @@ interface UsageData {
     isDevMode?: boolean;
 }
 
+interface TeamSummary {
+    id: string;
+    name: string;
+    role: string;
+}
+
+interface TeamMember {
+    id: string;
+    userId: string;
+    role: string;
+    user?: {
+        name?: string | null;
+        email?: string | null;
+    } | null;
+}
+
 export default function BillingHub() {
     const { toast } = useToast();
     const { data: session } = useSession();
@@ -51,7 +67,7 @@ export default function BillingHub() {
     const [copied, setCopied] = useState(false);
 
     // Team State
-    const [teams, setTeams] = useState<any[]>([]);
+    const [teams, setTeams] = useState<TeamSummary[]>([]);
     const [loadingTeams, setLoadingTeams] = useState(false);
     const [inviteEmail, setInviteEmail] = useState("");
     const [invitingTeamId, setInvitingTeamId] = useState<string | null>(null);
@@ -59,7 +75,7 @@ export default function BillingHub() {
     const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
     const [inviteError, setInviteError] = useState<string | null>(null);
     const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null);
-    const [teamMembers, setTeamMembers] = useState<Record<string, any[]>>({});
+    const [teamMembers, setTeamMembers] = useState<Record<string, TeamMember[]>>({});
     const [loadingMembers, setLoadingMembers] = useState(false);
     const [removingMember, setRemovingMember] = useState<string | null>(null);
 
@@ -143,9 +159,10 @@ export default function BillingHub() {
                 const errorMsg = data.error || "No active subscription found.";
                 toast(errorMsg, res.ok ? "success" : "error");
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error("Billing portal error:", error);
-            toast(error.message || "Could not connect to billing portal", "error");
+            const message = error instanceof Error ? error.message : "Could not connect to billing portal";
+            toast(message, "error");
         } finally {
             setBillingLoading(false);
         }
@@ -253,7 +270,7 @@ export default function BillingHub() {
             if (res.ok) {
                 setTeamMembers(prev => ({
                     ...prev,
-                    [teamId]: prev[teamId].filter(m => m.user.id !== userId)
+                    [teamId]: prev[teamId].filter((member) => member.userId !== userId)
                 }));
                 toast("Member removed", "success");
             }
@@ -504,7 +521,7 @@ export default function BillingHub() {
                                 ) : teams.length === 0 ? (
                                     <div className="text-center py-12 bg-white/5 rounded-xl border border-dashed border-white/10">
                                         <Users className="w-12 h-12 text-white/20 mx-auto mb-3" />
-                                        <p className="text-white/60">You don't belong to any teams yet.</p>
+                                        <p className="text-white/60">You don&apos;t belong to any teams yet.</p>
                                     </div>
                                 ) : (
                                     <div className="space-y-4">
