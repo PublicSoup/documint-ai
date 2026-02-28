@@ -19,6 +19,7 @@ let healthSignalTransitionCount = 0;
 
 const HEALTH_SIGNAL_FLAPPING_TRANSITION_THRESHOLD = 3;
 const HEALTH_SIGNAL_FLAPPING_STABILITY_WINDOW_SEC = 300;
+const HEALTH_SIGNAL_TRANSITION_COUNT_MAX = 10_000;
 
 /**
  * GET /api/admin/health
@@ -289,7 +290,10 @@ export async function GET() {
         const healthSignalPreviousObservedAt = previousHealthSignalObservedAt;
 
         if (healthSignalChanged && previousHealthSignalDigest) {
-            healthSignalTransitionCount += 1;
+            healthSignalTransitionCount = Math.min(
+                HEALTH_SIGNAL_TRANSITION_COUNT_MAX,
+                healthSignalTransitionCount + 1,
+            );
         }
 
         if (!currentHealthSignalStableSince || healthSignalChanged) {
@@ -320,6 +324,8 @@ export async function GET() {
             healthSignalFlapping ? "volatile" :
             healthSignalTransitionCount >= Math.max(1, HEALTH_SIGNAL_FLAPPING_TRANSITION_THRESHOLD - 1) ? "watch" :
             "stable";
+
+        const healthSignalTransitionCountCapped = healthSignalTransitionCount >= HEALTH_SIGNAL_TRANSITION_COUNT_MAX;
 
         previousHealthSignalDigest = healthSignalDigest;
         previousHealthSignalObservedAt = generatedAtIso;
@@ -376,6 +382,7 @@ export async function GET() {
             healthSignalStableSince: true,
             healthSignalStabilitySec: true,
             healthSignalTransitionCount: true,
+            healthSignalTransitionCountCapped: true,
             healthSignalFlapping: true,
             healthSignalFlappingReason: true,
             healthSignalVolatilityBand: true,
@@ -430,6 +437,7 @@ export async function GET() {
                 healthSignalStableSince,
                 healthSignalStabilitySec,
                 healthSignalTransitionCount,
+                healthSignalTransitionCountCapped,
                 healthSignalFlapping,
                 healthSignalFlappingReason,
                 healthSignalVolatilityBand,
