@@ -135,30 +135,42 @@ export function SiteFooter() {
                         © {currentYear} DocuMint AI. All rights reserved.
                     </p>
                     <div className="flex space-x-4 mt-4 md:mt-0">
-                        <Link
+                        <TrackedLink
                             href="/legal/terms"
+                            eventName="landing_secondary_cta_click"
+                            location="site_footer_bottom_terms"
+                            variant="control"
                             className="text-gray-500 hover:text-gray-300 text-sm transition-colors"
                         >
                             Terms
-                        </Link>
-                        <Link
+                        </TrackedLink>
+                        <TrackedLink
                             href="/legal/privacy"
+                            eventName="landing_secondary_cta_click"
+                            location="site_footer_bottom_privacy"
+                            variant="control"
                             className="text-gray-500 hover:text-gray-300 text-sm transition-colors"
                         >
                             Privacy
-                        </Link>
-                        <Link
+                        </TrackedLink>
+                        <TrackedLink
                             href="/legal/security"
+                            eventName="landing_secondary_cta_click"
+                            location="site_footer_bottom_security"
+                            variant="control"
                             className="text-gray-500 hover:text-gray-300 text-sm transition-colors"
                         >
                             Security
-                        </Link>
-                        <Link
+                        </TrackedLink>
+                        <TrackedLink
                             href="/support"
+                            eventName="landing_secondary_cta_click"
+                            location="site_footer_bottom_support"
+                            variant="control"
                             className="text-gray-500 hover:text-gray-300 text-sm transition-colors"
                         >
                             Support
-                        </Link>
+                        </TrackedLink>
                     </div>
                 </div>
             </div>
