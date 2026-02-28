@@ -471,6 +471,24 @@ export async function GET() {
 
         const policyMismatchCount = policyMismatches.length;
 
+        const policyMismatchRecommendedActions = policyMismatches
+            .map((mismatch) => {
+                if (mismatch === "volatility-policy") {
+                    return volatilityPolicyCompatibilityAction === "verify-bundle-config"
+                        ? "verify-volatility-policy-bundle"
+                        : "update-monitor-policy";
+                }
+
+                if (mismatch === "policy-mismatch-alert-policy") {
+                    return policyMismatchAlertPolicyCompatibilityAction === "verify-bundle-config"
+                        ? "verify-mismatch-alert-policy-bundle"
+                        : "update-mismatch-alert-policy";
+                }
+
+                return "review-policy-config";
+            })
+            .sort();
+
         const policyMismatchDigest = createHash("sha256")
             .update([
                 policyMismatches.join(","),
@@ -510,6 +528,17 @@ export async function GET() {
 
         const policyMismatchActionTransitionCountCapped =
             policyMismatchActionTransitionCount >= POLICY_MISMATCH_ACTION_TRANSITION_COUNT_MAX;
+        const policyMismatchActionTransitionCountRemaining = Math.max(
+            0,
+            POLICY_MISMATCH_ACTION_TRANSITION_COUNT_MAX - policyMismatchActionTransitionCount,
+        );
+        const policyMismatchActionTransitionUtilizationPct = Math.min(
+            100,
+            Math.max(
+                0,
+                Math.round((policyMismatchActionTransitionCount / POLICY_MISMATCH_ACTION_TRANSITION_COUNT_MAX) * 100),
+            ),
+        );
 
         const policyMismatchActionVolatilityBand =
             policyMismatchActionTransitionCount >= 5 ? "volatile" :
@@ -566,6 +595,17 @@ export async function GET() {
 
         const policyMismatchTransitionCountCapped =
             policyMismatchTransitionCount >= POLICY_MISMATCH_TRANSITION_COUNT_MAX;
+        const policyMismatchTransitionCountRemaining = Math.max(
+            0,
+            POLICY_MISMATCH_TRANSITION_COUNT_MAX - policyMismatchTransitionCount,
+        );
+        const policyMismatchTransitionUtilizationPct = Math.min(
+            100,
+            Math.max(
+                0,
+                Math.round((policyMismatchTransitionCount / POLICY_MISMATCH_TRANSITION_COUNT_MAX) * 100),
+            ),
+        );
 
         const policyMismatchVolatilityBand =
             policyMismatchTransitionCount >= 5 ? "volatile" :
@@ -595,24 +635,6 @@ export async function GET() {
 
         previousPolicyMismatchDigest = policyMismatchDigest;
         previousPolicyMismatchActionDigest = policyMismatchActionDigest;
-
-        const policyMismatchRecommendedActions = policyMismatches
-            .map((mismatch) => {
-                if (mismatch === "volatility-policy") {
-                    return volatilityPolicyCompatibilityAction === "verify-bundle-config"
-                        ? "verify-volatility-policy-bundle"
-                        : "update-monitor-policy";
-                }
-
-                if (mismatch === "policy-mismatch-alert-policy") {
-                    return policyMismatchAlertPolicyCompatibilityAction === "verify-bundle-config"
-                        ? "verify-mismatch-alert-policy-bundle"
-                        : "update-mismatch-alert-policy";
-                }
-
-                return "review-policy-config";
-            })
-            .sort();
 
         const schemaCapabilities = {
             degradedComponents: true,
