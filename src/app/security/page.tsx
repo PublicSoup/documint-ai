@@ -1,7 +1,13 @@
+import type { Metadata } from "next";
 import { ShieldCheck, Lock, FileCheck2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TrackedLink } from "@/components/marketing/tracked-link";
+
+export const metadata: Metadata = {
+  title: "DocuMint AI Security | Enterprise Trust & Controls",
+  description: "Review DocuMint AI security posture, access controls, validation standards, and auditability practices.",
+};
 
 export default function SecurityPage() {
   return (

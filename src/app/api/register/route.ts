@@ -58,7 +58,6 @@ export async function POST(req: Request) {
                 createdAt: true,
                 updatedAt: true,
                 role: true,
-                isActive: true,
                 emailVerified: true,
             },
         });

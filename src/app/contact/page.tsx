@@ -1,8 +1,14 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Mail, ArrowRight, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrackedLink } from "@/components/marketing/tracked-link";
+
+export const metadata: Metadata = {
+  title: "Contact DocuMint AI | Sales & Security Review",
+  description: "Contact DocuMint AI for enterprise onboarding, pricing, and security review support.",
+};
 
 export default function ContactPage() {
   return (

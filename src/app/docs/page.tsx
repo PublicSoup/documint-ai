@@ -1,7 +1,13 @@
+import type { Metadata } from "next";
 import { ArrowRight, BookOpen, Code2, ShieldCheck, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrackedLink } from "@/components/marketing/tracked-link";
+
+export const metadata: Metadata = {
+  title: "DocuMint AI Docs | Developer Documentation Platform",
+  description: "Get started with DocuMint AI docs, IDE workflows, and enterprise security guidance.",
+};
 
 const docsSections = [
   {
