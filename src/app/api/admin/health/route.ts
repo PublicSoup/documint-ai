@@ -430,7 +430,11 @@ export async function GET() {
                     ? "verify-bundle-config"
                     : "update-monitor-policy";
 
-        const policyMismatchCount = Number(!volatilityPolicyCompatible);
+        const policyMismatches = [
+            !volatilityPolicyCompatible ? "volatility-policy" : null,
+        ].filter((value): value is string => Boolean(value));
+
+        const policyMismatchCount = policyMismatches.length;
 
         const schemaCapabilities = {
             degradedComponents: true,
@@ -482,6 +486,7 @@ export async function GET() {
             volatilityPolicyCompatibilityReason: true,
             volatilityPolicyCompatibilityAction: true,
             policyMismatchCount: true,
+            policyMismatchNamesCsv: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -551,6 +556,7 @@ export async function GET() {
                 volatilityPolicyCompatibilityReason,
                 volatilityPolicyCompatibilityAction,
                 policyMismatchCount,
+                policyMismatchNamesCsv: policyMismatches.join(",") || "none",
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
