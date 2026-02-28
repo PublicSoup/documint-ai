@@ -14,7 +14,6 @@ export async function GET(req: NextRequest) {
         const session = await getServerSession(authOptions);
 
         if (!session?.user?.id) {
-            // Rate limit unauthenticated checks by IP to prevent abuse
             const ip = await getClientIP(req);
             await enforceRateLimit(ip, "api");
 
@@ -26,7 +25,6 @@ export async function GET(req: NextRequest) {
             });
         }
 
-        // Rate limit authenticated checks by User ID
         await enforceRateLimit(session.user.id, "api");
 
         const sub = await getUserSubscription(session.user.id);
@@ -37,14 +35,6 @@ export async function GET(req: NextRequest) {
             isActive: sub.isActive,
         });
     } catch (error) {
-        // Return a valid fallback structure so UI doesn't crash on auth/limit errors
-        console.error("Subscription API Error:", error);
-        return NextResponse.json({
-            plan: "free",
-            isPro: false,
-            isTeam: false,
-            isActive: false,
-            error: "Failed to load subscription data"
-        });
+        return errorResponse(error);
     }
 }
