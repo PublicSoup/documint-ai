@@ -436,9 +436,11 @@ export async function GET() {
 
         const policyMismatchCount = policyMismatches.length;
 
-        const policyMismatchRecommendedActions = policyMismatches.map((mismatch) =>
-            mismatch === "volatility-policy" ? "update-monitor-policy" : "review-policy-config",
-        );
+        const policyMismatchRecommendedActions = policyMismatches
+            .map((mismatch) =>
+                mismatch === "volatility-policy" ? "update-monitor-policy" : "review-policy-config",
+            )
+            .sort();
 
         const schemaCapabilities = {
             degradedComponents: true,
