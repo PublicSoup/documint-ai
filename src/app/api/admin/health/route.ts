@@ -172,6 +172,11 @@ export async function GET() {
             0;
 
         const opsEscalationRequired = severity === "critical" || criticalComponentCount > 0 || summaryCodePriority >= 90;
+        const opsEscalationReason =
+            severity === "critical" ? "critical-severity" :
+            criticalComponentCount > 0 ? "critical-component" :
+            summaryCodePriority >= 90 ? "priority-threshold" :
+            "none";
 
         const uniqueFailures = [...new Set(checkFailures)];
 
@@ -259,6 +264,7 @@ export async function GET() {
             criticalComponentCount: true,
             criticalComponentNamesCsv: true,
             opsEscalationRequired: true,
+            opsEscalationReason: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -289,6 +295,7 @@ export async function GET() {
                 healthSummaryCode,
                 summaryCodePriority,
                 opsEscalationRequired,
+                opsEscalationReason,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
