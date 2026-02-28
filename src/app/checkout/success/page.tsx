@@ -9,9 +9,21 @@ function SuccessContent() {
     const searchParams = useSearchParams();
     const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
 
-    useEffect(() => {
-        const sessionId = searchParams.get("session_id");
+    const tier = searchParams.get("tier");
+    const intent = searchParams.get("intent");
+    const plan = searchParams.get("plan");
+    const source = searchParams.get("source");
 
+    const dashboardQuery = new URLSearchParams();
+    if (intent === "trial") dashboardQuery.set("intent", "trial");
+    if (plan === "starter" || plan === "pro" || plan === "team") dashboardQuery.set("plan", plan);
+    if (source && source.length <= 80) dashboardQuery.set("source", source);
+
+    const dashboardHref = dashboardQuery.toString().length > 0
+        ? `/dashboard?${dashboardQuery.toString()}`
+        : "/dashboard";
+
+    useEffect(() => {
         // If no session ID, still show success (they might have navigated directly)
         const timer = setTimeout(() => {
             setStatus("success");
@@ -40,7 +52,7 @@ function SuccessContent() {
                     </div>
                     <h1 className="text-2xl font-bold text-gray-900 mb-2">Something went wrong</h1>
                     <p className="text-gray-600 mb-6">
-                        We couldn't verify your subscription. Please contact support if this persists.
+                        We couldn&apos;t verify your subscription. Please contact support if this persists.
                     </p>
                     <button
                         onClick={() => router.push("/dashboard/billing")}
@@ -59,13 +71,17 @@ function SuccessContent() {
                 <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6 animate-bounce">
                     <CheckCircle className="w-10 h-10 text-green-600" />
                 </div>
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome to Pro!</h1>
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                    {tier === "team" ? "Welcome to Team!" : "Welcome to Pro!"}
+                </h1>
                 <p className="text-gray-600 mb-8">
-                    Your subscription is now active. You have access to all premium features.
+                    {intent === "trial"
+                        ? "Your trial is active. Complete onboarding to unlock value faster."
+                        : "Your subscription is now active. You have access to all premium features."}
                 </p>
 
                 <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-4 mb-8">
-                    <h3 className="font-semibold text-gray-900 mb-2">What's unlocked:</h3>
+                    <h3 className="font-semibold text-gray-900 mb-2">What&apos;s unlocked:</h3>
                     <ul className="text-sm text-gray-600 space-y-1 text-left">
                         <li>✓ Unlimited file uploads</li>
                         <li>✓ Unlimited AI regenerations</li>
@@ -76,10 +92,10 @@ function SuccessContent() {
                 </div>
 
                 <button
-                    onClick={() => router.push("/dashboard")}
+                    onClick={() => router.push(dashboardHref)}
                     className="w-full py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:opacity-90 transition-opacity font-medium"
                 >
-                    Go to Dashboard
+                    {intent === "trial" ? "Continue Trial Onboarding" : "Go to Dashboard"}
                 </button>
             </div>
         </div>

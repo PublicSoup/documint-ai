@@ -68,9 +68,20 @@ export async function POST(request: NextRequest) {
 
         const origin = resolveOrigin(request);
         const cancelParams = new URLSearchParams({ canceled: "true" });
-        if (context.intent) cancelParams.set("intent", context.intent);
-        if (context.plan) cancelParams.set("plan", context.plan);
-        if (context.source) cancelParams.set("source", context.source);
+        const successContextParams = new URLSearchParams();
+        if (context.intent) {
+            cancelParams.set("intent", context.intent);
+            successContextParams.set("intent", context.intent);
+        }
+        if (context.plan) {
+            cancelParams.set("plan", context.plan);
+            successContextParams.set("plan", context.plan);
+        }
+        if (context.source) {
+            cancelParams.set("source", context.source);
+            successContextParams.set("source", context.source);
+        }
+        successContextParams.set("tier", tier);
 
         // 3. Fetch User Subscription Context
         const userSubscription = await db.subscription.findUnique({
@@ -83,7 +94,7 @@ export async function POST(request: NextRequest) {
             mode: "subscription",
             payment_method_types: ["card"],
             line_items: [{ price: priceId, quantity: 1 }],
-            success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+            success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}${successContextParams.toString().length > 0 ? `&${successContextParams.toString()}` : ""}`,
             cancel_url: `${origin}/dashboard/billing?${cancelParams.toString()}`,
             customer: userSubscription?.stripeCustomerId || undefined,
             customer_email: userSubscription?.stripeCustomerId ? undefined : session.user.email,
