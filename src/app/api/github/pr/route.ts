@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
         // 1. Enforce Rate Limit
@@ -48,15 +48,14 @@ export async function POST(req: NextRequest) {
         });
 
         if (!connection || !connection.accessToken) {
-            return errorResponse(ApiErrors.badRequest("GitHub account not connected."));
+            throw ApiErrors.badRequest("GitHub account not connected.");
         }
 
         let decryptedToken: string;
         try {
             decryptedToken = decrypt(connection.accessToken);
-        } catch (e) {
-            console.error("Token decryption failed:", e);
-            return errorResponse(ApiErrors.internalError("Failed to access GitHub credentials."));
+        } catch {
+            throw ApiErrors.internalError("Failed to access GitHub credentials.");
         }
 
         // 4. Fetch File and Documentation
@@ -66,14 +65,14 @@ export async function POST(req: NextRequest) {
         });
 
         if (!file || !file.documentation) {
-            return errorResponse(ApiErrors.notFound("Documentation"));
+            throw ApiErrors.notFound("Documentation");
         }
 
         // Check permissions (User must own or have access to file)
         const { checkFilePermission } = await import("@/lib/permissions");
         const hasPermission = await checkFilePermission(session.user.id, fileId, "view");
         if (!hasPermission) {
-            return errorResponse(ApiErrors.forbidden("You do not have permission to export this file."));
+            throw ApiErrors.forbidden("You do not have permission to export this file.");
         }
 
         // 5. Generate Markdown Content
