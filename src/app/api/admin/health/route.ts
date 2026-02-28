@@ -127,6 +127,14 @@ export async function GET() {
             degradedComponents.length > 0 ? "DEGRADED_OTHER" :
             "OK";
 
+        const incidentRoutingHint =
+            incidentClass === "availability" ? "platform-database-oncall" :
+            incidentClass === "integrity" ? "security-integrity-oncall" :
+            incidentClass === "runtime" ? "ide-runtime-oncall" :
+            incidentClass === "throttling" ? "platform-infra-oncall" :
+            incidentClass === "operations" ? "platform-operations" :
+            "none";
+
         const summaryCodePriority =
             healthSummaryCode === "CRITICAL_DB" ? 100 :
             healthSummaryCode === "CRITICAL_AUDIT" ? 95 :
@@ -174,6 +182,7 @@ export async function GET() {
             responseGeneratedBy: true,
             responseLatencyBucket: true,
             incidentClass: true,
+            incidentRoutingHint: true,
         } as const;
 
         const responseGeneratedBy = {
@@ -192,6 +201,7 @@ export async function GET() {
                 status: severity === "healthy" ? "healthy" : "degraded",
                 severity,
                 incidentClass,
+                incidentRoutingHint,
                 healthSummaryCode,
                 summaryCodePriority,
                 timestamp: generatedAtIso,
