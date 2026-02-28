@@ -102,7 +102,10 @@ function SuccessContent() {
                 </p>
 
                 {intent === "trial" && (
-                    <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 mb-6">
+                    <p
+                        aria-live="polite"
+                        className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 mb-6"
+                    >
                         Redirecting you to guided onboarding in {redirectCountdown}s…
                     </p>
                 )}
