@@ -88,6 +88,10 @@ export async function POST(request: NextRequest) {
 
         const context = await parseCheckoutContext(request);
 
+        if (context.plan && context.plan !== tier) {
+            return errorResponse(ApiErrors.badRequest("Checkout plan context must match requested tier"));
+        }
+
         const priceId = PRICE_IDS[tier];
 
         if (!priceId || priceId.includes("placeholder")) {
@@ -131,7 +135,7 @@ export async function POST(request: NextRequest) {
                 tier,
                 source: context.source ?? "unknown",
                 intent: context.intent ?? "unknown",
-                plan: context.plan ?? "unknown",
+                plan: context.plan ?? tier,
             },
             subscription_data:
                 tier === "pro" || tier === "team"
@@ -153,7 +157,7 @@ export async function POST(request: NextRequest) {
                     tier,
                     source: context.source ?? null,
                     intent: context.intent ?? null,
-                    plan: context.plan ?? null,
+                    plan: context.plan ?? tier,
                 },
             });
         } catch {

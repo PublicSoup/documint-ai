@@ -140,7 +140,7 @@ export default function BillingHub() {
                 body: JSON.stringify({
                     source: checkoutSource,
                     intent: trialIntentActive ? "trial" : "signup",
-                    plan: focusedPlanId ?? undefined,
+                    plan: tier,
                 }),
             });
             if (res.ok) {
