@@ -23,11 +23,20 @@ type TeamConfig = {
     coverageGoal?: number;
 };
 
+const sessionIdPattern = /^[A-Za-z0-9:_-]{8,255}$/;
+
 function sanitizeSessionId(value: string | null | undefined): string | null {
     if (!value) return null;
+
     const trimmed = value.trim();
     if (!trimmed) return null;
-    return trimmed.slice(0, 255);
+
+    const capped = trimmed.slice(0, 255);
+    if (!sessionIdPattern.test(capped)) {
+        return null;
+    }
+
+    return capped;
 }
 
 async function parseTrackViewBody(request: NextRequest): Promise<z.infer<typeof trackViewSchema> | null> {
