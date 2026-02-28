@@ -20,15 +20,14 @@ export async function GET(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
+            throw ApiErrors.unauthorized();
         }
 
         // 1. Enforce Rate Limit
         await enforceRateLimit(session.user.id, "api");
 
         // 2. Validate Query Params
-        const { searchParams } = new URL(req.url);
-        const { page, per_page } = validateQuery(searchParams, querySchema);
+        const { page, per_page } = validateQuery(req.nextUrl.searchParams, querySchema);
 
         // 3. Fetch token from DB and decrypt
         const connection = await db.gitHubConnection.findUnique({
@@ -45,9 +44,8 @@ export async function GET(req: NextRequest) {
         let decryptedToken: string;
         try {
             decryptedToken = decrypt(connection.accessToken);
-        } catch (e) {
-            console.error("Token decryption failed:", e);
-            return errorResponse(ApiErrors.internalError("Failed to access GitHub credentials."));
+        } catch {
+            throw ApiErrors.internalError("Failed to access GitHub credentials.");
         }
 
         // 4. Fetch from GitHub API
@@ -60,10 +58,10 @@ export async function GET(req: NextRequest) {
 
         if (!res.ok) {
             if (res.status === 401) {
-                return errorResponse(ApiErrors.unauthorized("GitHub token is invalid or expired."));
+                throw ApiErrors.unauthorized("GitHub token is invalid or expired.");
             }
-            const errorData = await res.json().catch(() => ({}));
-            return NextResponse.json({ error: errorData.message || "Failed to fetch repositories from GitHub" }, { status: res.status });
+
+            throw ApiErrors.serviceUnavailable("GitHub API");
         }
 
         const repos = (await res.json()) as Array<{
