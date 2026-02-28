@@ -45,13 +45,23 @@ export async function getAICompletionWithDetailedError(
     try {
         // Use gemini-2.0-flash as default (fast, widely available)
         const modelName = options.model || "gemini-2.0-flash";
+        const generationConfig: {
+            temperature: number;
+            maxOutputTokens: number;
+            responseMimeType?: "application/json";
+        } = {
+            temperature: options.temperature ?? 0.4,
+            maxOutputTokens: options.maxTokens ?? 8192,
+        };
+
+        if (options.jsonMode) {
+            generationConfig.responseMimeType = "application/json";
+        }
+
         const model = genAI.getGenerativeModel({
             model: modelName,
             systemInstruction: messages.find(m => m.role === "system")?.content,
-            generationConfig: {
-                temperature: options.temperature ?? 0.4,
-                maxOutputTokens: options.maxTokens ?? 8192,
-            }
+            generationConfig,
         });
 
         // Convert messages to Gemini format (Content[])
@@ -62,7 +72,6 @@ export async function getAICompletionWithDetailedError(
                 parts: [{ text: m.content }]
             }));
 
-        console.log(`[Gemini] Sending to ${modelName}, messages: ${contents.length}`);
 
         let result;
         let attempts = 0;
@@ -74,7 +83,6 @@ export async function getAICompletionWithDetailedError(
                 break; // Success
             } catch (apiError: unknown) {
                 attempts++;
-                console.error(`[Gemini] API Error (Attempt ${attempts}/${maxRetries}):`, apiError);
                 const errorMessage = apiError instanceof Error ? apiError.message : String(apiError);
 
                 // Handle Rate Limiting (429) and Service Unavailable (503)
@@ -84,7 +92,6 @@ export async function getAICompletionWithDetailedError(
                     }
                     // Exponential backoff: 1s, 2s, 4s...
                     const waitTime = Math.pow(2, attempts) * 1000;
-                    console.warn(`[Gemini] Retrying in ${waitTime}ms...`);
                     await new Promise(resolve => setTimeout(resolve, waitTime));
                     continue;
                 }
@@ -107,10 +114,8 @@ export async function getAICompletionWithDetailedError(
         const response = result.response;
         const text = response.text();
 
-        console.log(`[Gemini] Response received, length: ${text.length}`);
 
         if (!text || text.trim() === "") {
-            console.warn("[Gemini] Empty response. Candidates:", JSON.stringify(response.candidates, null, 2));
             return { success: false, error: "Gemini returned an empty response. Try rephrasing your request." };
         }
 
@@ -123,7 +128,6 @@ export async function getAICompletionWithDetailedError(
             }
         };
     } catch (e: unknown) {
-        console.error("[Gemini] Unhandled error:", e);
         const errorMessage = e instanceof Error ? e.message : "Unknown error";
         return { success: false, error: `Unexpected Error: ${errorMessage}` };
     }
@@ -323,8 +327,7 @@ export async function detectIntentDrift(
         // Clean up markdown if AI includes it
         const cleanJson = result.replace(/```json\n?|\n?```/g, "").trim();
         return JSON.parse(cleanJson);
-    } catch (e) {
-        console.error("Drift detection failed:", e);
+    } catch {
         return { drifted: false };
     }
 }

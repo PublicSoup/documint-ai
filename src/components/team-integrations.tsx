@@ -46,7 +46,34 @@ interface Integration {
 
 interface IntegrationsResponse {
     integrations?: Integration[];
+    permissions?: {
+        canManage?: boolean;
+    };
     error?: string;
+    message?: string;
+}
+
+function getApiMessage(payload: unknown, fallback: string): string {
+    if (!payload || typeof payload !== "object") {
+        return fallback;
+    }
+
+    const record = payload as Record<string, unknown>;
+
+    if (typeof record.message === "string" && record.message.trim().length > 0) {
+        return record.message;
+    }
+
+    if (
+        typeof record.error === "string" &&
+        record.error.trim().length > 0 &&
+        record.error !== "ApiException" &&
+        record.error !== "Error"
+    ) {
+        return record.error;
+    }
+
+    return fallback;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -83,7 +110,7 @@ function extractWebhookUrl(config: unknown): string {
     return typeof webhook === "string" ? webhook : "Webhook URL unavailable";
 }
 
-export function TeamIntegrations({ teamId }: { teamId: string }) {
+export function TeamIntegrations({ teamId, canManage }: { teamId: string; canManage: boolean }) {
     const { toast } = useToast();
 
     const [integrations, setIntegrations] = useState<Integration[]>([]);
@@ -92,6 +119,7 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
     const [loadError, setLoadError] = useState("");
     const [creating, setCreating] = useState(false);
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [canManageAccess, setCanManageAccess] = useState(canManage);
 
     const [type, setType] = useState<WebhookType>("SLACK");
     const [webhookUrl, setWebhookUrl] = useState("");
@@ -119,6 +147,10 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
         if (config.apiGuidelines !== undefined) setApiGuidelines(config.apiGuidelines);
     };
 
+    useEffect(() => {
+        setCanManageAccess(canManage);
+    }, [canManage, teamId]);
+
     const fetchIntegrations = async (options?: { background?: boolean }) => {
         const background = options?.background ?? false;
 
@@ -133,11 +165,14 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
             const data: IntegrationsResponse = await res.json().catch(() => ({}));
 
             if (!res.ok) {
-                throw new Error(data.error || "Failed to load integrations");
+                throw new Error(getApiMessage(data, "Failed to load integrations"));
             }
 
             const nextIntegrations = Array.isArray(data.integrations) ? data.integrations : [];
             setIntegrations(nextIntegrations);
+            if (typeof data.permissions?.canManage === "boolean") {
+                setCanManageAccess(data.permissions.canManage);
+            }
             applyTeamConfig(extractTeamConfig(nextIntegrations));
             return true;
         } catch (error: unknown) {
@@ -177,6 +212,11 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
     };
 
     const handleUpdateConfig = async (updates: Partial<TeamConfig>) => {
+        if (!canManageAccess) {
+            toast("Only team owners or admins can update integration settings.", "error");
+            return;
+        }
+
         setUpdatingGoal(true);
         const nextConfig = buildConfig(updates);
 
@@ -192,7 +232,7 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
 
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                throw new Error(data.error || "Failed to update team configuration");
+                throw new Error(getApiMessage(data, "Failed to update team configuration"));
             }
 
             applyTeamConfig(nextConfig);
@@ -208,6 +248,12 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
 
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        if (!canManageAccess) {
+            toast("Only team owners or admins can add integrations.", "error");
+            return;
+        }
+
         if (!webhookUrl.trim()) return;
 
         setCreating(true);
@@ -223,7 +269,7 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
 
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                throw new Error(data.error || "Failed to add integration");
+                throw new Error(getApiMessage(data, "Failed to add integration"));
             }
 
             setWebhookUrl("");
@@ -238,6 +284,11 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
     };
 
     const handleDelete = async (id: string) => {
+        if (!canManageAccess) {
+            toast("Only team owners or admins can remove integrations.", "error");
+            return;
+        }
+
         if (!confirm("Are you sure you want to remove this integration?")) return;
 
         setDeletingId(id);
@@ -246,7 +297,7 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
             const data = await res.json().catch(() => ({}));
 
             if (!res.ok) {
-                throw new Error(data.error || "Failed to remove integration");
+                throw new Error(getApiMessage(data, "Failed to remove integration"));
             }
 
             setIntegrations((prev) => prev.filter((integration) => integration.id !== id));
@@ -276,6 +327,12 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
                 </div>
             )}
 
+            {!canManageAccess && (
+                <div className="text-xs text-blue-200 bg-blue-500/10 border border-blue-500/20 rounded-xl px-3 py-2">
+                    You can view integration status, but only team owners/admins can modify policies and webhooks.
+                </div>
+            )}
+
             {/* Documentation Target */}
             <div className="p-5 rounded-[1.5rem] bg-emerald-500/5 border border-emerald-500/10 space-y-4">
                 <div className="flex items-center justify-between">
@@ -294,12 +351,13 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
                         step="5"
                         value={coverageGoal}
                         onChange={(e) => setCoverageGoal(parseInt(e.target.value, 10))}
-                        className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                        disabled={!canManageAccess}
+                        className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
                     />
                     <Button
                         size="sm"
                         onClick={() => handleUpdateConfig({ coverageGoal })}
-                        disabled={updatingGoal}
+                        disabled={updatingGoal || !canManageAccess}
                         className="w-full h-8 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest gap-2"
                     >
                         {updatingGoal ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
@@ -320,12 +378,13 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
                         value={styleGuide}
                         onChange={(e) => setStyleGuide(e.target.value)}
                         placeholder="e.g. Always use JSDoc format, focus on architectural patterns, and keep descriptions under 100 words."
-                        className="w-full h-24 bg-black/40 border border-white/10 text-white text-xs p-3 rounded-xl focus:ring-1 focus:ring-purple-500 outline-none resize-none placeholder:text-zinc-600 font-medium"
+                        disabled={!canManageAccess}
+                        className="w-full h-24 bg-black/40 border border-white/10 text-white text-xs p-3 rounded-xl focus:ring-1 focus:ring-purple-500 outline-none resize-none placeholder:text-zinc-600 font-medium disabled:opacity-60 disabled:cursor-not-allowed"
                     />
                     <Button
                         size="sm"
                         onClick={() => handleUpdateConfig({ styleGuide })}
-                        disabled={updatingGoal}
+                        disabled={updatingGoal || !canManageAccess}
                         className="w-full h-8 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest gap-2"
                     >
                         {updatingGoal ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
@@ -346,12 +405,13 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
                         value={apiGuidelines}
                         onChange={(e) => setApiGuidelines(e.target.value)}
                         placeholder="e.g. Use camelCase for all JSON keys, enforce RESTful principles, always include versioning in paths."
-                        className="w-full h-24 bg-black/40 border border-white/10 text-white text-xs p-3 rounded-xl focus:ring-1 focus:ring-blue-500 outline-none resize-none placeholder:text-zinc-600 font-medium"
+                        disabled={!canManageAccess}
+                        className="w-full h-24 bg-black/40 border border-white/10 text-white text-xs p-3 rounded-xl focus:ring-1 focus:ring-blue-500 outline-none resize-none placeholder:text-zinc-600 font-medium disabled:opacity-60 disabled:cursor-not-allowed"
                     />
                     <Button
                         size="sm"
                         onClick={() => handleUpdateConfig({ apiGuidelines })}
-                        disabled={updatingGoal}
+                        disabled={updatingGoal || !canManageAccess}
                         className="w-full h-8 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest gap-2"
                     >
                         {updatingGoal ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
@@ -375,7 +435,7 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
                         </div>
                         <button
                             onClick={() => handleUpdateConfig({ requireApproval: !requireApproval })}
-                            disabled={updatingGoal}
+                            disabled={updatingGoal || !canManageAccess}
                             className={cn(
                                 "h-5 w-10 rounded-full relative transition-all duration-300",
                                 requireApproval ? "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.4)]" : "bg-white/10",
@@ -397,7 +457,7 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
                         </div>
                         <button
                             onClick={() => handleUpdateConfig({ lockApproved: !lockApproved })}
-                            disabled={updatingGoal}
+                            disabled={updatingGoal || !canManageAccess}
                             className={cn(
                                 "h-5 w-10 rounded-full relative transition-all duration-300",
                                 lockApproved ? "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.4)]" : "bg-white/10",
@@ -419,7 +479,7 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
                         </div>
                         <button
                             onClick={() => handleUpdateConfig({ driftAlerts: !driftAlerts })}
-                            disabled={updatingGoal}
+                            disabled={updatingGoal || !canManageAccess}
                             className={cn(
                                 "h-5 w-10 rounded-full relative transition-all duration-300",
                                 driftAlerts ? "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.4)]" : "bg-white/10",
@@ -444,13 +504,14 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
                                     value={githubRepo}
                                     onChange={(e) => setGithubRepo(e.target.value)}
                                     onBlur={() => handleUpdateConfig({ githubRepo })}
-                                    className="mt-2 bg-black/40 border-white/10 text-white text-[10px] h-7 rounded-lg font-mono"
+                                    disabled={!canManageAccess}
+                                    className="mt-2 bg-black/40 border-white/10 text-white text-[10px] h-7 rounded-lg font-mono disabled:opacity-60"
                                 />
                             )}
                         </div>
                         <button
                             onClick={() => handleUpdateConfig({ autoGithubSync: !autoGithubSync })}
-                            disabled={updatingGoal}
+                            disabled={updatingGoal || !canManageAccess}
                             className={cn(
                                 "h-5 w-10 rounded-full relative transition-all duration-300",
                                 autoGithubSync ? "bg-primary shadow-[0_0_10px_rgba(124,58,237,0.4)]" : "bg-white/10",
@@ -487,12 +548,13 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
                                 max="365"
                                 value={retentionDays}
                                 onChange={(e) => setRetentionDays(parseInt(e.target.value, 10) || 0)}
-                                className="w-16 h-8 bg-black/40 border-white/10 text-white text-xs text-center font-bold rounded-lg"
+                                disabled={!canManageAccess}
+                                className="w-16 h-8 bg-black/40 border-white/10 text-white text-xs text-center font-bold rounded-lg disabled:opacity-60"
                             />
                             <Button
                                 size="sm"
                                 onClick={() => handleUpdateConfig({ retentionDays })}
-                                disabled={updatingGoal}
+                                disabled={updatingGoal || !canManageAccess}
                                 className="h-8 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-[9px] font-black uppercase tracking-widest"
                             >
                                 Set
@@ -519,7 +581,8 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
                                     setType(nextValue);
                                 }
                             }}
-                            className="bg-[#18181b] border border-white/10 text-white rounded-xl px-3 text-xs font-bold outline-none h-10 min-w-[100px]"
+                            disabled={!canManageAccess}
+                            className="bg-[#18181b] border border-white/10 text-white rounded-xl px-3 text-xs font-bold outline-none h-10 min-w-[100px] disabled:opacity-60"
                         >
                             <option value="SLACK">Slack</option>
                             <option value="DISCORD">Discord</option>
@@ -528,11 +591,12 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
                             placeholder={type === "SLACK" ? "https://hooks.slack.com/services/..." : "https://discord.com/api/webhooks/..."}
                             value={webhookUrl}
                             onChange={(e) => setWebhookUrl(e.target.value)}
-                            className="bg-black/40 border-white/10 text-white h-10 text-xs rounded-xl flex-1 font-mono"
+                            disabled={!canManageAccess}
+                            className="bg-black/40 border-white/10 text-white h-10 text-xs rounded-xl flex-1 font-mono disabled:opacity-60"
                         />
                     </div>
                     <Button
-                        disabled={creating || !webhookUrl.trim()}
+                        disabled={creating || !webhookUrl.trim() || !canManageAccess}
                         className="w-full h-10 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest gap-2 shadow-lg shadow-indigo-500/10"
                     >
                         {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
@@ -584,8 +648,8 @@ export function TeamIntegrations({ teamId }: { teamId: string }) {
                                     </div>
                                     <button
                                         onClick={() => handleDelete(integration.id)}
-                                        disabled={deletingId === integration.id}
-                                        className="p-1.5 text-zinc-600 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100 disabled:opacity-100"
+                                        disabled={deletingId === integration.id || !canManageAccess}
+                                        className="p-1.5 text-zinc-600 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100 disabled:opacity-60"
                                     >
                                         {deletingId === integration.id ? (
                                             <Loader2 className="w-3.5 h-3.5 animate-spin" />

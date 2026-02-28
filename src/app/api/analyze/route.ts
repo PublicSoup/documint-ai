@@ -17,6 +17,8 @@ const analyzeSchema = z.object({
     teamId: z.string().trim().min(1).max(100).optional(),
 }).strict();
 
+const MAX_FILES_PER_REQUEST = 20;
+
 /**
  * POST /api/analyze
  * Processes uploaded files, performs deep code analysis, generates AI documentation,
@@ -38,21 +40,38 @@ export async function POST(req: NextRequest) {
         await enforceRateLimit(userId, "upload");
 
         const formData = await req.formData();
-        const files = formData.getAll("files") as unknown as File[];
-        
-        const { teamId } = analyzeSchema.parse({
+        const fileEntries = formData.getAll("files");
+        const files = fileEntries.filter((entry): entry is File => entry instanceof File);
+
+        if (fileEntries.length !== files.length) {
+            return errorResponse(ApiErrors.badRequest("Invalid file payload"));
+        }
+
+        if (files.length === 0) {
+            return errorResponse(ApiErrors.badRequest("No files uploaded"));
+        }
+
+        if (files.length > MAX_FILES_PER_REQUEST) {
+            return errorResponse(ApiErrors.badRequest(`Too many files. Max ${MAX_FILES_PER_REQUEST} files per request.`));
+        }
+
+        const parsedAnalyze = analyzeSchema.safeParse({
             teamId: formData.get("teamId")?.toString() || undefined,
         });
+
+        if (!parsedAnalyze.success) {
+            return errorResponse(ApiErrors.badRequest("Invalid team ID"));
+        }
+
+        const { teamId } = parsedAnalyze.data;
 
         // 2. Check Plan Limits
         const { canUploadFile } = await import("@/lib/subscription");
         const limitCheck = await canUploadFile(userId);
         if (!limitCheck.allowed) {
-            return NextResponse.json({
-                message: limitCheck.reason || "Upload limit reached",
-                error: "LIMIT_REACHED",
-                upgradeUrl: "/dashboard/billing"
-            }, { status: 403 });
+            return errorResponse(
+                ApiErrors.forbidden(limitCheck.reason || "Upload limit reached. Upgrade required.")
+            );
         }
 
         // 3. Verify Team Access if applicable
@@ -61,10 +80,6 @@ export async function POST(req: NextRequest) {
             if (!hasPermission) {
                 return errorResponse(ApiErrors.forbidden("You do not have permission to upload files to this team."));
             }
-        }
-
-        if (!files.length) {
-            return errorResponse(ApiErrors.badRequest("No files uploaded"));
         }
 
         const results = [];
@@ -90,11 +105,13 @@ export async function POST(req: NextRequest) {
 
                 // 4. Parse code and analyze quality
                 let entities: CodeEntity[] = [];
+                let parseWarning: string | null = null;
                 try {
                     entities = await parseCode(content, extension);
-                } catch (e) {
-                    // Log but don't fail the whole file if parsing fails
-                    console.warn(`Parsing failed for ${name}:`, e);
+                } catch (parsingError: unknown) {
+                    parseWarning = parsingError instanceof Error
+                        ? parsingError.message
+                        : "Parser failed with unknown error";
                 }
 
                 const analysisResult = analyzeCodeQuality(content, entities, extension);
@@ -187,7 +204,8 @@ export async function POST(req: NextRequest) {
                         details: {
                             fileId: result.dbFile.id,
                             fileName: name,
-                            score: analysisResult.qualityScore
+                            score: analysisResult.qualityScore,
+                            parseWarning,
                         }
                     });
                 } catch {
@@ -198,7 +216,9 @@ export async function POST(req: NextRequest) {
                     fileId: result.dbFile.id,
                     name,
                     qualityScore: analysisResult.qualityScore,
-                    securityInsights: analysisResult.securityInsights,
+                    securityInsights: parseWarning
+                        ? [...analysisResult.securityInsights, `Parser warning: ${parseWarning}`]
+                        : analysisResult.securityInsights,
                     complexity: analysisResult.complexityMetrics,
                     dependencies: analysisResult.dependencies,
                     status: "success"

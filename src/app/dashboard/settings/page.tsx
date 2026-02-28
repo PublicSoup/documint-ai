@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -29,6 +29,29 @@ import { GitHubSettings } from "@/components/github-settings";
 import { ApiKeySettings } from "@/components/api-key-settings";
 import TeamManagement from "@/components/team-management";
 import { useToast } from "@/components/toast";
+
+function getApiMessage(payload: unknown, fallback: string): string {
+    if (!payload || typeof payload !== "object") {
+        return fallback;
+    }
+
+    const record = payload as Record<string, unknown>;
+
+    if (typeof record.message === "string" && record.message.trim().length > 0) {
+        return record.message;
+    }
+
+    if (
+        typeof record.error === "string" &&
+        record.error.trim().length > 0 &&
+        record.error !== "ApiException" &&
+        record.error !== "Error"
+    ) {
+        return record.error;
+    }
+
+    return fallback;
+}
 
 export default function SettingsPage() {
     const { toast } = useToast();
@@ -61,6 +84,79 @@ export default function SettingsPage() {
     const [loadingSettings, setLoadingSettings] = useState(true);
     const [settingsError, setSettingsError] = useState("");
     const [subscription, setSubscription] = useState<{ plan: string } | null>(null);
+    const [notificationSaving, setNotificationSaving] = useState(false);
+    const [notificationSaveSuccess, setNotificationSaveSuccess] = useState(false);
+    const [notificationError, setNotificationError] = useState("");
+    const [initialNotificationSettings, setInitialNotificationSettings] = useState({
+        emailNotifications: true,
+        commentNotifications: true,
+        mentionNotifications: true,
+        marketingEmails: false,
+        autoRegenerate: false,
+    });
+
+    const fetchSettings = useCallback(async (signal?: AbortSignal) => {
+        setLoadingSettings(true);
+        setSettingsError("");
+
+        try {
+            const [notifyRes, subRes] = await Promise.all([
+                fetch("/api/webhooks/notify", { signal }),
+                fetch("/api/user/subscription", { signal }),
+            ]);
+
+            const notifyData = await notifyRes.json().catch(() => ({}));
+            const subData = await subRes.json().catch(() => ({}));
+
+            if (notifyRes.ok) {
+                const nextEmailNotifications = Boolean(
+                    notifyData.notifications?.onDocChange ??
+                        notifyData.notifications?.notifyOnDocChange ??
+                        true,
+                );
+                const nextCommentNotifications = Boolean(
+                    notifyData.notifications?.onComment ??
+                        notifyData.notifications?.notifyOnComment ??
+                        true,
+                );
+                const nextMentionNotifications = Boolean(
+                    notifyData.notifications?.onMention ??
+                        notifyData.notifications?.notifyOnMention ??
+                        true,
+                );
+                const nextMarketingEmails = Boolean(notifyData.notifications?.marketingEmails ?? false);
+                const nextAutoRegenerate = Boolean(notifyData.notifications?.autoRegenerate ?? false);
+
+                setEmailNotifications(nextEmailNotifications);
+                setCommentNotifications(nextCommentNotifications);
+                setMentionNotifications(nextMentionNotifications);
+                setMarketingEmails(nextMarketingEmails);
+                setAutoRegenerate(nextAutoRegenerate);
+                setInitialNotificationSettings({
+                    emailNotifications: nextEmailNotifications,
+                    commentNotifications: nextCommentNotifications,
+                    mentionNotifications: nextMentionNotifications,
+                    marketingEmails: nextMarketingEmails,
+                    autoRegenerate: nextAutoRegenerate,
+                });
+            } else {
+                setSettingsError(getApiMessage(notifyData, "Failed to load notification preferences"));
+            }
+
+            if (subRes.ok) {
+                setSubscription(subData);
+            }
+        } catch (requestError: unknown) {
+            if (!signal?.aborted) {
+                const message = requestError instanceof Error ? requestError.message : "Failed to load preferences";
+                setSettingsError(message);
+            }
+        } finally {
+            if (!signal?.aborted) {
+                setLoadingSettings(false);
+            }
+        }
+    }, []);
 
     useEffect(() => {
         if (session?.user?.name) {
@@ -68,43 +164,7 @@ export default function SettingsPage() {
         }
 
         const controller = new AbortController();
-
-        const fetchSettings = async () => {
-            setLoadingSettings(true);
-            setSettingsError("");
-
-            try {
-                const [notifyRes, subRes] = await Promise.all([
-                    fetch("/api/webhooks/notify", { signal: controller.signal }),
-                    fetch("/api/user/subscription", { signal: controller.signal })
-                ]);
-
-                const notifyData = await notifyRes.json().catch(() => ({}));
-                const subData = await subRes.json().catch(() => ({}));
-
-                if (notifyRes.ok) {
-                    setEmailNotifications(Boolean(notifyData.notifications?.onDocChange ?? true));
-                    setCommentNotifications(Boolean(notifyData.notifications?.onComment ?? true));
-                    setMentionNotifications(Boolean(notifyData.notifications?.onMention ?? true));
-                    setAutoRegenerate(Boolean(notifyData.notifications?.autoRegenerate ?? false));
-                }
-
-                if (subRes.ok) {
-                    setSubscription(subData);
-                }
-            } catch (e: unknown) {
-                if (!controller.signal.aborted) {
-                    const message = e instanceof Error ? e.message : "Failed to load preferences";
-                    setSettingsError(message);
-                }
-            } finally {
-                if (!controller.signal.aborted) {
-                    setLoadingSettings(false);
-                }
-            }
-        };
-
-        fetchSettings();
+        fetchSettings(controller.signal);
 
         const params = new URLSearchParams(window.location.search);
         const tab = params.get("tab");
@@ -113,7 +173,7 @@ export default function SettingsPage() {
         }
 
         return () => controller.abort();
-    }, [session]);
+    }, [fetchSettings, session]);
 
     const handleSaveProfile = async () => {
         setSaving(true);
@@ -126,18 +186,11 @@ export default function SettingsPage() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     name,
-                    settings: { 
-                        notifyOnDocChange: emailNotifications, 
-                        notifyOnComment: commentNotifications,
-                        notifyOnMention: mentionNotifications,
-                        marketingEmails, 
-                        autoRegenerate 
-                    },
                 }),
             });
 
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || "Failed to save");
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(getApiMessage(data, "Failed to save"));
 
             setSaveSuccess(true);
             await updateSession({ name });
@@ -146,6 +199,47 @@ export default function SettingsPage() {
             setError(e instanceof Error ? e.message : "Failed to save settings");
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleSaveNotifications = async () => {
+        setNotificationSaving(true);
+        setNotificationError("");
+        setNotificationSaveSuccess(false);
+
+        try {
+            const response = await fetch("/api/webhooks/notify", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    notifications: {
+                        notifyOnDocChange: emailNotifications,
+                        notifyOnComment: commentNotifications,
+                        notifyOnMention: mentionNotifications,
+                        marketingEmails,
+                        autoRegenerate,
+                    },
+                }),
+            });
+
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data.error || data.message || "Failed to save notification settings");
+            }
+
+            setInitialNotificationSettings({
+                emailNotifications,
+                commentNotifications,
+                mentionNotifications,
+                marketingEmails,
+                autoRegenerate,
+            });
+            setNotificationSaveSuccess(true);
+            setTimeout(() => setNotificationSaveSuccess(false), 3000);
+        } catch (saveError: unknown) {
+            setNotificationError(saveError instanceof Error ? saveError.message : "Failed to save notification settings");
+        } finally {
+            setNotificationSaving(false);
         }
     };
 
@@ -194,7 +288,13 @@ export default function SettingsPage() {
         );
     }
 
-    const isAdmin = (session.user as any)?.role === "ADMIN";
+    const isAdmin = session.user.role === "ADMIN";
+    const hasUnsavedNotificationChanges =
+        emailNotifications !== initialNotificationSettings.emailNotifications ||
+        commentNotifications !== initialNotificationSettings.commentNotifications ||
+        mentionNotifications !== initialNotificationSettings.mentionNotifications ||
+        marketingEmails !== initialNotificationSettings.marketingEmails ||
+        autoRegenerate !== initialNotificationSettings.autoRegenerate;
 
     return (
         <div className="space-y-8 max-w-4xl mx-auto pb-20 animate-fade-in">
@@ -293,9 +393,36 @@ export default function SettingsPage() {
                             )}
 
                             {settingsError && (
-                                <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 px-3 py-2 rounded-xl flex items-center gap-2">
+                                <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 px-3 py-2 rounded-xl flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2">
+                                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                                        {settingsError}
+                                    </div>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 px-2.5 text-[10px]"
+                                        disabled={loadingSettings}
+                                        onClick={() => {
+                                            void fetchSettings();
+                                        }}
+                                    >
+                                        {loadingSettings ? <Loader2 className="w-3 h-3 animate-spin" /> : "Retry"}
+                                    </Button>
+                                </div>
+                            )}
+
+                            {notificationError && (
+                                <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/20 px-3 py-2 rounded-xl flex items-center gap-2">
                                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                                    {settingsError}
+                                    {notificationError}
+                                </div>
+                            )}
+
+                            {notificationSaveSuccess && (
+                                <div className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 rounded-xl flex items-center gap-2">
+                                    <Check className="w-3.5 h-3.5 shrink-0" />
+                                    Notification preferences saved.
                                 </div>
                             )}
 
@@ -305,7 +432,7 @@ export default function SettingsPage() {
                                     <p className="text-xs text-muted-foreground font-medium">Receive documentation health reports and updates</p>
                                 </div>
                                 <button
-                                    disabled={loadingSettings}
+                                    disabled={loadingSettings || notificationSaving}
                                     onClick={() => setEmailNotifications(!emailNotifications)}
                                     className={`h-6 w-11 rounded-full relative cursor-pointer transition-all duration-300 ${emailNotifications ? "bg-primary shadow-[0_0_15px_-3px_rgba(124,58,237,0.5)]" : "bg-white/10"
                                         }`}
@@ -321,7 +448,7 @@ export default function SettingsPage() {
                                     <p className="text-xs text-muted-foreground font-medium">Receive alerts when someone comments on your docs</p>
                                 </div>
                                 <button
-                                    disabled={loadingSettings}
+                                    disabled={loadingSettings || notificationSaving}
                                     onClick={() => setCommentNotifications(!commentNotifications)}
                                     className={`h-6 w-11 rounded-full relative cursor-pointer transition-all duration-300 ${commentNotifications ? "bg-primary shadow-[0_0_15px_-3px_rgba(124,58,237,0.5)]" : "bg-white/10"
                                         }`}
@@ -337,12 +464,28 @@ export default function SettingsPage() {
                                     <p className="text-xs text-muted-foreground font-medium">Get notified when you are @mentioned in a discussion</p>
                                 </div>
                                 <button
-                                    disabled={loadingSettings}
+                                    disabled={loadingSettings || notificationSaving}
                                     onClick={() => setMentionNotifications(!mentionNotifications)}
                                     className={`h-6 w-11 rounded-full relative cursor-pointer transition-all duration-300 ${mentionNotifications ? "bg-primary shadow-[0_0_15px_-3px_rgba(124,58,237,0.5)]" : "bg-white/10"
                                         }`}
                                 >
                                     <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-lg transition-all duration-300 ${mentionNotifications ? "right-1" : "left-1"
+                                        }`} />
+                                </button>
+                            </div>
+
+                            <div className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/5">
+                                <div>
+                                    <h4 className="text-sm font-bold text-white">Product Updates</h4>
+                                    <p className="text-xs text-muted-foreground font-medium">Receive release notes, feature launches, and product announcements</p>
+                                </div>
+                                <button
+                                    disabled={loadingSettings || notificationSaving}
+                                    onClick={() => setMarketingEmails(!marketingEmails)}
+                                    className={`h-6 w-11 rounded-full relative cursor-pointer transition-all duration-300 ${marketingEmails ? "bg-primary shadow-[0_0_15px_-3px_rgba(124,58,237,0.5)]" : "bg-white/10"
+                                        }`}
+                                >
+                                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-lg transition-all duration-300 ${marketingEmails ? "right-1" : "left-1"
                                         }`} />
                                 </button>
                             </div>
@@ -356,7 +499,7 @@ export default function SettingsPage() {
                                     <p className="text-xs text-muted-foreground font-medium">Automatically update documentation when code changes significantly</p>
                                 </div>
                                 <button
-                                    disabled={loadingSettings}
+                                    disabled={loadingSettings || notificationSaving}
                                     onClick={() => setAutoRegenerate(!autoRegenerate)}
                                     className={`h-6 w-11 rounded-full relative cursor-pointer transition-all duration-300 ${autoRegenerate ? "bg-emerald-500 shadow-[0_0_15px_-3px_rgba(16,185,129,0.5)]" : "bg-white/10"
                                         }`}
@@ -364,6 +507,17 @@ export default function SettingsPage() {
                                     <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-lg transition-all duration-300 ${autoRegenerate ? "right-1" : "left-1"
                                         }`} />
                                 </button>
+                            </div>
+
+                            <div className="pt-4 flex justify-end">
+                                <Button
+                                    onClick={handleSaveNotifications}
+                                    disabled={loadingSettings || notificationSaving || !hasUnsavedNotificationChanges}
+                                    className="h-11 px-8 rounded-xl font-bold shadow-lg shadow-primary/20"
+                                >
+                                    {notificationSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : notificationSaveSuccess ? <Check className="w-4 h-4 mr-2" /> : null}
+                                    {notificationSaveSuccess ? "Saved" : "Save Notification Preferences"}
+                                </Button>
                             </div>
                         </CardContent>
                     </Card>
@@ -508,15 +662,6 @@ export default function SettingsPage() {
                 </TabsContent>
 
                 <TabsContent value="team" className="space-y-6 animate-in slide-in-from-bottom-2 duration-300">
-                    <Card className="glass-card border-white/5">
-                        <CardHeader>
-                            <CardTitle className="text-lg font-bold text-white flex items-center gap-2">
-                                <Users className="w-5 h-5 text-primary" />
-                                Team Workspace
-                            </CardTitle>
-                            <CardDescription>Create teams, invite members, and configure governance settings.</CardDescription>
-                        </CardHeader>
-                    </Card>
                     <TeamManagement />
                 </TabsContent>
 

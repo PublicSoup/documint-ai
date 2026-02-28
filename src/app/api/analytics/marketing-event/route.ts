@@ -3,61 +3,37 @@ import { z } from "zod";
 import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
 import { errorResponse, ApiErrors } from "@/lib/api-utils";
 import { logAudit } from "@/lib/audit-logger";
-
-const allowedEventNames = [
-  "landing_primary_cta_click",
-  "landing_secondary_cta_click",
-  "landing_pricing_cta_click",
-  "landing_final_cta_click",
-  "trial_upgrade_cta_click",
-] as const;
+import {
+  MARKETING_EVENT_NAMES,
+  MARKETING_LOCATION_TOKENS,
+  MARKETING_LOCATION_PREFIXES,
+  MARKETING_VARIANT_PREFIXES,
+  MARKETING_SESSION_HINT_PREFIXES,
+} from "@/lib/marketing-events";
 
 const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
 const MAX_EVENT_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_REJECTION_ISSUES_LOGGED = 10;
 
-const ALLOWED_VARIANT_PREFIXES = ["v", "test_"] as const;
-const ALLOWED_SESSION_HINT_PREFIXES = ["mh_"] as const;
-
-const ALLOWED_LOCATION_PREFIXES = ["pricing_"] as const;
-const ALLOWED_LOCATION_TOKENS = new Set([
-  "hero_primary",
-  "hero_secondary_github",
-  "sticky_conversion_bar_primary",
-  "sticky_conversion_bar_billing",
-  "final_cta_primary",
-  "final_cta_contact_sales",
-  "header_login",
-  "header_primary",
-  "header_nav_features",
-  "header_nav_solutions",
-  "header_nav_pricing",
-  "footer_nav_features",
-  "footer_nav_pricing",
-  "footer_nav_docs",
-  "dashboard_trial_banner_upgrade",
-  "onboarding_checklist_upgrade",
-]);
-
 function isAllowedLocationToken(location: string): boolean {
-  if (ALLOWED_LOCATION_TOKENS.has(location)) {
+  if (MARKETING_LOCATION_TOKENS.includes(location as any)) {
     return true;
   }
 
-  return ALLOWED_LOCATION_PREFIXES.some((prefix) => location.startsWith(prefix));
+  return MARKETING_LOCATION_PREFIXES.some((prefix) => location.startsWith(prefix));
 }
 
 function isAllowedVariantToken(variant: string | undefined): boolean {
   if (!variant) return true;
   if (variant === "control") return true;
 
-  return ALLOWED_VARIANT_PREFIXES.some((prefix) => variant.startsWith(prefix));
+  return MARKETING_VARIANT_PREFIXES.some((prefix) => variant.startsWith(prefix));
 }
 
 function isAllowedSessionHintToken(sessionHint: string | undefined): boolean {
   if (!sessionHint) return true;
 
-  return ALLOWED_SESSION_HINT_PREFIXES.some((prefix) => sessionHint.startsWith(prefix));
+  return MARKETING_SESSION_HINT_PREFIXES.some((prefix) => sessionHint.startsWith(prefix));
 }
 
 async function logRejectedMarketingEvent(params: {
@@ -96,7 +72,7 @@ function maskIpAddress(ip: string | null | undefined): string | null | undefined
 }
 
 const marketingEventSchema = z.object({
-  eventName: z.enum(allowedEventNames),
+  eventName: z.enum(MARKETING_EVENT_NAMES),
   location: z.string().trim().min(1).max(120)
     .regex(/^[a-z0-9_\-]+$/, "location must be lowercase snake/kebab token")
     .refine(isAllowedLocationToken, "location is not in allowlist"),

@@ -1,30 +1,69 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 
-const paramsSchema = z.object({
-    teamId: z.string().trim().min(1).max(100),
-}).strict();
+const paramsSchema = z
+    .object({
+        teamId: z.string().trim().min(1).max(100),
+    })
+    .strict();
 
-const updateTeamSchema = z.object({
-    name: z.string().trim().min(2).max(100).optional(),
-    slug: z.string().trim().min(2).max(100).regex(/^[a-z0-9-]+$/).optional(),
-}).strict().refine((value) => Object.keys(value).length > 0, {
-    message: "At least one field is required",
-});
-
-async function ensureOwner(teamId: string, userId: string) {
-    const membership = await db.teamMember.findUnique({
-        where: {
-            teamId_userId: { teamId, userId },
-        },
-        select: { role: true },
+const updateTeamSchema = z
+    .object({
+        name: z.string().trim().min(2).max(100).optional(),
+        slug: z
+            .string()
+            .trim()
+            .min(2)
+            .max(100)
+            .regex(/^[a-z0-9-]+$/, "Slug must contain only lowercase letters, numbers, and hyphens")
+            .optional(),
+    })
+    .strict()
+    .refine((value) => Object.keys(value).length > 0, {
+        message: "At least one field is required",
     });
 
-    return membership?.role === "OWNER";
+function isKnownPrismaError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
+    return error instanceof Prisma.PrismaClientKnownRequestError;
+}
+
+function isSlugUniqueConflict(error: unknown): boolean {
+    if (!isKnownPrismaError(error) || error.code !== "P2002") {
+        return false;
+    }
+
+    const target = error.meta?.target;
+    if (Array.isArray(target)) {
+        return target.includes("slug");
+    }
+
+    return typeof target === "string" && target.includes("slug");
+}
+
+async function assertOwnerAccess(teamId: string, userId: string): Promise<void> {
+    const [team, membership] = await Promise.all([
+        db.team.findUnique({ where: { id: teamId }, select: { id: true } }),
+        db.teamMember.findUnique({
+            where: {
+                teamId_userId: { teamId, userId },
+            },
+            select: { role: true },
+        }),
+    ]);
+
+    if (!team) {
+        throw ApiErrors.notFound("Team");
+    }
+
+    if (membership?.role !== "OWNER") {
+        throw ApiErrors.forbidden("Only team owners can change team settings");
+    }
 }
 
 /**
@@ -38,55 +77,46 @@ export async function PATCH(
     try {
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid team ID" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid team ID", parsedParams.error.flatten());
         }
-
-        const { teamId } = parsedParams.data;
 
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
-        const parsedBody = updateTeamSchema.safeParse(await req.json());
-        if (!parsedBody.success) {
-            return NextResponse.json({ error: parsedBody.error.issues[0]?.message || "Invalid payload" }, { status: 400 });
-        }
+        const { teamId } = parsedParams.data;
+        const payload = await validateBody(req, updateTeamSchema);
 
-        const isOwner = await ensureOwner(teamId, session.user.id);
-        if (!isOwner) {
-            return NextResponse.json({ error: "Forbidden: Only team owners can change team settings" }, { status: 403 });
-        }
+        await assertOwnerAccess(teamId, session.user.id);
 
-        const existingTeam = await db.team.findUnique({
-            where: { id: teamId },
-            select: { id: true },
-        });
-
-        if (!existingTeam) {
-            return NextResponse.json({ error: "Team not found" }, { status: 404 });
-        }
-
-        const { name, slug } = parsedBody.data;
-
-        if (slug) {
+        if (payload.slug) {
             const slugConflict = await db.team.findFirst({
-                where: { slug, id: { not: teamId } },
+                where: {
+                    slug: payload.slug,
+                    id: { not: teamId },
+                },
                 select: { id: true },
             });
 
             if (slugConflict) {
-                return NextResponse.json({ error: "Slug already in use" }, { status: 400 });
+                throw ApiErrors.conflict("Slug already in use");
             }
         }
 
-        const team = await db.team.update({
+        const updatedTeam = await db.team.update({
             where: { id: teamId },
             data: {
-                ...(name !== undefined ? { name } : {}),
-                ...(slug !== undefined ? { slug } : {}),
+                ...(payload.name !== undefined ? { name: payload.name } : {}),
+                ...(payload.slug !== undefined ? { slug: payload.slug } : {}),
+            },
+            select: {
+                id: true,
+                name: true,
+                slug: true,
+                updatedAt: true,
             },
         });
 
@@ -98,17 +128,20 @@ export async function PATCH(
                 entity: "Team",
                 entityId: teamId,
                 details: {
-                    updatedFields: Object.keys(parsedBody.data),
+                    updatedFields: Object.keys(payload),
                 },
             });
         } catch {
             // Keep mutation non-blocking if audit logging fails.
         }
 
-        return NextResponse.json({ team });
+        return NextResponse.json({ team: updatedTeam });
     } catch (error) {
-        console.error("[Team_PATCH] Error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        if (isSlugUniqueConflict(error)) {
+            return errorResponse(ApiErrors.conflict("Slug already in use"));
+        }
+
+        return errorResponse(error);
     }
 }
 
@@ -123,31 +156,19 @@ export async function DELETE(
     try {
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid team ID" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid team ID", parsedParams.error.flatten());
         }
-
-        const { teamId } = parsedParams.data;
 
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
-        const isOwner = await ensureOwner(teamId, session.user.id);
-        if (!isOwner) {
-            return NextResponse.json({ error: "Forbidden: Only team owners can delete teams" }, { status: 403 });
-        }
+        const { teamId } = parsedParams.data;
 
-        const existingTeam = await db.team.findUnique({
-            where: { id: teamId },
-            select: { id: true },
-        });
-
-        if (!existingTeam) {
-            return NextResponse.json({ error: "Team not found" }, { status: 404 });
-        }
+        await assertOwnerAccess(teamId, session.user.id);
 
         await db.team.delete({
             where: { id: teamId },
@@ -167,7 +188,6 @@ export async function DELETE(
 
         return NextResponse.json({ success: true });
     } catch (error) {
-        console.error("[Team_DELETE] Error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }

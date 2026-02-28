@@ -68,11 +68,12 @@ interface Message {
 
 interface PendingChange {
     id: string;
+    fileId: string;
     originalContent: string;
     newContent: string;
-    fileName?: string;
     applied: boolean;
     canUndo: boolean;
+    timestamp: number;
 }
 
 interface AIChatPanelProps {
@@ -551,8 +552,7 @@ export function AIChatPanel({
                     toast("Code replaced successfully", "success");
                 }
             }
-        } catch (e) {
-            console.error("Apply code error:", e);
+        } catch {
             // Last resort: try direct replace on error too
             try {
                 if (onReplaceFileContent) {
@@ -569,7 +569,7 @@ export function AIChatPanel({
                     setAppliedBlocks(prev => new Set(prev).add(blockId));
                     toast("Code replaced successfully", "success");
                 }
-            } catch (e2) {
+            } catch {
                 toast("Error applying code", "error");
             }
         }
@@ -595,8 +595,7 @@ export function AIChatPanel({
 
                 toast("Undid changes", "success");
             }
-        } catch (e) {
-            console.error("Undo error:", e);
+        } catch {
             toast("Error undoing changes", "error");
         }
     };
@@ -1017,8 +1016,8 @@ export function AIChatPanel({
                                 toast(event.message, "error");
                             }
 
-                        } catch (e) {
-                            console.error("Error parsing stream line:", e);
+                        } catch {
+                            // Ignore malformed stream chunks and continue processing.
                         }
                     }
                 }
@@ -1026,7 +1025,6 @@ export function AIChatPanel({
 
         } catch (e: unknown) {
             if (e instanceof Error && e.name === 'AbortError') {
-                console.log("Request aborted");
                 return;
             }
             const errorMessage: Message = {

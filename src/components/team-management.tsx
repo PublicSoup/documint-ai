@@ -602,7 +602,10 @@ export default function TeamManagement() {
 
                                     {activeTab[team.id] === "integrations" && (
                                         <div className="animate-in fade-in duration-300">
-                                            <TeamIntegrations teamId={team.id} />
+                                            <TeamIntegrations
+                                                teamId={team.id}
+                                                canManage={team.role === "OWNER" || team.role === "ADMIN"}
+                                            />
                                         </div>
                                     )}
 

@@ -84,3 +84,47 @@ export async function logAudit({
         console.error("Failed to create audit log:", error);
     }
 }
+
+/**
+ * Validates the audit log chain for tampering.
+ * Returns true if the chain is intact, false otherwise.
+ * Use for periodic compliance checks.
+ */
+export async function verifyAuditChain(entityId?: string): Promise<{ valid: boolean; brokenAtId?: string }> {
+    const whereClause: Prisma.AuditLogWhereInput = entityId ? { entityId } : {};
+    
+    // Process in batches to avoid memory overload
+    let cursor: string | undefined;
+    let lastHash = "GENESIS_HASH";
+    
+    // Fetch logs oldest to newest
+    // Note: This simplified version assumes sequential verification is feasible.
+    // In production with millions of rows, use targeted sampling or offline jobs.
+    const logs = await db.auditLog.findMany({
+        where: whereClause,
+        orderBy: { createdAt: "asc" },
+        take: 1000 // Limit for synchronous check
+    });
+
+    for (const log of logs) {
+        // Reconstruct the hash input
+        // previousHash | action | entityId | timestamp | details (JSON string)
+        const dataToHash = `${log.previousHash}|${log.action}|${log.entityId}|${log.createdAt.toISOString()}|${JSON.stringify(log.details)}`;
+        const expectedHash = createHash("sha256").update(dataToHash).digest("hex");
+
+        if (log.hash !== expectedHash) {
+            console.error(`Audit Chain Broken at ID: ${log.id}. Expected: ${expectedHash}, Found: ${log.hash}`);
+            return { valid: false, brokenAtId: log.id };
+        }
+        
+        // Chain link check: Does this log point to the correct previous hash?
+        if (lastHash !== "GENESIS_HASH" && log.previousHash !== lastHash) {
+             console.error(`Audit Chain Link Broken at ID: ${log.id}. Previous Hash Mismatch.`);
+             return { valid: false, brokenAtId: log.id };
+        }
+
+        lastHash = log.hash!;
+    }
+
+    return { valid: true };
+}

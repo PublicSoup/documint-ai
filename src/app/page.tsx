@@ -54,8 +54,8 @@ export default function LandingPage() {
       />
       {/* Static Background Gradients */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none -z-10">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/15 blur-[120px] rounded-full" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[35%] h-[35%] bg-purple-600/8 blur-[120px] rounded-full" />
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/15 blur-[120px] rounded-full float" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[35%] h-[35%] bg-purple-600/8 blur-[120px] rounded-full float-delayed" />
       </div>
 
       {/* Header */}
@@ -103,7 +103,7 @@ export default function LandingPage() {
             className="text-6xl md:text-8xl font-black tracking-tighter mb-8 leading-[1.1]"
           >
             Automate Your <br />
-            <span className="bg-gradient-to-r from-primary via-purple-400 to-indigo-400 bg-clip-text text-transparent">
+            <span className="animated-gradient-text">
               Workflow Magic.
             </span>
           </h1>
@@ -118,7 +118,7 @@ export default function LandingPage() {
             className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
             <TrackedLink href={buildRegisterHref({ source: "hero_primary", intent: "signup" })} eventName="landing_primary_cta_click" location="hero_primary" variant={LANDING_EXPERIMENT_VARIANT}>
-              <Button size="lg" className="h-14 px-8 text-lg bg-primary hover:bg-primary/90 text-white rounded-2xl shadow-2xl shadow-primary/40">
+              <Button size="lg" className="h-14 px-8 text-lg bg-primary hover:bg-primary/90 text-white rounded-2xl shadow-2xl shadow-primary/40 pulse-ring">
                 Launch Dashboard <ArrowRight className="w-5 h-5 ml-2" />
               </Button>
             </TrackedLink>
@@ -154,7 +154,7 @@ export default function LandingPage() {
                   <div className="w-1/2 h-4 bg-white/4 rounded" />
                 </div>
               </div>
-              <div className="col-span-9 p-6 bg-[#0d1117] font-mono text-xs relative overflow-hidden">
+              <div className="col-span-9 p-6 bg-[#0d1117] font-mono text-xs relative overflow-hidden shimmer">
                 <div className="flex">
                   <div className="text-gray-600 pr-4 select-none text-right" style={{ width: '24px' }}>
                     {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => <div key={n}>{n}</div>)}
@@ -169,7 +169,7 @@ export default function LandingPage() {
                     <div className="pl-4"><span className="text-purple-400">const</span> <span className="text-sky-300">result</span> = <span className="text-purple-400">await</span> <span className="text-yellow-300">analyzeCode</span><span className="text-white">(</span><span className="text-sky-300">code</span><span className="text-white">)</span></div>
                     <div className="pl-4"><span className="text-purple-400">return</span> <span className="text-white">{'<'}</span><span className="text-green-400">div</span><span className="text-white">{'>'}</span>{'{'}<span className="text-sky-300">result</span>{'}'}<span className="text-white">{'</'}</span><span className="text-green-400">div</span><span className="text-white">{'>'}</span></div>
                     <div><span className="text-white">{'}'}</span></div>
-                    <div className="h-4"></div>
+                    <div className="h-4"><span className="typing-cursor"></span></div>
                   </div>
                 </div>
                 <div className="absolute bottom-4 right-4 px-3 py-1.5 bg-primary/20 border border-primary/30 rounded-lg text-primary text-xs font-sans flex items-center gap-2">
@@ -188,7 +188,7 @@ export default function LandingPage() {
             <p className="text-[11px] uppercase tracking-[0.25em] text-white/40 text-center mb-6 font-bold">
               Trusted by teams shipping production systems
             </p>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 stagger-in">
               {[
                 { label: 'Deployment Readiness', value: '99.95%' },
                 { label: 'Avg. Docs Time Saved', value: '12+ hrs/mo' },
@@ -306,7 +306,7 @@ export default function LandingPage() {
           </div>
 
           <div
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 stagger-in"
           >
             {[
               {
@@ -365,7 +365,7 @@ export default function LandingPage() {
               }
             ].map((feature, i) => (
               <div key={i}>
-                <Card className="glass-card h-full border-white/5 hover:border-primary/30 group">
+                <Card className="glass-card h-full border-white/5 hover:border-primary/30 group card-hover-lift gradient-border-hover">
                   <CardContent className="p-8">
                     <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-500 ${feature.bg} ${feature.color} border ${feature.border} shadow-lg ${feature.shadow}`}>
                       {feature.icon}

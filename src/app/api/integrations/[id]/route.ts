@@ -5,10 +5,13 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { checkTeamPermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse } from "@/lib/api-utils";
 
-const paramsSchema = z.object({
-    id: z.string().trim().min(1).max(100),
-}).strict();
+const paramsSchema = z
+    .object({
+        id: z.string().trim().min(1).max(100),
+    })
+    .strict();
 
 /**
  * DELETE /api/integrations/[id]
@@ -21,27 +24,32 @@ export async function DELETE(
     try {
         const parsedParams = paramsSchema.safeParse(await params);
         if (!parsedParams.success) {
-            return NextResponse.json({ error: "Invalid integration ID" }, { status: 400 });
+            throw ApiErrors.badRequest("Invalid integration ID", parsedParams.error.flatten());
         }
 
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
         await enforceRateLimit(session.user.id, "api");
 
         const integration = await db.integration.findUnique({
             where: { id: parsedParams.data.id },
+            select: {
+                id: true,
+                teamId: true,
+                type: true,
+            },
         });
 
         if (!integration) {
-            return NextResponse.json({ error: "Integration not found" }, { status: 404 });
+            throw ApiErrors.notFound("Integration");
         }
 
         const canManageIntegration = await checkTeamPermission(session.user.id, integration.teamId, "manage");
         if (!canManageIntegration) {
-            return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+            throw ApiErrors.forbidden("Team manager access required");
         }
 
         await db.integration.delete({
@@ -66,7 +74,6 @@ export async function DELETE(
 
         return NextResponse.json({ success: true, message: "Integration removed" });
     } catch (error) {
-        console.error("[Integration_DELETE] Error:", error);
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+        return errorResponse(error);
     }
 }

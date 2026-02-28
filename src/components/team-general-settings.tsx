@@ -15,6 +15,29 @@ interface TeamSettingsProps {
     teamSlug: string;
 }
 
+function getApiMessage(payload: unknown, fallback: string): string {
+    if (!payload || typeof payload !== "object") {
+        return fallback;
+    }
+
+    const record = payload as Record<string, unknown>;
+
+    if (typeof record.message === "string" && record.message.trim().length > 0) {
+        return record.message;
+    }
+
+    if (
+        typeof record.error === "string" &&
+        record.error.trim().length > 0 &&
+        record.error !== "ApiException" &&
+        record.error !== "Error"
+    ) {
+        return record.error;
+    }
+
+    return fallback;
+}
+
 function normalizeSlug(value: string): string {
     return value
         .toLowerCase()
@@ -77,7 +100,7 @@ export function TeamGeneralSettings({ teamId, teamName: initialName, teamSlug: i
 
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                throw new Error(data.error || "Failed to update team");
+                throw new Error(getApiMessage(data, "Failed to update team"));
             }
 
             toast("Team updated successfully", "success");
@@ -106,7 +129,7 @@ export function TeamGeneralSettings({ teamId, teamName: initialName, teamSlug: i
 
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                throw new Error(data.error || "Failed to delete team");
+                throw new Error(getApiMessage(data, "Failed to delete team"));
             }
 
             toast("Team deleted successfully", "success");

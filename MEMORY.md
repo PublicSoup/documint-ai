@@ -28,6 +28,7 @@ Audit → Plan → Implement → Verify → Document → Commit
 
 ## Shipped Capabilities (high value)
 ### Growth / Conversion
+- Centralized marketing event constants in `src/lib/marketing-events.ts` for type-safe tracking.
 - AI Website Generator flow in IDE.
 - Generated project launch metadata:
   - `launchChecklist`

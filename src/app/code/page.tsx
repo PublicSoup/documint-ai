@@ -38,7 +38,7 @@ export default async function CodePage() {
     }
 
     // Fetch user files - bypass if in dev mode (no DB)
-    let files: any[] = [];
+    let files: import("@prisma/client").File[] = [];
     if (!subscription.isDevMode) {
         files = await db.file.findMany({
             where: { userId: session.user.id },

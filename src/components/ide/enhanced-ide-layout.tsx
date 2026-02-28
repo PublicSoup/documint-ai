@@ -80,10 +80,31 @@ function getLanguageFromFileName(fileName: string): string {
 
 
 
+interface SubscriptionUsage {
+    tokens?: number;
+}
+
+interface SubscriptionLimits {
+    totalFiles?: number;
+    maxTokens?: number;
+}
+
+interface SubscriptionInfo {
+    plan?: string;
+    usage?: SubscriptionUsage;
+    limits?: SubscriptionLimits;
+}
+
+interface IDEUser {
+    id: string;
+    name?: string | null;
+    email?: string | null;
+}
+
 interface EnhancedIDELayoutProps {
     files: (File & { content?: string | null })[];
-    user: any;
-    subscription?: any; // Added for compatibility
+    user: IDEUser;
+    subscription?: SubscriptionInfo;
 }
 
 export default function EnhancedIDELayout({ files: initialFiles, user, subscription }: EnhancedIDELayoutProps) {
