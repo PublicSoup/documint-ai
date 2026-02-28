@@ -38,6 +38,11 @@ const DISALLOWED_SETTINGS_KEYS = new Set([
     "apiKey",
     "apiKeyLabel",
     "apiKeyCreatedAt",
+    "onboardingDismissed",
+    "stripeCustomerId",
+    "subscriptionId",
+    "subscriptionStatus",
+    "role",
 ]);
 
 function toSettingsObject(value: Prisma.JsonValue | null | undefined): Prisma.JsonObject {

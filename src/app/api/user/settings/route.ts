@@ -23,6 +23,17 @@ const settingsPatchSchema = z.record(z.string().trim().min(1).max(80), jsonValue
     { message: "Too many settings fields" },
 );
 
+const DISALLOWED_SETTINGS_KEYS = new Set([
+    "apiKey",
+    "apiKeyLabel",
+    "apiKeyCreatedAt",
+    "onboardingDismissed",
+    "stripeCustomerId",
+    "subscriptionId",
+    "subscriptionStatus",
+    "role",
+]);
+
 function toSettingsObject(value: Prisma.JsonValue | null | undefined): Prisma.JsonObject {
     if (value && typeof value === "object" && !Array.isArray(value)) {
         return value as Prisma.JsonObject;
@@ -60,6 +71,11 @@ export async function PATCH(req: NextRequest) {
         await enforceRateLimit(session.user.id, "api");
 
         const updates = await validateBody(req, settingsPatchSchema);
+
+        const blockedKey = Object.keys(updates).find((key) => DISALLOWED_SETTINGS_KEYS.has(key));
+        if (blockedKey) {
+            throw ApiErrors.forbidden(`Updating settings key '${blockedKey}' is not allowed via this endpoint`);
+        }
 
         const user = await db.user.findUnique({
             where: { id: session.user.id },
