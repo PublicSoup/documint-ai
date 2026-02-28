@@ -41,6 +41,10 @@ interface TeamMember {
     } | null;
 }
 
+function isValidInviteEmail(value: string): boolean {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 export default function BillingHub() {
     const { toast } = useToast();
     const { data: session } = useSession();
@@ -238,6 +242,11 @@ export default function BillingHub() {
         const normalizedEmail = inviteEmail.trim().toLowerCase();
         if (!normalizedEmail) {
             setInviteError("Please enter an email address.");
+            return;
+        }
+
+        if (!isValidInviteEmail(normalizedEmail)) {
+            setInviteError("Please enter a valid email address.");
             return;
         }
 
@@ -592,12 +601,15 @@ export default function BillingHub() {
                                                             <Button
                                                                 size="sm"
                                                                 isLoading={sendingInvite}
-                                                                disabled={sendingInvite || inviteEmail.trim().length === 0}
+                                                                disabled={sendingInvite || inviteEmail.trim().length === 0 || !isValidInviteEmail(inviteEmail.trim().toLowerCase())}
                                                                 onClick={() => handleInvite(team.id)}
                                                             >
                                                                 Send
                                                             </Button>
                                                         </div>
+                                                        {!inviteError && inviteEmail.trim().length > 0 && !isValidInviteEmail(inviteEmail.trim().toLowerCase()) && (
+                                                            <p className="text-xs text-amber-400">Enter a valid email format before sending.</p>
+                                                        )}
                                                         {inviteError && <p className="text-xs text-red-400">{inviteError}</p>}
                                                     </div>
                                                 )}
