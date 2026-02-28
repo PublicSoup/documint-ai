@@ -416,6 +416,13 @@ export async function GET() {
                 ? volatilityAlertPolicyBundleId.includes(`version:${ADMIN_HEALTH_VOLATILITY_ALERT_POLICY_VERSION}`)
                 : true;
 
+        const volatilityPolicyCompatibilityReason =
+            volatilityPolicyCompatible
+                ? "compatible"
+                : ADMIN_HEALTH_CONTRACT_COMPATIBILITY_MODE === "strict"
+                    ? "missing-policy-version-in-bundle"
+                    : "contract-mode-not-strict";
+
         const schemaCapabilities = {
             degradedComponents: true,
             componentSeverity: true,
@@ -463,6 +470,7 @@ export async function GET() {
             volatilityAlertPolicyVersion: true,
             volatilityAlertPolicyBundleId: true,
             volatilityPolicyCompatible: true,
+            volatilityPolicyCompatibilityReason: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -529,6 +537,7 @@ export async function GET() {
                 volatilityAlertPolicyVersion: ADMIN_HEALTH_VOLATILITY_ALERT_POLICY_VERSION,
                 volatilityAlertPolicyBundleId,
                 volatilityPolicyCompatible,
+                volatilityPolicyCompatibilityReason,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
