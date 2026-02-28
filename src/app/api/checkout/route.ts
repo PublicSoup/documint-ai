@@ -118,8 +118,22 @@ export async function POST(request: NextRequest) {
         // 3. Fetch User Subscription Context
         const userSubscription = await db.subscription.findUnique({
             where: { userId: session.user.id },
-            select: { stripeCustomerId: true },
+            select: {
+                stripeCustomerId: true,
+                plan: true,
+                status: true,
+            },
         });
+
+        const normalizedCurrentPlan = userSubscription?.plan?.toLowerCase();
+        const normalizedCurrentStatus = userSubscription?.status?.toLowerCase();
+
+        if (
+            normalizedCurrentPlan === tier &&
+            (normalizedCurrentStatus === "active" || normalizedCurrentStatus === "trialing")
+        ) {
+            return errorResponse(ApiErrors.badRequest("You are already subscribed to this plan."));
+        }
 
         // 4. Create Stripe Checkout Session
         const checkoutSession = await stripe.checkout.sessions.create({
