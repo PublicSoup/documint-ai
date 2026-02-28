@@ -177,7 +177,12 @@ export async function GET() {
             priorityThreshold: summaryCodePriority >= 90,
         } as const;
 
-        const escalationSignalCount = Object.values(escalationSignals).filter(Boolean).length;
+        const escalationSignalNames = Object.entries(escalationSignals)
+            .filter(([, isActive]) => isActive)
+            .map(([name]) => name)
+            .sort();
+
+        const escalationSignalCount = escalationSignalNames.length;
 
         const opsEscalationRequired = escalationSignalCount > 0;
         const opsEscalationReason =
@@ -288,6 +293,7 @@ export async function GET() {
             opsEscalationReason: true,
             opsEscalationFingerprint: true,
             escalationSignalCount: true,
+            escalationSignalNamesCsv: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -321,6 +327,7 @@ export async function GET() {
                 opsEscalationReason,
                 opsEscalationFingerprint,
                 escalationSignalCount,
+                escalationSignalNamesCsv: escalationSignalNames.join(","),
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
