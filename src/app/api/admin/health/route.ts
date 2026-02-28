@@ -16,6 +16,7 @@ let previousHealthSignalDigest: string | null = null;
 let previousHealthSignalObservedAt: string | null = null;
 let currentHealthSignalStableSince: string | null = null;
 let healthSignalTransitionCount = 0;
+let previousHealthSignalVolatilityScore: number | null = null;
 
 const HEALTH_SIGNAL_FLAPPING_TRANSITION_THRESHOLD = 3;
 const HEALTH_SIGNAL_FLAPPING_STABILITY_WINDOW_SEC = 300;
@@ -356,6 +357,16 @@ export async function GET() {
             ),
         );
 
+        const healthSignalVolatilityTrend = previousHealthSignalVolatilityScore === null
+            ? "steady"
+            : healthSignalVolatilityScore > previousHealthSignalVolatilityScore
+                ? "rising"
+                : healthSignalVolatilityScore < previousHealthSignalVolatilityScore
+                    ? "falling"
+                    : "steady";
+
+        previousHealthSignalVolatilityScore = healthSignalVolatilityScore;
+
         previousHealthSignalDigest = healthSignalDigest;
         previousHealthSignalObservedAt = generatedAtIso;
 
@@ -419,6 +430,7 @@ export async function GET() {
             healthSignalFlappingReason: true,
             healthSignalVolatilityBand: true,
             healthSignalVolatilityScore: true,
+            healthSignalVolatilityTrend: true,
             incidentClass: true,
             incidentRoutingHint: true,
             alertSuppressionHint: true,
@@ -478,6 +490,7 @@ export async function GET() {
                 healthSignalFlappingReason,
                 healthSignalVolatilityBand,
                 healthSignalVolatilityScore,
+                healthSignalVolatilityTrend,
                 timestamp: generatedAtIso,
                 checkStartedAtEpochMs: startedAt,
                 generatedAtEpochMs,
