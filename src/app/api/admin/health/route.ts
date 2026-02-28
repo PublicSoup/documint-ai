@@ -128,8 +128,11 @@ export async function GET() {
 
         const runbookUrls = degradedComponents.map((component) => runbooks[component]).filter((value): value is string => Boolean(value));
 
+        const healthVersion = "2026-02-27.v1";
+
         return NextResponse.json(
             {
+                healthVersion,
                 status: severity === "healthy" ? "healthy" : "degraded",
                 severity,
                 timestamp: new Date().toISOString(),
