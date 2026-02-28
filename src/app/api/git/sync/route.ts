@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { authOptions } from "@/lib/auth";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse } from "@/lib/api-utils";
 
 const execFileAsync = promisify(execFile);
 
@@ -23,8 +25,10 @@ export async function POST() {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
+
+        await enforceRateLimit(session.user.id, "api");
 
         const fetch = await runGit(["fetch", "--all", "--prune"]);
         const branch = await runGit(["branch", "--show-current"]);
@@ -41,7 +45,9 @@ export async function POST() {
                     branch: branch.stdout.trim(),
                 },
             });
-        } catch {}
+        } catch {
+            // Non-blocking
+        }
 
         return NextResponse.json({
             success: true,
@@ -50,7 +56,6 @@ export async function POST() {
             fetch: fetch.stdout.trim() || fetch.stderr.trim() || "Fetched",
         });
     } catch (error) {
-        console.error("[GitSync_API] Error:", error);
-        return NextResponse.json({ error: "Git sync failed" }, { status: 500 });
+        return errorResponse(error);
     }
 }
