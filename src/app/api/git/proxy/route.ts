@@ -4,13 +4,17 @@ import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 
 const execFileAsync = promisify(execFile);
 
-const proxySchema = z.object({
-    action: z.enum(["status", "branch", "log", "diff"]),
-    limit: z.number().int().min(1).max(100).optional(),
-}).strict();
+const proxySchema = z
+    .object({
+        action: z.enum(["status", "branch", "log", "diff"]),
+        limit: z.number().int().min(1).max(100).optional(),
+    })
+    .strict();
 
 async function runGit(args: string[]) {
     const { stdout, stderr } = await execFileAsync("git", args, {
@@ -29,33 +33,25 @@ export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+            throw ApiErrors.unauthorized();
         }
 
-        const parsed = proxySchema.safeParse(await req.json());
-        if (!parsed.success) {
-            return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
-        }
+        await enforceRateLimit(session.user.id, "api");
 
-        const { action, limit = 20 } = parsed.data;
+        const { action, limit = 20 } = await validateBody(req, proxySchema);
 
-        let args: string[];
-        switch (action) {
-            case "status":
-                args = ["status", "--short", "--branch"];
-                break;
-            case "branch":
-                args = ["branch", "--show-current"];
-                break;
-            case "log":
-                args = ["log", `-n${limit}`, "--date=iso", "--pretty=format:%H\t%ad\t%an\t%s"];
-                break;
-            case "diff":
-                args = ["diff", "--stat"];
-                break;
-            default:
-                return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
-        }
+        const args: string[] = (() => {
+            switch (action) {
+                case "status":
+                    return ["status", "--short", "--branch"];
+                case "branch":
+                    return ["branch", "--show-current"];
+                case "log":
+                    return ["log", `-n${limit}`, "--date=iso", "--pretty=format:%H\t%ad\t%an\t%s"];
+                case "diff":
+                    return ["diff", "--stat"];
+            }
+        })();
 
         const result = await runGit(args);
 
@@ -68,11 +64,17 @@ export async function POST(req: NextRequest) {
                 entityId: "workspace",
                 details: { action },
             });
-        } catch {}
+        } catch {
+            // Non-blocking
+        }
 
-        return NextResponse.json({ success: true, action, output: result.stdout.trim(), stderr: result.stderr.trim() });
+        return NextResponse.json({
+            success: true,
+            action,
+            output: result.stdout.trim(),
+            stderr: result.stderr.trim(),
+        });
     } catch (error) {
-        console.error("[GitProxy_API] Error:", error);
-        return NextResponse.json({ error: "Git command failed" }, { status: 500 });
+        return errorResponse(error);
     }
 }
