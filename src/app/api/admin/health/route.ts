@@ -127,6 +127,11 @@ export async function GET() {
             degradedComponents.length > 0 ? "DEGRADED_OTHER" :
             "OK";
 
+        const alertSuppressionHint =
+            process.env.NODE_ENV !== "production" && healthSummaryCode === "DEGRADED_RATELIMIT"
+                ? "suppress-nonprod-ratelimit"
+                : "none";
+
         const incidentRoutingHint =
             incidentClass === "availability" ? "platform-database-oncall" :
             incidentClass === "integrity" ? "security-integrity-oncall" :
@@ -183,6 +188,7 @@ export async function GET() {
             responseLatencyBucket: true,
             incidentClass: true,
             incidentRoutingHint: true,
+            alertSuppressionHint: true,
         } as const;
 
         const responseGeneratedBy = {
@@ -202,6 +208,7 @@ export async function GET() {
                 severity,
                 incidentClass,
                 incidentRoutingHint,
+                alertSuppressionHint,
                 healthSummaryCode,
                 summaryCodePriority,
                 timestamp: generatedAtIso,
