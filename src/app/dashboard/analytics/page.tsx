@@ -38,12 +38,14 @@ export default async function AnalyticsPage({
                 <p className="text-muted-foreground max-w-md text-lg leading-relaxed">
                     Gain deep insights into your documentation coverage, team activity, and usage trends.
                 </p>
-                <Link href="/dashboard/settings?tab=billing">
+       <Link href="/dashboard/settings?tab=billing"
+                    aria-label="Upgrade to Pro and unlock advanced analytics"
+>
                     <Button size="lg" className="px-8 shadow-lg shadow-primary/20">
                         Upgrade to Pro
                         <Crown className="w-4 h-4 ml-2 text-amber-200" />
                     </Button>
-                </Link>
+                </Link aria-label="Upgrade to Pro and unlock advanced analytics">
             </div>
         );
     }
@@ -156,15 +158,15 @@ export default async function AnalyticsPage({
                                         <div key={doc.id} className="p-3 rounded-xl hover:bg-white/5 transition-all flex items-center justify-between group cursor-default border border-transparent hover:border-white/5">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-muted-foreground font-bold text-xs group-hover:bg-primary/20 group-hover:text-primary transition-colors">
-                                                    {i + 1}
-                                                </div>
+                                          <span aria-hidden="true">{i + 1}</span>
+                                        </div>
                                                 <div>
                                                     <div className="font-medium text-sm text-white group-hover:text-primary transition-colors truncate max-w-[200px]">{doc.name}</div>
                                                     <div className="text-[10px] text-zinc-500 uppercase font-black">{doc.language}</div>
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-1 rounded-md border border-primary/20">
-                                                <Eye className="w-3 h-3" />
+                                                <span aria-hidden="true"><Eye className="w-3 h-3" /></span>
                                                 {doc.views}
                                             </div>
                                         </div>
@@ -220,7 +222,9 @@ function StatCard({ label, value, icon, bg }: { label: string, value: string, ic
         <Card className="border-white/5 bg-black/20 hover:bg-black/40 transition-all group hover:-translate-y-1 hover:shadow-lg hover:shadow-primary/5">
             <CardContent className="p-6 flex items-center gap-4">
                 <div className={`w-12 h-12 rounded-2xl ${bg} flex items-center justify-center shrink-0 transition-transform group-hover:scale-110 duration-300`}>
-                    {icon}
+                    <span aria-hidden="true">{icon}</span>
+                </div>
+                </div>
                 </div>
                 <div>
                     <p className="text-sm font-medium text-muted-foreground group-hover:text-white/60 transition-colors">{label}</p>

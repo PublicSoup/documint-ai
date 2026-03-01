@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import dynamic from 'next/dynamic';
 
 interface AnalyticsPoint {
     name: string;
@@ -12,6 +12,35 @@ interface AnalyticsPoint {
 interface AnalyticsChartsProps {
     data: AnalyticsPoint[];
 }
+
+const DynamicAreaChart = dynamic(() => import('recharts').then((mod) => mod.AreaChart), {
+    loading: () => <p>Loading chart...</p>,
+    ssr: false,
+});
+
+const DynamicArea = dynamic(() => import('recharts').then((mod) => mod.Area), {
+    ssr: false,
+});
+
+const DynamicXAxis = dynamic(() => import('recharts').then((mod) => mod.XAxis), {
+    ssr: false,
+});
+
+const DynamicYAxis = dynamic(() => import('recharts').then((mod) => mod.YAxis), {
+    ssr: false,
+});
+
+const DynamicCartesianGrid = dynamic(() => import('recharts').then((mod) => mod.CartesianGrid), {
+    ssr: false,
+});
+
+const DynamicTooltip = dynamic(() => import('recharts').then((mod) => mod.Tooltip), {
+    ssr: false,
+});
+
+const DynamicResponsiveContainer = dynamic(() => import('recharts').then((mod) => mod.ResponsiveContainer), {
+    ssr: false,
+});
 
 export function AnalyticsCharts({ data }: AnalyticsChartsProps) {
     const hasData = data.length > 0;
@@ -28,8 +57,8 @@ export function AnalyticsCharts({ data }: AnalyticsChartsProps) {
                     </div>
                 ) : (
                     <div className="h-[300px] w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart
+                        <DynamicResponsiveContainer width="100%" height="100%">
+                            <DynamicAreaChart
                                 data={data}
                                 margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
                             >
@@ -43,17 +72,17 @@ export function AnalyticsCharts({ data }: AnalyticsChartsProps) {
                                         <stop offset="95%" stopColor="#82ca9d" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
-                                <XAxis dataKey="name" stroke="#666" />
-                                <YAxis stroke="#666" />
-                                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                                <Tooltip
+                                <DynamicXAxis dataKey="name" stroke="#666" />
+                                <DynamicYAxis stroke="#666" />
+                                <DynamicCartesianGrid strokeDasharray="3 3" stroke="#333" />
+                                <DynamicTooltip
                                     contentStyle={{ backgroundColor: "#111", borderColor: "#333" }}
                                     itemStyle={{ color: "#fff" }}
                                 />
-                                <Area type="monotone" dataKey="docs" stroke="#8884d8" fillOpacity={1} fill="url(#colorDocs)" />
-                                <Area type="monotone" dataKey="views" stroke="#82ca9d" fillOpacity={1} fill="url(#colorViews)" />
-                            </AreaChart>
-                        </ResponsiveContainer>
+                                <DynamicArea type="monotone" dataKey="docs" stroke="#8884d8" fillOpacity={1} fill="url(#colorDocs)" />
+                                <DynamicArea type="monotone" dataKey="views" stroke="#82ca9d" fillOpacity={1} fill="url(#colorViews)" />
+                            </DynamicAreaChart>
+                        </DynamicResponsiveContainer>
                     </div>
                 )}
             </CardContent>
