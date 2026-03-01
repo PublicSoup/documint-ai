@@ -10,6 +10,7 @@ import { buildProjectGraph } from "@/lib/graph/project-graph";
 import { requireFeature } from "@/lib/feature-gate";
 import { checkFilePermission } from "@/lib/permissions";
 import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
+import { getUserSubscription } from "@/lib/subscription";
 
 const AI_ARCHITECT_SYSTEM_PROMPT = `You are the AI Architect, a Senior Staff Software Engineer paired with a developer.
 Your goal is to provide high-level architectural advice, code refactoring, and deep technical insights.
@@ -38,14 +39,14 @@ interface AIMessage {
 
 const chatHistoryMessageSchema = z.object({
     role: z.enum(["system", "user", "assistant"]),
-    content: z.string().max(10_000),
+    content: z.string().max(2000, "History message too long"), // Limit individual message history
 }).strict();
 
 const architectRequestSchema = z.object({
     fileId: z.string().min(1).max(255).optional(),
-    code: z.string().max(80_000).optional(),
-    chatHistory: z.array(chatHistoryMessageSchema).max(30).default([]),
-    userPrompt: z.string().trim().min(1).max(8_000),
+    code: z.string().max(30_000, "File content too large for architect analysis").optional(), // Reduced from 80k to 30k for safety
+    chatHistory: z.array(chatHistoryMessageSchema).max(10, "History too long").default([]), // Reduced history depth
+    userPrompt: z.string().trim().min(1).max(4_000, "Prompt too long"), // Reduced from 8k
 }).strict();
 
 export async function POST(req: NextRequest) {
@@ -58,7 +59,10 @@ export async function POST(req: NextRequest) {
             throw ApiErrors.unauthorized();
         }
 
-        await enforceRateLimit(session.user.id, "free");
+        // 1. Rate Limit based on Plan
+        const subscription = await getUserSubscription(session.user.id);
+        const rateLimitTier = (subscription.isPro || subscription.isTeam) ? "pro" : "free";
+        await enforceRateLimit(session.user.id, rateLimitTier);
 
         const { fileId, code, chatHistory, userPrompt } = await validateBody(req, architectRequestSchema);
 
@@ -72,6 +76,7 @@ export async function POST(req: NextRequest) {
         let projectContext = "";
         let styleGuide = "";
 
+        // Context Building (Hardened)
         try {
             if (fileId) {
                 const currentFile = await db.file.findUnique({
@@ -87,6 +92,7 @@ export async function POST(req: NextRequest) {
                         styleGuide = (teamConfig?.config as { styleGuide?: string } | null)?.styleGuide || "";
                     }
 
+                    // Limit neighbor search to avoid token explosion
                     const siblingFiles = await db.file.findMany({
                         where: currentFile.teamId
                             ? { teamId: currentFile.teamId }
@@ -94,13 +100,17 @@ export async function POST(req: NextRequest) {
                         select: {
                             id: true,
                             name: true,
-                            content: true,
+                            content: true, // Only needed for graph, but we should be careful
                             documentation: { select: { content: true } },
                         },
-                        take: 40,
+                        take: 20, // Reduced from 40
                     });
 
-                    const graphFiles = siblingFiles.map((file) => ({ path: file.name, content: file.content || "" }));
+                    // Build graph safely
+                    const graphFiles = siblingFiles.map((file) => ({ 
+                        path: file.name, 
+                        content: (file.content || "").slice(0, 5000) // Truncate content for graph build
+                    }));
                     const graph = await buildProjectGraph(graphFiles);
 
                     const relatedFileNames = new Set<string>();
@@ -112,25 +122,28 @@ export async function POST(req: NextRequest) {
                     const relatedSummaries = siblingFiles
                         .filter((file) => relatedFileNames.has(file.name) && file.id !== fileId)
                         .map((file) => {
-                            let summary = "Documentation not yet generated.";
+                            let summary = "No summary available.";
                             if (file.documentation?.content) {
                                 try {
                                     const doc = JSON.parse(file.documentation.content) as { summary?: string };
-                                    summary = typeof doc.summary === "string" && doc.summary.trim() ? doc.summary : summary;
+                                    if (typeof doc.summary === "string" && doc.summary.trim()) {
+                                        summary = doc.summary.slice(0, 300); // Truncate summary
+                                    }
                                 } catch {
-                                    // Keep default summary when malformed.
+                                    // Ignore malformed doc
                                 }
                             }
                             return `- **${file.name}**: ${summary}`;
                         });
 
                     if (relatedSummaries.length > 0) {
-                        projectContext = `\n## Project Context (Architecture Neighbors)\nThese files are linked to the current file via imports/exports:\n${relatedSummaries.join("\n")}\n`;
+                        projectContext = `\n## Project Context\nRelated files:\n${relatedSummaries.join("\n")}\n`;
                     }
                 }
             }
-        } catch {
-            // Non-blocking context build failure.
+        } catch (ctxError) {
+            console.warn("Architect context build failed:", ctxError);
+            // Non-blocking
         }
 
         const messages: AIMessage[] = [{ role: "system", content: AI_ARCHITECT_SYSTEM_PROMPT }];
@@ -138,20 +151,26 @@ export async function POST(req: NextRequest) {
         if (styleGuide) {
             messages.push({
                 role: "system",
-                content: `TEAM STYLE GUIDE & INSTRUCTIONS:\n${styleGuide}`,
+                content: `STYLE GUIDE:\n${styleGuide.slice(0, 2000)}`, // Truncate style guide
             });
         }
 
         if (code) {
             messages.push({
                 role: "system",
-                content: `Current File Context:\n\`\`\`typescript\n${code.slice(0, 8_000)}\n\`\`\`${projectContext}`,
+                content: `Current File:\n\`\`\`typescript\n${code.slice(0, 20_000)}\n\`\`\`${projectContext}`,
             });
         } else if (projectContext) {
             messages.push({ role: "system", content: projectContext });
         }
 
-        messages.push(...chatHistory.slice(-10));
+        // Sanitize history roles and content
+        const safeHistory = chatHistory.map(msg => ({
+            role: (msg.role === "system" ? "user" : msg.role) as "user" | "assistant", // Downgrade system to user
+            content: msg.content.slice(0, 2000)
+        }));
+        
+        messages.push(...safeHistory);
         messages.push({ role: "user", content: userPrompt });
 
         const result = await getAICompletion(messages, {
@@ -160,9 +179,10 @@ export async function POST(req: NextRequest) {
         });
 
         if (!result?.content) {
-            throw ApiErrors.internalError("Failed to generate response.");
+            throw ApiErrors.serviceUnavailable("AI Architect is temporarily unavailable.");
         }
 
+        // Audit Logging
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
@@ -174,42 +194,42 @@ export async function POST(req: NextRequest) {
                     promptLength: userPrompt.length,
                     hasCode: !!code,
                     historyLength: chatHistory.length,
+                    tier: rateLimitTier
                 },
             });
         } catch {
-            // Ignore audit logging errors
+            // Ignore
         }
 
+        // Persist Chat History (Async)
         if (fileId) {
-            try {
-                const doc = await db.documentation.findUnique({ where: { fileId } });
+            (async () => {
+                try {
+                    const doc = await db.documentation.findUnique({ where: { fileId } });
+                    if (doc) {
+                        const metadata = (doc.metadata as { chatHistory?: AIMessage[] } | null) || {};
+                        const existingHistory = Array.isArray(metadata.chatHistory) ? metadata.chatHistory : [];
+                        
+                        const newHistory = [
+                            ...existingHistory,
+                            { role: "user", content: userPrompt } as AIMessage,
+                            { role: "assistant", content: result.content } as AIMessage,
+                        ].slice(-10); // Keep last 10 turns max
 
-                if (doc) {
-                    const metadata =
-                        doc.metadata && typeof doc.metadata === "object" && !Array.isArray(doc.metadata)
-                            ? (doc.metadata as { chatHistory?: AIMessage[]; [key: string]: unknown })
-                            : {};
-                    const existingHistory = Array.isArray(metadata.chatHistory) ? metadata.chatHistory : [];
-
-                    const newHistory = [
-                        ...existingHistory,
-                        { role: "user", content: userPrompt } as AIMessage,
-                        { role: "assistant", content: result.content } as AIMessage,
-                    ].slice(-20);
-
-                    await db.documentation.update({
-                        where: { id: doc.id },
-                        data: {
-                            metadata: {
-                                ...(metadata as Record<string, Prisma.InputJsonValue>),
-                                chatHistory: newHistory as unknown as Prisma.InputJsonValue,
+                        await db.documentation.update({
+                            where: { id: doc.id },
+                            data: {
+                                metadata: {
+                                    ...metadata,
+                                    chatHistory: newHistory,
+                                } as unknown as Prisma.InputJsonValue,
                             },
-                        },
-                    });
+                        });
+                    }
+                } catch {
+                    // Ignore persistence errors
                 }
-            } catch {
-                // Non-blocking metadata persistence failure.
-            }
+            })();
         }
 
         return NextResponse.json({ response: result.content });

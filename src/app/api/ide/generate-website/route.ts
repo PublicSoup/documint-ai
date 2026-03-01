@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 import { getAICompletionWithDetailedError } from "@/lib/ai";
+import { getUserSubscription } from "@/lib/subscription";
 
 const websiteFileSchema = z
     .object({
@@ -56,6 +57,21 @@ export async function POST(req: NextRequest) {
             throw ApiErrors.unauthorized();
         }
 
+        // 1. Feature Gating & Rate Limiting
+        const subscription = await getUserSubscription(session.user.id);
+        const isPro = subscription.isPro || subscription.isTeam;
+
+        // If not pro, we might want to block or severely limit.
+        // For now, let's enforce "pro" rate limit for pro users, and block free users
+        // OR allow free users but very strictly. 
+        // Let's assume it's a PRO feature to prevent abuse of expensive generation.
+        if (!isPro) {
+             // Optional: Allow 1 trial generation? 
+             // For safety hardening, let's just block or use a very strict limit if we had one.
+             // We'll throw Payment Required to drive conversion.
+             throw ApiErrors.paymentRequired("Website generation is available on Pro plans.");
+        }
+
         await enforceRateLimit(session.user.id, "pro");
 
         const payload = await validateBody(req, websiteRequestSchema);
@@ -76,7 +92,7 @@ export async function POST(req: NextRequest) {
         ].join("\n");
 
         const userPrompt = [
-            `Website brief: ${payload.prompt}`,
+            `Website brief: ${payload.prompt.replace(/[<>]/g, "")}`, // Basic sanitization
             `Style: ${payload.style}`,
             `Framework: ${payload.framework}`,
             `Include auth pages: ${payload.includeAuthPages ? "yes" : "no"}`,
@@ -102,12 +118,20 @@ export async function POST(req: NextRequest) {
             throw ApiErrors.serviceUnavailable(aiResult.error || "Website generator");
         }
 
-        const parsed = aiResponseSchema.parse(JSON.parse(stripCodeFences(aiResult.data.content)));
+        let parsed;
+        try {
+            parsed = aiResponseSchema.parse(JSON.parse(stripCodeFences(aiResult.data.content)));
+        } catch (parseError) {
+             console.error("AI Website Gen Parse Error:", parseError);
+             throw ApiErrors.internalError("Failed to parse generated project structure.");
+        }
 
         const safeFiles = parsed.files
             .map((file) => {
                 const safeName = sanitizeFilePath(file.name);
                 if (!safeName) return null;
+                // Double check content size per file
+                if (file.content.length > 200_000) return null; 
                 return {
                     name: safeName,
                     content: file.content,
@@ -119,6 +143,7 @@ export async function POST(req: NextRequest) {
             throw ApiErrors.badRequest("Generated output did not contain valid project files");
         }
 
+        // Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({

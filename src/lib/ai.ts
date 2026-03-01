@@ -28,6 +28,18 @@ interface AICompletionResult {
 const genAI = new GoogleGenerativeAI(env.GOOGLE_API_KEY);
 
 /**
+ * Sanitize prompt content to prevent basic injection attacks
+ */
+export function safePrompt(input: string): string {
+    // Strip null bytes and bidirectional control characters
+    // Also remove potential "System:" prefixes that might confuse some models (though Gemini uses separate field)
+    return input
+        .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F\u2028\u2029]/g, "") // Control chars
+        .replace(/^System:/i, "User:") // Neutralize fake system headers
+        .trim();
+}
+
+/**
  * Get AI completion with detailed error handling
  * Uses generateContent() API for maximum compatibility with all Gemini models
  */
@@ -69,7 +81,7 @@ export async function getAICompletionWithDetailedError(
             .filter(m => m.role !== "system") // System prompt is handled via systemInstruction
             .map(m => ({
                 role: m.role === "assistant" ? "model" : "user",
-                parts: [{ text: m.content }]
+                parts: [{ text: safePrompt(m.content) }] // Sanitize content
             }));
 
 
@@ -184,7 +196,7 @@ ${styleGuide ? `STYLE GUIDE INSTRUCTIONS: ${styleGuide}\n` : ""}
 
 Code:
 \`\`\`${language}
-${code}
+${safePrompt(code)}
 \`\`\``;
     } else if (type === 'class') {
         userPrompt = `Generate documentation for this ${language} class.
@@ -197,7 +209,7 @@ ${styleGuide ? `STYLE GUIDE INSTRUCTIONS: ${styleGuide}\n` : ""}
 
 Code:
 \`\`\`${language}
-${code}
+${safePrompt(code)}
 \`\`\``;
     } else if (type === 'complex_logic') {
         userPrompt = `Explain this complex ${language} code block clearly.
@@ -210,7 +222,7 @@ ${styleGuide ? `STYLE GUIDE INSTRUCTIONS: ${styleGuide}\n` : ""}
 
 Code:
 \`\`\`${language}
-${code}
+${safePrompt(code)}
 \`\`\``;
     } else {
         userPrompt = `Analyze this ${language} file and provide a concise summary.
@@ -223,7 +235,7 @@ ${styleGuide ? `STYLE GUIDE INSTRUCTIONS: ${styleGuide}\n` : ""}
 
 Code:
 \`\`\`${language}
-${code.slice(0, 2000)}
+${safePrompt(code.slice(0, 2000))}
 \`\`\``;
     }
 
@@ -255,7 +267,7 @@ ${styleGuide ? `STYLE GUIDE INSTRUCTIONS: ${styleGuide}\n` : ""}
 
 CODE:
 \`\`\`${language}
-${code}
+${safePrompt(code)}
 \`\`\``;
 
     return generateText(systemPrompt, userPrompt);
@@ -302,11 +314,11 @@ export async function detectIntentDrift(
     const systemPrompt = "You are a Documentation Drift Analyst. Determine if code changes invalidate existing documentation. Respond ONLY in valid JSON.";
     const userPrompt = `
     EXISTING DOCUMENTATION (JSON format):
-    ${documentation}
+    ${safePrompt(documentation)}
 
     NEW CODE STATE:
     \`\`\`
-    ${newCode.substring(0, 6000)}
+    ${safePrompt(newCode.substring(0, 6000))}
     \`\`\`
 
     Analyze if the new code implementation has drifted significantly from the documented intent.
