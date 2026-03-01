@@ -1,6 +1,7 @@
 import { db } from "./db";
 import { Prisma } from "@prisma/client";
 import { subDays } from "date-fns";
+import { getCached, CACHE_CONFIG, invalidateUserAnalyticsCache } from "./cache";
 
 export interface AnalyticsData {
     overview: {
@@ -110,7 +111,10 @@ export async function getMarketingCtaAnalytics(_userId: string, days = 30): Prom
     return { totalEvents, ctas };
 }
 
-export async function getAnalyticsData(userId: string, teamId?: string, days = 30): Promise<AnalyticsData> {
+/**
+ * Generate analytics data (core function with Redis caching)
+ */
+async function computeAnalyticsData(userId: string, teamId?: string, days = 30): Promise<AnalyticsData> {
     let whereClause: Prisma.FileWhereInput = { userId, teamId: null };
 
     if (teamId) {
@@ -294,4 +298,26 @@ export async function getAnalyticsData(userId: string, teamId?: string, days = 3
             percentage: files.length > 0 ? Math.round((documented / files.length) * 100) : 0,
         },
     };
+}
+
+export async function getAnalyticsData(userId: string, teamId?: string, days = 30): Promise<AnalyticsData> {
+    // Generate cache key unique to user/team/days combination
+    const cacheKey = teamId 
+        ? `${CACHE_CONFIG.ANALYTICS_DATA.prefix}:${userId}:${teamId}:${days}`
+        : `${CACHE_CONFIG.ANALYTICS_DATA.prefix}:${userId}:${days}`;
+
+    const result = await getCached(
+        cacheKey,
+        () => computeAnalyticsData(userId, teamId, days),
+        CACHE_CONFIG.ANALYTICS_DATA.ttl
+    );
+
+    return result.data;
+}
+
+/**
+ * Manually invalidate analytics cache for a user (call after significant data changes)
+ */
+export function clearAnalyticsCache(userId: string, teamId?: string): Promise<void> {
+    return invalidateUserAnalyticsCache(userId, teamId);
 }

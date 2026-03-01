@@ -322,6 +322,14 @@ export async function PUT(
             console.error("Failed to log audit for doc update:", auditError);
         }
 
+        // 9. Invalidate analytics cache
+        try {
+            const { clearAnalyticsCache } = await import("@/lib/analytics");
+            await clearAnalyticsCache(session.user.id, file?.teamId ?? undefined);
+        } catch {
+            // Non-blocking
+        }
+
         return NextResponse.json(updatedDoc);
     } catch (error) {
         return errorResponse(error);

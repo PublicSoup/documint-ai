@@ -167,6 +167,14 @@ export async function POST(request: NextRequest) {
             },
         });
 
+        // Invalidate analytics cache for the user
+        try {
+            const { clearAnalyticsCache } = await import("@/lib/analytics");
+            await clearAnalyticsCache(session.user.id, file.teamId ?? undefined);
+        } catch {
+            // Non-blocking if cache clearing fails
+        }
+
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
