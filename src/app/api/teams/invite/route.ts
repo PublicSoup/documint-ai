@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
         const [team, inviter] = await Promise.all([
             db.team.findUnique({
                 where: { id: teamId },
-                select: { id: true, name: true },
+                select: { id: true, name: true, slug: true },
             }),
             db.user.findUnique({
                 where: { id: session.user.id },
@@ -83,7 +83,12 @@ export async function POST(req: NextRequest) {
         const subscription = await getUserSubscription(inviter.id);
         const [currentMemberCount, pendingInviteCount] = await Promise.all([
             db.teamMember.count({ where: { teamId } }),
-            db.teamInvite.count({ where: { teamId } }),
+            db.teamInvite.count({
+                where: {
+                    teamId,
+                    expiresAt: { gte: new Date() },
+                }
+            }),
         ]);
 
         if (
@@ -111,11 +116,18 @@ export async function POST(req: NextRequest) {
             where: {
                 teamId_email: { teamId, email },
             },
-            select: { id: true },
+            select: { id: true, expiresAt: true },
         });
 
         if (existingInvite) {
-            throw ApiErrors.conflict("Invite already sent");
+            if (existingInvite.expiresAt >= new Date()) {
+                throw ApiErrors.conflict("A valid invitation has already been sent to this email");
+            }
+
+            // Clean up expired invite before creating a new one
+            await db.teamInvite.delete({
+                where: { id: existingInvite.id },
+            });
         }
 
         const token = randomBytes(32).toString("hex");
@@ -181,6 +193,7 @@ export async function POST(req: NextRequest) {
                     invitedEmail: email,
                     role,
                     teamName: team.name,
+                    teamSlug: team.slug,
                 },
             });
         } catch {

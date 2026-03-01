@@ -75,21 +75,17 @@ export async function GET(request: NextRequest) {
 
         const { teamId, days } = parsedQuery.data;
 
-        if (teamId) {
-            const canView = await checkTeamPermission(session.user.id, teamId, "view");
-            if (!canView) {
-                throw ApiErrors.forbidden();
-            }
-        }
-
-        const data = await getAnalyticsData(session.user.id, teamId, days);
-
         let teamInfo: { name: string; memberCount: number; coverageGoal: number } | undefined;
+
         if (teamId) {
             const team = await db.team.findUnique({
                 where: { id: teamId },
                 include: {
                     _count: { select: { members: true } },
+                    members: {
+                        where: { userId: session.user.id },
+                        select: { role: true }
+                    },
                     integrations: {
                         where: { type: "TEAM_CONFIG" },
                         take: 1,
@@ -98,17 +94,21 @@ export async function GET(request: NextRequest) {
                 },
             });
 
-            if (team) {
-                const rawConfig = team.integrations[0]?.config;
-                const config = (rawConfig && typeof rawConfig === "object" ? rawConfig : {}) as TeamConfig;
-
-                teamInfo = {
-                    name: team.name,
-                    memberCount: team._count.members,
-                    coverageGoal: config.coverageGoal ?? 80,
-                };
+            if (!team || team.members.length === 0) {
+                throw ApiErrors.forbidden();
             }
+
+            const rawConfig = team.integrations[0]?.config;
+            const config = (rawConfig && typeof rawConfig === "object" ? rawConfig : {}) as TeamConfig;
+
+            teamInfo = {
+                name: team.name,
+                memberCount: team._count.members,
+                coverageGoal: config.coverageGoal ?? 80,
+            };
         }
+
+        const data = await getAnalyticsData(session.user.id, teamId, days);
 
         return NextResponse.json({ ...data, teamInfo });
     } catch (error) {

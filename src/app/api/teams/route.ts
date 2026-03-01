@@ -52,7 +52,11 @@ export async function GET() {
                     },
                 },
             },
-            orderBy: { joinedAt: "asc" },
+            orderBy: {
+                team: {
+                    updatedAt: "desc"
+                }
+            },
         });
 
         const teams = teamMemberships.map((membership) => ({
@@ -77,6 +81,7 @@ export async function GET() {
                     createdAt: invite.createdAt,
                 }))
                 : [],
+            updatedAt: membership.team.updatedAt,
             joinedAt: membership.joinedAt,
             slug: membership.team.slug,
         }));

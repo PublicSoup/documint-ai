@@ -32,7 +32,7 @@ export async function DELETE(req: NextRequest) {
             where: { id: inviteId },
             include: {
                 team: {
-                    select: { name: true },
+                    select: { name: true, slug: true },
                 },
             },
         });
@@ -61,6 +61,7 @@ export async function DELETE(req: NextRequest) {
                     revokedEmail: invite.email,
                     revokedRole: invite.role,
                     teamName: invite.team.name,
+                    teamSlug: invite.team.slug,
                 },
             });
         } catch {
