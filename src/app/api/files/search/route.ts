@@ -6,11 +6,13 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { ApiErrors, errorResponse, validateQuery } from "@/lib/api-utils";
+import { checkTeamPermission } from "@/lib/permissions";
 
 const fileSearchSchema = z
     .object({
         q: z.string().trim().min(2).max(200),
         teamId: z.string().trim().min(1).max(100).optional(),
+        limit: z.coerce.number().int().min(1).max(50).default(20),
     })
     .strict();
 
@@ -27,7 +29,8 @@ export async function GET(req: NextRequest) {
 
         await enforceRateLimit(session.user.id, "api");
 
-        const { q: query, teamId } = validateQuery(req.nextUrl.searchParams, fileSearchSchema);
+        const { searchParams } = new URL(req.url);
+        const { q: query, teamId, limit } = validateQuery(searchParams, fileSearchSchema);
 
         const where: Prisma.FileWhereInput = {
             OR: [
@@ -42,20 +45,10 @@ export async function GET(req: NextRequest) {
         };
 
         if (teamId) {
-            const membership = await db.teamMember.findUnique({
-                where: {
-                    teamId_userId: {
-                        teamId,
-                        userId: session.user.id,
-                    },
-                },
-                select: { id: true },
-            });
-
-            if (!membership) {
+            const hasPermission = await checkTeamPermission(session.user.id, teamId, "view");
+            if (!hasPermission) {
                 throw ApiErrors.forbidden("Not a team member");
             }
-
             where.teamId = teamId;
         } else {
             where.userId = session.user.id;
@@ -75,12 +68,15 @@ export async function GET(req: NextRequest) {
                     },
                 },
             },
-            take: 20,
+            take: limit,
             orderBy: { updatedAt: "desc" },
         });
 
+        // Audit Logging (Sampled or lightweight)
         try {
             const { logAudit } = await import("@/lib/audit-logger");
+            // Only log if results found or specific criteria to avoid noise?
+            // Actually search audit is useful for compliance.
             await logAudit({
                 userId: session.user.id,
                 action: "SEARCH_FILES",
@@ -89,7 +85,7 @@ export async function GET(req: NextRequest) {
                 details: { query, resultCount: files.length },
             });
         } catch {
-            // Non-blocking audit logging.
+            // Non-blocking
         }
 
         return NextResponse.json({ results: files });

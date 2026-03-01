@@ -62,6 +62,9 @@ export const ApiErrors = {
     serviceUnavailable: (service = "Service") =>
         new ApiException(`${service} is currently unavailable`, 503, "SERVICE_UNAVAILABLE"),
 
+    paymentRequired: (message = "Payment required") =>
+        new ApiException(message, 402, "PAYMENT_REQUIRED"),
+
     tooManyRequests: (message = "Rate limit exceeded. Please try again later.") =>
         new ApiException(message, 429, "TOO_MANY_REQUESTS"),
 };

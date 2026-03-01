@@ -10,6 +10,8 @@ import { checkTeamPermission } from "@/lib/permissions";
 
 const querySchema = z.object({
     teamId: z.string().trim().min(1).max(100).optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    cursor: z.string().trim().min(1).optional(), // Support cursor-based pagination
 }).strict();
 
 /**
@@ -27,7 +29,7 @@ export async function GET(request: NextRequest) {
         await enforceRateLimit(session.user.id, "api");
 
         const { searchParams } = new URL(request.url);
-        const { teamId } = validateQuery(searchParams, querySchema);
+        const { teamId, limit, cursor } = validateQuery(searchParams, querySchema);
 
         const where: Prisma.FileWhereInput = {};
 
@@ -51,14 +53,23 @@ export async function GET(request: NextRequest) {
                 name: true,
                 language: true,
                 createdAt: true,
+                updatedAt: true,
                 size: true
             },
             orderBy: {
-                createdAt: "desc",
+                updatedAt: "desc", // Usually more relevant than createdAt
             },
+            take: limit,
+            skip: cursor ? 1 : 0,
+            cursor: cursor ? { id: cursor } : undefined,
         });
 
-        return NextResponse.json({ files });
+        const nextCursor = files.length === limit ? files[files.length - 1].id : undefined;
+
+        return NextResponse.json({ 
+            files,
+            nextCursor 
+        });
     } catch (error) {
         return errorResponse(error);
     }

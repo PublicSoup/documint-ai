@@ -10,8 +10,16 @@ import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 const moveSchema = z
     .object({
         fileId: z.string().trim().min(1).max(100),
-        newName: z.string().trim().min(1).max(255).optional(),
-        targetPath: z.string().trim().min(1).max(1024).optional(),
+        newName: z.string().trim().min(1).max(255).regex(/^[^/\\\0]+$/, "Invalid file name").optional(),
+        targetPath: z
+            .string()
+            .trim()
+            .min(1)
+            .max(1024)
+            .regex(/^\//, "Path must start with /")
+            .regex(/^(\/[^/\\\0]+)+$/, "Invalid path format")
+            .refine((path) => !path.includes(".."), "Path traversal detected")
+            .optional(),
     })
     .strict();
 
@@ -41,14 +49,22 @@ export async function POST(req: NextRequest) {
         }
 
         const resolvedName = newName ?? file.name;
+        // If targetPath is provided, use it. Otherwise, if name changed, update path logic (simplified here)
+        // Note: storagePath in this system seems to be a virtual path or S3 key.
+        // If targetPath is not provided, we preserve the existing directory structure or default to root?
+        // The original code was: const resolvedPath = targetPath ?? file.storagePath ?? `/${resolvedName}`;
+        // We will keep that logic but ensured inputs are safe.
         const resolvedPath = targetPath ?? file.storagePath ?? `/${resolvedName}`;
 
+        // Check for collision
         const duplicate = await db.file.findFirst({
             where: {
                 id: { not: fileId },
                 name: resolvedName,
                 teamId: file.teamId,
                 userId: file.teamId ? undefined : file.userId,
+                // Ideally we should also check storagePath uniqueness if that matters,
+                // but usually name+scope is the uniqueness constraint for the UI listing.
             },
             select: { id: true },
         });
