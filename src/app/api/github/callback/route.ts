@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { encrypt } from "@/lib/security/encryption";
 import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
-import { validateQuery } from "@/lib/api-utils";
+import { validateQuery, ApiErrors } from "@/lib/api-utils";
 
 const querySchema = z
     .object({
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
 
         const session = await getServerSession(authOptions);
         if (!session?.user?.id || session.user.id !== state) {
-            return buildSettingsRedirect(appBaseUrl, { github_error: "unauthorized" });
+            throw ApiErrors.unauthorized("User session mismatch or state invalid.");
         }
 
         const ip = await getClientIP(req);

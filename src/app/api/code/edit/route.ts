@@ -116,6 +116,19 @@ export async function POST(req: NextRequest) {
             await uploadFile(file.storagePath, nextContent);
         }
 
+        // Automatic Event-Driven Triggers (Audits & Drift)
+        (async () => {
+            try {
+                const { triggerAutoAudit, triggerDriftDetection } = await import("@/lib/auto-triggers");
+                await Promise.all([
+                    triggerAutoAudit(fileId, session.user.id),
+                    triggerDriftDetection(fileId, session.user.id)
+                ]);
+            } catch (e) {
+                console.error("[AutoTrigger] Trigger execution failed:", e);
+            }
+        })();
+
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({

@@ -9,9 +9,19 @@ import { compare } from "bcryptjs";
 import { sendEmail, emailTemplates } from "./email";
 import { env } from "./env";
 import { encrypt } from "./security/encryption";
+import { z } from "zod";
+import { logAudit } from "./audit-logger";
+import { AuditLogSeverity } from "@prisma/client";
+
+const Auth0ProfileSchema = z.object({
+    sub: z.string(),
+    name: z.string().optional(),
+    email: z.string().email().optional(),
+    picture: z.string().url().optional(),
+});
 
 export const authOptions: NextAuthOptions = {
-    adapter: PrismaAdapter(db) as NextAuthOptions['adapter'],
+    adapter: PrismaAdapter(db),
     session: {
         strategy: "jwt"
     },
@@ -40,12 +50,37 @@ export const authOptions: NextAuthOptions = {
             wellKnown: `${env.AUTH0_ISSUER}/.well-known/openid-configuration`,
             authorization: { params: { scope: "openid email profile" } },
             idToken: true,
-            profile(profile: Record<string, unknown>) {
+            profile(profile: z.infer<typeof Auth0ProfileSchema>) {
+
+                const parsedProfile = Auth0ProfileSchema.safeParse(profile);
+
+                if (!parsedProfile.success) {
+                    logAudit({
+                        action: "AUTH0_PROFILE_PARSE_FAILED",
+                        entity: "Auth0",
+                        entityId: "N/A",
+                        details: {
+                            reason: "Failed to parse Auth0 profile",
+                            errors: parsedProfile.error.flatten(),
+                            profileData: profile,
+                        },
+                    });
+                    // Return a minimal profile to avoid breaking the authentication flow
+                    return {
+                        id: profile.sub as string || 'unknown-auth0-id',
+                        name: 'Unknown Auth0 User',
+                        email: 'unknown-auth0-email',
+                        image: null,
+                    };
+                }
+
+                const { sub, name, email, picture } = parsedProfile.data;
+
                 return {
-                    id: profile.sub as string,
-                    name: profile.name as string,
-                    email: profile.email as string,
-                    image: profile.picture as string,
+                    id: sub,
+                    name: name || "Auth0 User",
+                    email: email || "N/A",
+                    image: picture || null,
                 };
             },
             clientId: env.AUTH0_CLIENT_ID,
@@ -59,12 +94,29 @@ export const authOptions: NextAuthOptions = {
                 password: { label: "Password", type: "password" }
             },
             async authorize(credentials) {
-                if (!credentials?.email || !credentials?.password) {
-                    console.log("Auth failed: Missing credentials");
+                const LoginCredentialsSchema = z.object({
+                    email: z.string().email({ message: "Invalid email address." }),
+                    password: z.string().min(8, { message: "Password must be at least 8 characters." }),
+                });
+
+                const parsedCredentials = LoginCredentialsSchema.safeParse(credentials);
+
+                if (!parsedCredentials.success) {
+                    await logAudit({
+                        action: "AUTH_FAILED",
+                        entity: "Login",
+                        entityId: "N/A",
+                        details: {
+                            reason: "Invalid credentials format",
+                            errors: parsedCredentials.error.flatten(),
+                            providedEmail: credentials?.email || "N/A",
+                        },
+                    });
                     return null;
                 }
 
-                const email = credentials.email.trim();
+                const { email, password } = parsedCredentials.data;
+                const trimmedEmail = email.trim();
 
                 // High-Security Rate Limiting: 10 attempts per 30 minutes per email
                 try {
@@ -72,9 +124,18 @@ export const authOptions: NextAuthOptions = {
                     // Relaxed for ADMIN_EMAIL: use 'api' tier (300/m) instead of 'security' (10/30m)
                     const tier = email === env.ADMIN_EMAIL ? "api" : "security";
                     await enforceRateLimit(email, tier);
-                } catch (limitError: unknown) {
-                    console.warn(`Auth blocked: Rate limit for ${email}`);
-                    const message = limitError instanceof Error ? limitError.message : "Too many attempts. Try again in 30 minutes.";
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : "Too many attempts. Try again in 30 minutes.";
+                    await logAudit({
+                        action: "AUTH_BLOCKED_RATE_LIMIT",
+                        entity: "Login",
+                        entityId: "N/A",
+                        userId: trimmedEmail, // Use email as identifier for rate limit
+                        details: {
+                            reason: message,
+                            email: trimmedEmail,
+                        },
+                    });
                     throw new Error(message);
                 }
 
@@ -88,25 +149,58 @@ export const authOptions: NextAuthOptions = {
                 });
 
                 if (!user) {
-                    console.log("Auth failed: User not found for email:", email);
+                    await logAudit({
+                        action: "AUTH_FAILED",
+                        entity: "User",
+                        entityId: "N/A",
+                        details: {
+                            reason: "User not found",
+                            email: trimmedEmail,
+                        },
+                    });
                     return null;
                 }
 
                 if (!user.password) {
-                    console.log("Auth failed: User has no password (likely OAuth user):", email);
+                    await logAudit({
+                        action: "AUTH_FAILED",
+                        entity: "User",
+                        entityId: user.id,
+                        details: {
+                            reason: "User has no password (likely OAuth user)",
+                            email: trimmedEmail,
+                        },
+                    });
                     return null;
                 }
 
                 let isPasswordValid = false;
                 try {
-                    isPasswordValid = await compare(credentials.password, user.password);
+                    isPasswordValid = await compare(password, user.password);
                 } catch (error) {
-                    console.error("Auth failed: Bcrypt compare error:", error);
+                    await logAudit({
+                        action: "AUTH_ERROR",
+                        entity: "User",
+                        entityId: user.id,
+                        details: {
+                            reason: "Bcrypt compare error",
+                            email: trimmedEmail,
+                            error: (error as Error).message,
+                        },
+                    });
                     return null;
                 }
 
                 if (!isPasswordValid) {
-                    console.log("Auth failed: Invalid password for:", email);
+                    await logAudit({
+                        action: "AUTH_FAILED",
+                        entity: "User",
+                        entityId: user.id,
+                        details: {
+                            reason: "Invalid password",
+                            email: trimmedEmail,
+                        },
+                    });
                     return null;
                 }
 
@@ -137,7 +231,7 @@ export const authOptions: NextAuthOptions = {
             if (account && account.provider === "github" && account.access_token) {
                 try {
                     // We must use the user ID from the token (which is already set) or the user object
-                    const userId = token.id as string;
+                    let userId: string = (token.id as string) || "N/A";
                     if (userId) {
                         await db.gitHubConnection.upsert({
                             where: { userId },
@@ -153,8 +247,16 @@ export const authOptions: NextAuthOptions = {
                             },
                         });
                     }
-                } catch (e) {
-                    console.error("Failed to save GitHub token", e);
+                } catch (e: unknown) {
+                    await logAudit({
+                        action: "GITHUB_TOKEN_SAVE_FAILED",
+                        entity: "GitHubConnection",
+                        entityId: "N/A",
+                        details: {
+                            reason: "Failed to save GitHub access token",
+                            error: (e instanceof Error ? e.message : String(e)),
+                        },
+                    });
                 }
             }
             return token;
@@ -163,7 +265,7 @@ export const authOptions: NextAuthOptions = {
     events: {
         async signIn({ user, account, isNewUser }) {
             try {
-                const { logAudit } = await import("./audit-logger");
+
                 await logAudit({
                     userId: user.id,
                     action: isNewUser ? "SIGN_UP" : "SIGN_IN",
@@ -174,13 +276,22 @@ export const authOptions: NextAuthOptions = {
                         isNewUser: !!isNewUser
                     }
                 });
-            } catch (e) {
-                console.error("Failed to log auth audit event", e);
+            } catch (e: unknown) {
+                await logAudit({
+                    action: "AUDIT_LOG_ERROR",
+                    entity: "Auth",
+                    entityId: user.id,
+                    details: {
+                        reason: "Failed to log auth audit event",
+                        event: isNewUser ? "SIGN_UP" : "SIGN_IN",
+                        error: (e instanceof Error ? e.message : String(e)),
+                    },
+                    severity: AuditLogSeverity.ERROR,
+                });
             }
         },
         async signOut({ token }) {
             try {
-                const { logAudit } = await import("./audit-logger");
                 if (token?.id) {
                     await logAudit({
                         userId: token.id as string,
@@ -190,8 +301,17 @@ export const authOptions: NextAuthOptions = {
                         details: { method: "session-end" }
                     });
                 }
-            } catch (e) {
-                console.error("Failed to log signOut audit event", e);
+            } catch (e: unknown) {
+                await logAudit({
+                    action: "AUDIT_LOG_ERROR",
+                    entity: "Auth",
+                    entityId: token?.id || "N/A",
+                    details: {
+                        reason: "Failed to log signOut audit event",
+                        error: (e instanceof Error ? e.message : String(e)),
+                    },
+                    severity: AuditLogSeverity.ERROR,
+                });
             }
         },
         async createUser({ user }) {
@@ -202,9 +322,27 @@ export const authOptions: NextAuthOptions = {
                         subject: "Welcome to DocuMint AI! 🎉",
                         html: emailTemplates.welcome(user.name || "Developer", `${env.NEXT_PUBLIC_APP_URL}/dashboard`)
                     });
-                    console.log(`Welcome email sent to ${user.email}`);
-                } catch (error) {
-                    console.error("Failed to send welcome email:", error);
+                    await logAudit({
+                        action: "WELCOME_EMAIL_SENT",
+                        entity: "User",
+                        entityId: user.id,
+                        details: {
+                            email: user.email,
+                            reason: "Welcome email successfully sent."
+                        },
+                        severity: AuditLogSeverity.INFO,
+                    });
+                } catch (e: unknown) {
+                    await logAudit({
+                        action: "WELCOME_EMAIL_FAILED",
+                        entity: "User",
+                        entityId: user.id,
+                        details: {
+                            email: user.email,
+                            reason: "Failed to send welcome email",
+                            error: (e instanceof Error ? e.message : String(e)),
+                        },
+                    });
                 }
             }
         }

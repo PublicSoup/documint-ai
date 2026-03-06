@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { z } from "zod";
 import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
 import { errorResponse, ApiErrors } from "@/lib/api-utils";
@@ -16,7 +18,7 @@ const MAX_EVENT_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_REJECTION_ISSUES_LOGGED = 10;
 
 function isAllowedLocationToken(location: string): boolean {
-  if (MARKETING_LOCATION_TOKENS.includes(location as any)) {
+  if ((MARKETING_LOCATION_TOKENS as readonly string[]).includes(location)) {
     return true;
   }
 
@@ -109,9 +111,15 @@ const marketingEventSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+      return errorResponse(ApiErrors.unauthorized());
+    }
+
     const ip = await getClientIP(req);
     const maskedIp = maskIpAddress(ip);
-    await enforceRateLimit(`marketing:${ip}`, "api");
+    await enforceRateLimit(`marketing:${session.user.id}`, "api");
 
     let rawBody: unknown;
     try {

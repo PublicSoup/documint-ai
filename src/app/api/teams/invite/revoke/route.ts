@@ -64,7 +64,8 @@ export async function DELETE(req: NextRequest) {
                     teamSlug: invite.team.slug,
                 },
             });
-        } catch {
+        } catch (auditError) {
+            console.error("Failed to log audit event:", auditError);
             // Keep mutation non-blocking if audit logging fails.
         }
 

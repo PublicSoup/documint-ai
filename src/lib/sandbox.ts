@@ -1,20 +1,49 @@
 import { Sandbox } from "@vercel/sandbox";
 import { PassThrough } from "node:stream";
 
+export interface SandboxResult {
+    success: boolean;
+    stdout: string;
+    stderr: string;
+    output: string;
+    error?: string;
+}
+
 /**
- * Executes a command in a secure Vercel Sandbox.
- * @param cmd The command to run (e.g., 'node')
- * @param args Arguments for the command
- * @param timeout Timeout in milliseconds (default 30s)
+ * Handles a multi-step sandbox session (write files, run commands)
  */
-export async function runInSandbox(cmd: string, args: string[] = [], timeout: number = 30000) {
-    console.log(`[Sandbox] Creating sandbox for: ${cmd} ${args.join(' ')}`);
+export class SandboxSession {
+    private sandbox: Sandbox | null = null;
+    private logs: string[] = [];
+    private onLogCallback?: (msg: string) => void;
 
-    // Ensure we have a sandbox instance
-    let sandbox: Sandbox | null = null;
+    constructor(onLog?: (msg: string) => void) {
+        this.onLogCallback = onLog;
+    }
 
-    try {
-        sandbox = await Sandbox.create();
+    private log(msg: string) {
+        this.logs.push(msg);
+        if (this.onLogCallback) {
+            this.onLogCallback(msg);
+        }
+    }
+
+    async init() {
+        this.sandbox = await Sandbox.create();
+        this.log("[Sandbox] Session initialized.");
+    }
+
+    async writeFile(path: string, content: string) {
+        if (!this.sandbox) throw new Error("Sandbox not initialized");
+        // Ensure path starts with /vercel/sandbox as per docs if needed, 
+        // but often relative to CWD works. Let's assume relative to root of sandbox.
+        await (this.sandbox as any).writeFile(path, content);
+    }
+
+    async runCommand(cmd: string, args: string[] = [], timeout: number = 60000): Promise<SandboxResult> {
+        if (!this.sandbox) throw new Error("Sandbox not initialized");
+
+        this.log(`[Sandbox] Running: ${cmd} ${args.join(' ')}`);
 
         const stdoutStream = new PassThrough();
         const stderrStream = new PassThrough();
@@ -23,51 +52,72 @@ export async function runInSandbox(cmd: string, args: string[] = [], timeout: nu
         let stderr = "";
 
         stdoutStream.on("data", (chunk) => {
-            stdout += chunk.toString();
+            const data = chunk.toString();
+            stdout += data;
+            this.log(data);
         });
 
         stderrStream.on("data", (chunk) => {
-            stderr += chunk.toString();
+            const data = chunk.toString();
+            stderr += data;
+            this.log(data);
         });
 
-        // Run the command with timeout protection
-        await Promise.race([
-            sandbox.runCommand({
-                cmd,
-                args,
-                stdout: stdoutStream,
-                stderr: stderrStream,
-            }),
-            new Promise((_, reject) =>
-                setTimeout(() => reject(new Error(`Sandbox execution timed out after ${timeout}ms`)), timeout)
-            )
-        ]);
+        try {
+            await Promise.race([
+                this.sandbox.runCommand({
+                    cmd,
+                    args,
+                    stdout: stdoutStream,
+                    stderr: stderrStream,
+                }),
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error(`Command timed out after ${timeout}ms`)), timeout)
+                )
+            ]);
 
-        return {
-            success: true,
-            stdout: stdout.trim(),
-            stderr: stderr.trim(),
-            output: stdout.trim() || stderr.trim() || "(No output from sandbox)"
-        };
-    } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`[Sandbox] Execution failed: ${message}`);
-        return {
-            success: false,
-            error: message,
-            stdout: "",
-            stderr: "",
-            output: `[Sandbox Error]: ${message}`
-        };
-    } finally {
-        if (sandbox) {
-            try {
-                await sandbox.stop();
-                console.log(`[Sandbox] Sandbox stopped successfully.`);
-            } catch (stopError: unknown) {
-                const message = stopError instanceof Error ? stopError.message : String(stopError);
-                console.error(`[Sandbox] Failed to stop sandbox: ${message}`);
-            }
+            return {
+                success: true,
+                stdout: stdout.trim(),
+                stderr: stderr.trim(),
+                output: stdout.trim() || stderr.trim() || "(No output)"
+            };
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.log(`[Sandbox] Error: ${message}`);
+            return {
+                success: false,
+                error: message,
+                stdout: stdout.trim(),
+                stderr: stderr.trim(),
+                output: `[Error]: ${message}`
+            };
         }
+    }
+
+    async stop() {
+        if (this.sandbox) {
+            await this.sandbox.stop();
+            this.log("[Sandbox] Session stopped.");
+            this.sandbox = null;
+        }
+    }
+
+    getLogs() {
+        return this.logs.join("");
+    }
+}
+
+/**
+ * Legacy helper for one-off commands
+ */
+export async function runInSandbox(cmd: string, args: string[] = [], timeout: number = 30000) {
+    const session = new SandboxSession();
+    try {
+        await session.init();
+        const result = await session.runCommand(cmd, args, timeout);
+        return result;
+    } finally {
+        await session.stop();
     }
 }

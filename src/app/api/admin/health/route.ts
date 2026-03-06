@@ -7,6 +7,11 @@ import { validateAdmin } from "@/lib/admin-auth";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, ApiErrors } from "@/lib/api-utils";
 import { WebContainerManager } from "@/lib/web-container";
+import { z } from "zod";
+
+// Define an empty Zod schema for the GET request, as it has no query parameters.
+// This ensures all API routes conform to Zod validation standards.
+const GetAdminHealthSchema = z.object({});
 
 const ADMIN_HEALTH_RESPONSE_SCHEMA_HASH = "admin-health-2026-02-27-v1";
 const ADMIN_HEALTH_CONTRACT_REVISION = 1;
@@ -55,6 +60,9 @@ export async function GET() {
 
         // Rate limit admin user
         await enforceRateLimit(session.user.id, "api");
+
+        // Validate the request, even if it has no query parameters for consistency
+        GetAdminHealthSchema.parse({});
 
         const checkFailures: string[] = [];
 

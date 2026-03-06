@@ -113,18 +113,16 @@ export async function getMarketingCtaAnalytics(_userId: string, days = 30): Prom
 
 /**
  * Generate analytics data (core function with Redis caching)
+ * This function is optimized to perform aggregations and calculations on the database side
+ * to minimize memory usage and improve performance on large datasets.
  */
 async function computeAnalyticsData(userId: string, teamId?: string, days = 30): Promise<AnalyticsData> {
     let whereClause: Prisma.FileWhereInput = { userId, teamId: null };
+    let docViewWhereClause: Prisma.DocViewWhereInput = { file: { userId, teamId: null } };
 
     if (teamId) {
         const membership = await db.teamMember.findUnique({
-            where: {
-                teamId_userId: {
-                    teamId,
-                    userId,
-                },
-            },
+            where: { teamId_userId: { teamId, userId } },
             select: { teamId: true },
         });
 
@@ -133,65 +131,102 @@ async function computeAnalyticsData(userId: string, teamId?: string, days = 30):
         }
 
         whereClause = { teamId };
+        docViewWhereClause = { file: { teamId } };
     }
 
-    const startDate = subDays(new Date(), days);
+    const now = new Date();
+    const startDate = subDays(now, days);
+    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const sevenDaysAgo = subDays(now, 7);
+    const fourteenDaysAgo = subDays(now, 14);
 
-    const files = await db.file.findMany({
-        where: whereClause,
-        include: {
-            documentation: {
-                select: {
-                    updatedAt: true,
-                    content: true,
-                },
-            },
-            views: {
-                where: { createdAt: { gte: startDate } },
-                select: { createdAt: true, duration: true },
-            },
-        },
-        orderBy: { createdAt: "desc" },
-    });
 
-    const totalViews = files.reduce((sum, file) => sum + file.views.length, 0);
-    const totalDuration = files.reduce(
-        (sum, file) => sum + file.views.reduce((viewTotal, view) => viewTotal + view.duration, 0),
-        0,
-    );
+    // --- Run aggregation queries in parallel ---
+    const [
+        totalFiles,
+        docsCreatedThisMonth,
+        viewStats,
+        creationsThisWeek,
+        creationsLastWeek,
+        documented,
+    ] = await Promise.all([
+        // Total files
+        db.file.count({ where: whereClause }),
+        // Docs created this month
+        db.file.count({ where: { ...whereClause, createdAt: { gte: thisMonth } } }),
+        // Aggregate views and duration
+        db.docView.aggregate({
+            where: { ...docViewWhereClause, createdAt: { gte: startDate } },
+            _count: { _all: true },
+            _sum: { duration: true },
+        }),
+        // Creations for velocity score (this week)
+        db.file.count({ where: { ...whereClause, createdAt: { gte: sevenDaysAgo } } }),
+        // Creations for velocity score (last week)
+        db.file.count({ where: { ...whereClause, createdAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo } } }),
+        // Count of documented files
+        db.file.count({ where: { ...whereClause, documentation: { isNot: null } } }),
+    ]);
+
+    const totalViews = viewStats._count._all;
+    const totalDuration = viewStats._sum.duration ?? 0;
     const avgViewDuration = totalViews > 0 ? Math.round(totalDuration / totalViews) : 0;
 
-    const now = new Date();
-    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const velocityScore = creationsLastWeek === 0
+        ? (creationsThisWeek > 0 ? 100 : 0)
+        : Math.round(((creationsThisWeek - creationsLastWeek) / creationsLastWeek) * 100);
 
-    const docsCreatedThisMonth = files.filter((file) => file.createdAt >= thisMonth).length;
+    const velocityTrend: "up" | "down" | "stable" = velocityScore > 5 ? "up" : velocityScore < -5 ? "down" : "stable";
 
-    const topDocs = files
-        .filter((file) => file.views.length > 0)
-        .sort((a, b) => b.views.length - a.views.length)
-        .slice(0, 5)
-        .map((file) => {
-            const docDuration = file.views.reduce((sum, view) => sum + view.duration, 0);
-            return {
-                id: file.id,
-                name: file.name,
-                language: file.language,
-                views: file.views.length,
-                avgDuration: file.views.length > 0 ? Math.round(docDuration / file.views.length) : 0,
-            };
-        });
+    // --- More complex queries that run after initial stats ---
+
+    // Top Docs
+    const topDocsData = await db.docView.groupBy({
+        by: ['fileId'],
+        where: { ...docViewWhereClause, createdAt: { gte: startDate } },
+        _count: { _all: true },
+        _sum: { duration: true },
+        orderBy: { _count: { fileId: 'desc' } },
+        take: 5,
+    });
+
+    const topDocsFileIds = topDocsData.map(d => d.fileId);
+    const topDocsFiles = await db.file.findMany({
+        where: { id: { in: topDocsFileIds } },
+        select: { id: true, name: true, language: true },
+    });
+    const topDocsFileMap = new Map(topDocsFiles.map(f => [f.id, f]));
+
+    const topDocs = topDocsData.map(data => {
+        const file = topDocsFileMap.get(data.fileId);
+        return {
+            id: data.fileId,
+            name: file?.name ?? 'Unknown File',
+            language: file?.language ?? null,
+            views: data._count._all,
+            avgDuration: data._sum.duration ? Math.round(data._sum.duration / data._count._all) : 0,
+        };
+    });
+
+    // Stale Docs (requires file and doc data, harder to aggregate)
+    const filesForStaleCheck = await db.file.findMany({
+        where: { ...whereClause, documentation: { isNot: null } },
+        select: {
+            id: true,
+            name: true,
+            updatedAt: true,
+            documentation: { select: { updatedAt: true } },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 1000,
+    });
 
     const staleThreshold = subDays(now, 30);
-
-    const staleDocs = files
-        .filter((file) => file.documentation)
+    const staleDocs = filesForStaleCheck
         .map((file) => {
             if (!file.documentation) return null;
-
-            const fileUpdatedAt = new Date(file.updatedAt);
             const docUpdatedAt = new Date(file.documentation.updatedAt);
-
-            const isOutOfSync = fileUpdatedAt.getTime() > docUpdatedAt.getTime() + 5 * 60 * 1000;
+            const isOutOfSync = new Date(file.updatedAt).getTime() > docUpdatedAt.getTime() + 5 * 60 * 1000;
             const isOldVersion = docUpdatedAt < staleThreshold;
 
             if (!isOutOfSync && !isOldVersion) return null;
@@ -207,79 +242,62 @@ async function computeAnalyticsData(userId: string, teamId?: string, days = 30):
         .sort((a, b) => b.daysSinceUpdate - a.daysSinceUpdate)
         .slice(0, 10);
 
-    const activityWindow = Math.min(days, 30);
+    // Recent activity & Heatmap (still requires some in-memory mapping)
+    // This is a tradeoff, as date-series data is complex in SQL. This is still better
+    // than fetching all file data.
+    const [viewActivity, creationActivity, versionActivity] = await Promise.all([
+        db.docView.groupBy({
+            by: ['createdAt'],
+            where: { ...docViewWhereClause, createdAt: { gte: subDays(now, Math.min(days, 30)) } },
+            _count: { _all: true },
+        }),
+        db.file.groupBy({
+            by: ['createdAt'],
+            where: { ...whereClause, createdAt: { gte: subDays(now, Math.min(days, 30)) } },
+            _count: { _all: true },
+        }),
+        db.docVersion.groupBy({
+            by: ['createdAt'],
+            where: { documentation: { file: whereClause }, createdAt: { gte: startDate } },
+            _count: { _all: true },
+        })
+    ]);
+
     const activityMap = new Map<string, { views: number; creations: number }>();
-    for (let i = 0; i < activityWindow; i++) {
-        const date = subDays(new Date(), i);
-        activityMap.set(toDateKey(date), { views: 0, creations: 0 });
+    for (let i = 0; i < Math.min(days, 30); i++) {
+        activityMap.set(toDateKey(subDays(now, i)), { views: 0, creations: 0 });
     }
-
-    for (const file of files) {
-        const createdAtKey = toDateKey(file.createdAt);
-        const existingCreatedEntry = activityMap.get(createdAtKey);
-        if (existingCreatedEntry) {
-            existingCreatedEntry.creations += 1;
-        }
-
-        for (const view of file.views) {
-            const viewDateKey = toDateKey(view.createdAt);
-            const existingViewEntry = activityMap.get(viewDateKey);
-            if (existingViewEntry) {
-                existingViewEntry.views += 1;
-            }
-        }
-    }
+    viewActivity.forEach(v => {
+        const key = toDateKey(v.createdAt);
+        const activity = activityMap.get(key);
+        if (activity) activity.views = v._count._all;
+    });
+    creationActivity.forEach(c => {
+        const key = toDateKey(c.createdAt);
+        const activity = activityMap.get(key);
+        if (activity) activity.creations = c._count._all;
+    });
 
     const recentActivity = Array.from(activityMap.entries())
         .map(([date, data]) => ({ date, ...data }))
         .reverse();
 
-    const versionStats = await db.docVersion.findMany({
-        where: {
-            documentation: {
-                file: whereClause,
-            },
-            createdAt: { gte: startDate },
-        },
-        select: { createdAt: true },
-    });
-
     const heatmapMap = new Map<string, number>();
     for (let i = 0; i < days; i++) {
-        const date = subDays(new Date(), i);
-        heatmapMap.set(toDateKey(date), 0);
+        heatmapMap.set(toDateKey(subDays(now, i)), 0);
     }
-
-    for (const version of versionStats) {
-        const key = toDateKey(version.createdAt);
-        heatmapMap.set(key, (heatmapMap.get(key) ?? 0) + 1);
-    }
+    versionActivity.forEach(v => {
+        heatmapMap.set(toDateKey(v.createdAt), v._count._all);
+    });
 
     const heatmap = Array.from(heatmapMap.entries())
         .map(([date, count]) => ({ date, count }))
         .sort((a, b) => a.date.localeCompare(b.date));
 
-    const sevenDaysAgo = subDays(now, 7);
-    const fourteenDaysAgo = subDays(now, 14);
-
-    const creationsThisWeek = files.filter((file) => file.createdAt >= sevenDaysAgo).length;
-    const creationsLastWeek = files.filter((file) => file.createdAt >= fourteenDaysAgo && file.createdAt < sevenDaysAgo).length;
-
-    const velocityScore = creationsLastWeek === 0
-        ? (creationsThisWeek > 0 ? 100 : 0)
-        : Math.round(((creationsThisWeek - creationsLastWeek) / creationsLastWeek) * 100);
-
-    const velocityTrend: "up" | "down" | "stable" = velocityScore > 5
-        ? "up"
-        : velocityScore < -5
-            ? "down"
-            : "stable";
-
-    const documented = files.filter((file) => Boolean(file.documentation)).length;
 
     return {
         overview: {
-            totalFiles: files.length,
+            totalFiles: totalFiles,
             totalViews,
             avgViewDuration,
             docsCreatedThisMonth,
@@ -294,15 +312,15 @@ async function computeAnalyticsData(userId: string, teamId?: string, days = 30):
         heatmap,
         coverage: {
             documented,
-            total: files.length,
-            percentage: files.length > 0 ? Math.round((documented / files.length) * 100) : 0,
+            total: totalFiles,
+            percentage: totalFiles > 0 ? Math.round((documented / totalFiles) * 100) : 0,
         },
     };
 }
 
 export async function getAnalyticsData(userId: string, teamId?: string, days = 30): Promise<AnalyticsData> {
     // Generate cache key unique to user/team/days combination
-    const cacheKey = teamId 
+    const cacheKey = teamId
         ? `${CACHE_CONFIG.ANALYTICS_DATA.prefix}:${userId}:${teamId}:${days}`
         : `${CACHE_CONFIG.ANALYTICS_DATA.prefix}:${userId}:${days}`;
 

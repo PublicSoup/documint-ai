@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { enforceRateLimit } from "@/lib/rate-limit";
+import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
 import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 
 const jsonValueSchema: z.ZodType<Prisma.JsonValue> = z.lazy(() =>
@@ -41,14 +41,16 @@ function toSettingsObject(value: Prisma.JsonValue | null | undefined): Prisma.Js
     return {};
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
             throw ApiErrors.unauthorized();
         }
 
-        await enforceRateLimit(session.user.id, "api");
+        const ip = await getClientIP(req);
+        const identifier = `${session.user.id}:${ip}`;
+        await enforceRateLimit(identifier, "api");
 
         const user = await db.user.findUnique({
             where: { id: session.user.id },
@@ -68,7 +70,9 @@ export async function PATCH(req: NextRequest) {
             throw ApiErrors.unauthorized();
         }
 
-        await enforceRateLimit(session.user.id, "api");
+        const ip = await getClientIP(req);
+        const identifier = `${session.user.id}:${ip}`;
+        await enforceRateLimit(identifier, "api");
 
         const updates = await validateBody(req, settingsPatchSchema);
 
@@ -105,7 +109,8 @@ export async function PATCH(req: NextRequest) {
                     updatedFields: Object.keys(updates),
                 },
             });
-        } catch {
+        } catch (auditError) {
+            console.error("Failed to log audit event:", auditError);
             // Keep mutation non-blocking if audit persistence fails.
         }
 

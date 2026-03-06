@@ -34,44 +34,66 @@ export function useExecutionEngine({
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
+    const mountAll = useCallback(async (fileList: (File & { content?: string | null })[]) => {
+        const fileMounts: Record<string, any> = {};
+
+        const ensureDir = (root: any, pathParts: string[]) => {
+            let current = root;
+            for (const part of pathParts) {
+                if (!current[part]) {
+                    current[part] = { directory: {} };
+                }
+                current = current[part].directory;
+            }
+            return current;
+        };
+
+        fileList.forEach(f => {
+            let name = f.name;
+            if (!name) return;
+            name = name.trim();
+
+            if (name.startsWith('//') || name.startsWith('#') || name.includes('\n') || !name.match(/^[a-zA-Z0-9@._\-\/]+$/)) {
+                return;
+            }
+
+            if (name.includes('/')) {
+                const parts = name.split('/');
+                const fileName = parts.pop()!;
+                const dir = ensureDir(fileMounts, parts);
+                dir[fileName] = { file: { contents: f.content || "" } };
+            } else {
+                fileMounts[name] = { file: { contents: f.content || "" } };
+            }
+        });
+
+        if (!fileMounts['package.json']) {
+            fileMounts['package.json'] = {
+                file: {
+                    contents: JSON.stringify({
+                        name: "documint-preview",
+                        private: true,
+                        scripts: { "dev": "next dev", "build": "next build", "start": "next start" },
+                        dependencies: { "next": "latest", "react": "latest", "react-dom": "latest" }
+                    }, null, 2)
+                }
+            };
+        }
+
+        await WebContainerManager.mountFiles(fileMounts);
+    }, []);
+
     // Boot WebContainer
     useEffect(() => {
         const boot = async () => {
-            if (executionMode !== 'browser') return; // Don't boot if remote (optional optimization)
+            if (executionMode !== 'browser') return;
 
             try {
                 const wc = await WebContainerManager.getInstance();
                 setWebContainerBooted(true);
 
                 // Mount initial files
-                const fileMounts: Record<string, { file: { contents: string } }> = {};
-                files.forEach(f => {
-                    fileMounts[f.name] = { file: { contents: f.content || "" } };
-                });
-
-                // Add package.json if missing
-                if (!fileMounts['package.json']) {
-                    fileMounts['package.json'] = {
-                        file: {
-                            contents: JSON.stringify({
-                                name: "documint-preview",
-                                private: true,
-                                scripts: {
-                                    "dev": "next dev",
-                                    "build": "next build",
-                                    "start": "next start"
-                                },
-                                dependencies: {
-                                    "next": "latest",
-                                    "react": "latest",
-                                    "react-dom": "latest"
-                                }
-                            }, null, 2)
-                        }
-                    };
-                }
-
-                await wc.mount(fileMounts);
+                await mountAll(files);
 
                 // Server Ready Listener
                 wc.on('server-ready', (port, url) => {
@@ -85,7 +107,7 @@ export function useExecutionEngine({
         };
 
         boot();
-    }, [executionMode, files]); // Re-boot if switching back to browser? Usually singleton handles it.
+    }, [executionMode, files, mountAll]);
 
     // Sync Files
     useEffect(() => {
@@ -188,6 +210,7 @@ export function useExecutionEngine({
         setPreviewUrl,
         isPreviewOpen,
         setIsPreviewOpen,
-        run
+        run,
+        mountAll
     };
 }

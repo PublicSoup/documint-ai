@@ -1,5 +1,6 @@
 "use client";
 
+"use client";
 import React, { useEffect, useRef, useState } from "react";
 import mermaid from "mermaid";
 import { Loader2, Download, RefreshCcw } from "lucide-react";
@@ -135,6 +136,17 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
                         .replace(/(\w+)\s*->/g, "\n$1 ->")
                         .replace(/(\w+)\s*-->/g, "\n$1 -->")
                         .replace(/Note /g, "\nNote ");
+                } else if (fixed.toLowerCase().startsWith("gantt")) {
+                    fixed = fixed
+                        .replace(/^gantt/i, "gantt\n")
+                        .replace(/section /g, "\nsection ")
+                        .replace(/task /g, "\ntask ");
+                } else if (fixed.toLowerCase().startsWith("statediagram")) {
+                    fixed = fixed
+                        .replace(/^stateDiagram-v2/i, "stateDiagram-v2\n")
+                        .replace(/^stateDiagram/i, "stateDiagram-v2\n") // Normalize to v2
+                        .replace(/state /g, "\nstate ")
+                        .replace(/-->/g, " --> ");
                 } else {
                     fixed = fixed
                         .replace(/classDiagram/i, "classDiagram\n")

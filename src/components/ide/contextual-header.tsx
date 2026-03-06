@@ -1,25 +1,32 @@
 "use client";
 
 import React from "react";
+import { cn } from "@/lib/utils";
 import {
     ChevronRight,
     Share2,
     Settings2,
-    Box
+    Box,
+    Rocket,
+    Globe
 } from "lucide-react";
 
 interface ContextualHeaderProps {
     filePath?: string;
     isSaving?: boolean;
+    isDeploying?: boolean;
     onShare?: () => void;
     onSettings?: () => void;
+    onDeploy?: () => void;
 }
 
 export function ContextualHeader({
     filePath = "Select a file",
     isSaving,
+    isDeploying,
     onShare,
-    onSettings
+    onSettings,
+    onDeploy
 }: ContextualHeaderProps) {
     const pathParts = filePath.split('/');
     const fileName = pathParts.pop();
@@ -49,9 +56,32 @@ export function ContextualHeader({
                         <span>Saving</span>
                     </div>
                 )}
+                {isDeploying && (
+                    <div className="flex items-center gap-1.5 text-[10px] text-emerald-400 animate-pulse">
+                        <Rocket className="w-3 h-3" />
+                        <span>Deploying...</span>
+                    </div>
+                )}
             </div>
 
             <div className="flex items-center gap-1">
+                <button
+                    onClick={onDeploy}
+                    disabled={isDeploying}
+                    className={cn(
+                        "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all active:scale-95 text-[11px] font-bold uppercase tracking-wider",
+                        isDeploying
+                            ? "bg-emerald-500/10 text-emerald-500/50 cursor-not-allowed"
+                            : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300"
+                    )}
+                    title="Deploy to Production"
+                >
+                    <Rocket className="w-3.5 h-3.5" />
+                    <span>Deploy</span>
+                </button>
+
+                <div className="w-px h-4 bg-white/[0.06] mx-1" />
+
                 <button
                     onClick={onShare}
                     className="p-2 rounded-lg hover:bg-white/[0.04] text-white/30 hover:text-white/60 transition-all active:scale-95"

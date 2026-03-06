@@ -2,7 +2,7 @@
 
 ## North Star
 
-Build the most reliable AI coding + documentation IDE for teams, with enterprise security controls and measurable revenue impact.
+Build the most powerful browser-based AI IDE for teams, focused on autonomously generating, previewing, and deploying full websites natively, with enterprise security controls and measurable revenue impact.
 
 ## Deployment Standard
 

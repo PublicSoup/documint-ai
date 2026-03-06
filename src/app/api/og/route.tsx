@@ -1,87 +1,105 @@
-import { ImageResponse } from '@vercel/og';
+import { NextRequest } from "next/server";
+import { ImageResponse } from "@vercel/og";
+import { z } from "zod";
+import { errorResponse, ApiErrors } from "@/lib/api-utils";
+import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
 
-export const runtime = 'edge';
+const ogImageSchema = z.object({
+    title: z.string().max(100).default("DocuMint AI"),
+    desc: z
+        .string()
+        .max(200)
+        .default("Intelligent Documentation for Modern Developers"),
+});
 
-export async function GET(request: Request) {
+export async function GET(req: NextRequest) {
     try {
-        const { searchParams } = new URL(request.url);
+        const ip = await getClientIP(req);
+        // Apply rate limiting based on the client's IP address.
+        await enforceRateLimit(ip, "api");
 
-        // ?title=<title>
-        const hasTitle = searchParams.has('title');
-        const title = hasTitle
-            ? searchParams.get('title')?.slice(0, 100)
-            : 'DocuMint AI';
+        const { searchParams } = new URL(req.url);
 
-        // ?desc=<desc>
-        const hasDesc = searchParams.has('desc');
-        const desc = hasDesc
-            ? searchParams.get('desc')?.slice(0, 200)
-            : 'Intelligent Documentation for Modern Developers';
+        const params = ogImageSchema.safeParse({
+            title: searchParams.get("title") || undefined,
+            desc: searchParams.get("desc") || undefined,
+        });
+
+        if (!params.success) {
+            throw ApiErrors.badRequest(params.error.toString());
+        }
+
+        const { title, desc } = params.data;
 
         return new ImageResponse(
             (
                 <div
                     style={{
-                        height: '100%',
-                        width: '100%',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backgroundColor: '#000000',
-                        backgroundImage: 'linear-gradient(to bottom right, #000000, #111111)',
+                        height: "100%",
+                        width: "100%",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: "#000000",
+                        backgroundImage:
+                            "linear-gradient(to bottom right, #000000, #111111)",
                     }}
                 >
                     {/* Background Gradient Orbs */}
                     <div
                         style={{
-                            position: 'absolute',
-                            top: '-10%',
-                            left: '-10%',
-                            width: '40%',
-                            height: '40%',
-                            background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
-                            filter: 'blur(100px)',
+                            position: "absolute",
+                            top: "-10%",
+                            left: "-10%",
+                            width: "40%",
+                            height: "40%",
+                            background:
+                                "linear-gradient(135deg, #7c3aed, #4f46e5)",
+                            filter: "blur(100px)",
                             opacity: 0.2,
-                            borderRadius: '50%',
+                            borderRadius: "50%",
                         }}
                     />
                     <div
                         style={{
-                            position: 'absolute',
-                            bottom: '-10%',
-                            right: '-10%',
-                            width: '40%',
-                            height: '40%',
-                            background: 'linear-gradient(135deg, #2563eb, #06b6d4)',
-                            filter: 'blur(100px)',
+                            position: "absolute",
+                            bottom: "-10%",
+                            right: "-10%",
+                            width: "40%",
+                            height: "40%",
+                            background:
+                                "linear-gradient(135deg, #2563eb, #06b6d4)",
+                            filter: "blur(100px)",
                             opacity: 0.2,
-                            borderRadius: '50%',
+                            borderRadius: "50%",
                         }}
                     />
 
                     <div
                         style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            textAlign: 'center',
-                            padding: '40px 80px',
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            textAlign: "center",
+                            padding: "40px 80px",
                         }}
                     >
                         {/* Logo/Icon */}
                         <div
                             style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                width: '80px',
-                                height: '80px',
-                                borderRadius: '20px',
-                                background: 'linear-gradient(135deg, #7c3aed, #2563eb)',
-                                marginBottom: '40px',
-                                boxShadow: '0 0 40px -10px rgba(124, 58, 237, 0.5)',
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                width: "80px",
+                                height: "80px",
+                                borderRadius: "20px",
+                                background:
+                                    "linear-gradient(135deg, #7c3aed, #2563eb)",
+                                marginBottom: "40px",
+                                boxShadow:
+                                    "0 0 40px -10px rgba(124, 58, 237, 0.5)",
                             }}
                         >
                             <svg
@@ -107,11 +125,11 @@ export async function GET(request: Request) {
                             style={{
                                 fontSize: 60,
                                 fontWeight: 900,
-                                color: 'white',
+                                color: "white",
                                 lineHeight: 1.1,
                                 marginBottom: 20,
-                                letterSpacing: '-2px',
-                                textShadow: '0 0 40px rgba(0,0,0,0.5)',
+                                letterSpacing: "-2px",
+                                textShadow: "0 0 40px rgba(0,0,0,0.5)",
                             }}
                         >
                             {title}
@@ -121,7 +139,7 @@ export async function GET(request: Request) {
                         <div
                             style={{
                                 fontSize: 30,
-                                color: '#94a3b8',
+                                color: "#94a3b8",
                                 lineHeight: 1.4,
                                 marginBottom: 40,
                                 maxWidth: 900,
@@ -133,36 +151,36 @@ export async function GET(request: Request) {
                         {/* Brand Footer */}
                         <div
                             style={{
-                                display: 'flex',
-                                alignItems: 'center',
+                                display: "flex",
+                                alignItems: "center",
                                 marginTop: 20,
                             }}
                         >
                             <div
                                 style={{
-                                    height: '2px',
-                                    width: '40px',
-                                    background: '#334155',
-                                    marginRight: '20px',
+                                    height: "2px",
+                                    width: "40px",
+                                    background: "#334155",
+                                    marginRight: "20px",
                                 }}
                             />
                             <div
                                 style={{
                                     fontSize: 24,
-                                    color: '#475569',
+                                    color: "#475569",
                                     fontWeight: 600,
-                                    letterSpacing: '2px',
-                                    textTransform: 'uppercase',
+                                    letterSpacing: "2px",
+                                    textTransform: "uppercase",
                                 }}
                             >
                                 DocuMint AI
                             </div>
                             <div
                                 style={{
-                                    height: '2px',
-                                    width: '40px',
-                                    background: '#334155',
-                                    marginLeft: '20px',
+                                    height: "2px",
+                                    width: "40px",
+                                    background: "#334155",
+                                    marginLeft: "20px",
                                 }}
                             />
                         </div>
@@ -174,10 +192,8 @@ export async function GET(request: Request) {
                 height: 630,
             },
         );
-    } catch (e: any) {
-        console.log(`${e.message}`);
-        return new Response(`Failed to generate the image`, {
-            status: 500,
-        });
+    } catch (error) {
+        // Use a consistent error response format.
+        return errorResponse(error);
     }
 }

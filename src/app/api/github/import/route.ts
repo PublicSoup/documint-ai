@@ -255,7 +255,8 @@ export async function POST(req: NextRequest) {
 
                 yield encoder.encode(JSON.stringify({ status: "complete", imported: successfulImports, total: limit }) + "\n");
 
-            } catch {
+            } catch (e) {
+                console.error("GitHub Import Stream Error:", e);
                 yield encoder.encode(JSON.stringify({ error: "Internal server error during import" }) + "\n");
             }
         }

@@ -102,10 +102,16 @@ export function createErrorResponse(
 /**
  * Error handler middleware wrapper
  */
+interface RouteParams {
+  params?: {
+    [key: string]: string | string[];
+  };
+}
+
 export function withErrorHandling(
-  handler: (request: NextRequest, params?: any) => Promise<NextResponse>
+  handler: (request: NextRequest, params?: RouteParams) => Promise<NextResponse>
 ) {
-  return async (request: NextRequest, params?: any): Promise<NextResponse> => {
+  return async (request: NextRequest, params?: RouteParams): Promise<NextResponse> => {
     try {
       return await handler(request, params);
     } catch (error) {

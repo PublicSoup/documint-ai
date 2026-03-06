@@ -10,7 +10,7 @@ Since your Vercel project might be outdated or disconnected, let's set up a fres
 
 ### Step 2: Import Your GitHub Repository
 1. Click **"Import Git Repository"**
-2. Find **`PublicSoup/HabbitArc-app`** (or your repo name)
+2. Find **`PublicSoup/documint-ai`** (or your repo name)
 3. Click **"Import"**
 
 ### Step 3: Configure Project

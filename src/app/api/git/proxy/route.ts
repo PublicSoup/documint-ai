@@ -55,18 +55,14 @@ export async function POST(req: NextRequest) {
 
         const result = await runGit(args);
 
-        try {
-            const { logAudit } = await import("@/lib/audit-logger");
-            await logAudit({
-                userId: session.user.id,
-                action: "GIT_PROXY",
-                entity: "Repository",
-                entityId: "workspace",
-                details: { action },
-            });
-        } catch {
-            // Non-blocking
-        }
+        const { logAudit } = await import("@/lib/audit-logger");
+        await logAudit({
+            userId: session.user.id,
+            action: "GIT_PROXY",
+            entity: "Repository",
+            entityId: "workspace",
+            details: { action },
+        });
 
         return NextResponse.json({
             success: true,

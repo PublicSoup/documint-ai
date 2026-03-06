@@ -175,21 +175,17 @@ export async function POST(request: NextRequest) {
             // Non-blocking if cache clearing fails
         }
 
-        try {
-            const { logAudit } = await import("@/lib/audit-logger");
-            await logAudit({
-                userId: session.user.id,
-                action: "TRACK_DOC_VIEW",
-                entity: "DocView",
-                entityId: fileId,
-                details: {
-                    duration,
-                    teamId: file.teamId ?? null,
-                },
-            });
-        } catch {
-            // Keep analytics ingestion non-blocking if audit persistence fails.
-        }
+        const { logAudit } = await import("@/lib/audit-logger");
+        await logAudit({
+            userId: session.user.id,
+            action: "TRACK_DOC_VIEW",
+            entity: "DocView",
+            entityId: fileId,
+            details: {
+                duration,
+                teamId: file.teamId ?? null,
+            },
+        });
 
         return NextResponse.json({ success: true });
     } catch (error) {

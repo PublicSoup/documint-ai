@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
+import { validateAdmin } from "@/lib/admin-auth";
 
 export async function GET() {
+    const { authorized, response } = await validateAdmin();
+    if (!authorized) return response;
+
     const dbUrl = process.env.DATABASE_URL || "undefined";
     const maskedUrl = dbUrl.replace(/:[^:@]+@/, ":***@");
 

@@ -49,7 +49,7 @@ export function analyzeCodeQuality(content: string, entities: CodeEntity[], exte
     const commentRatio = commentLines / (lineCount || 1);
     const readabilityIndex = Math.max(0, Math.min(100, (commentRatio * 150) + (100 - (cyclomaticComplexity * 2))));
 
-    const grokTime = 0; Math.ceil((lineCount / 50) + (cyclomaticComplexity / 2));
+    const grokTime = Math.ceil((lineCount / 50) + (cyclomaticComplexity / 2));
     let difficulty: "Junior" | "Intermediate" | "Senior" | "Architect" = "Junior";
     if (cyclomaticComplexity > 25 || maxNesting > 6) difficulty = "Architect";
     else if (cyclomaticComplexity > 15 || lineCount > 400) difficulty = "Senior";

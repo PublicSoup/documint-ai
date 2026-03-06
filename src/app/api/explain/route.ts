@@ -1,144 +1,72 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 import { z } from "zod";
-import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getFileContent } from "@/lib/files";
 import { getAICompletion } from "@/lib/ai";
-import { enforceRateLimit } from "@/lib/rate-limit";
-import { requireFeature } from "@/lib/feature-gate";
 import { checkFilePermission } from "@/lib/permissions";
-import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
+import { createApiHandler, ApiErrors } from "@/lib/api-utils";
 
 const explainSchema = z.object({
-    fileId: z.string().min(1),
+    fileId: z.string().trim().min(1, "File ID is required."),
     persona: z.enum(["junior", "senior", "nontechnical", "default"]).default("default"),
 }).strict();
 
 type Persona = z.infer<typeof explainSchema>["persona"];
 
 const PERSONA_PROMPTS: Record<Persona, string> = {
-    junior: `You are explaining code to someone still learning programming.
-Start with: "Sure! Let's break this down..."
-Give short, clear explanations using simple terms.
-Avoid jargon unless necessary—then briefly define it.
-Use analogies if helpful.
-Focus on what the code does, not theory.
-Keep total response under 150 words.`,
-
-    senior: `You are giving a quick technical overview to an experienced developer.
-Start with: "Here's what this code does:"
-Be concise and focus on purpose, patterns, and gotchas.
-Skip basics. Assume strong programming knowledge.
-Highlight anything clever, risky, or non-obvious.
-Keep total response under 100 words.`,
-
-    nontechnical: `You're explaining this to a manager or stakeholder who isn't technical.
-Start with: "In simple terms..."
-Use plain English, no code terms.
-Say what the code achieves, not how.
-One sentence summary is enough.
-Keep total response under 50 words.`,
-
-    default: `You're helping any developer understand the code quickly.
-Start with: "Let me walk you through this:"
-Explain clearly but don't overdo it.
-Cover main logic and key functions.
-Keep total response under 120 words.`,
+    junior: `You are explaining code to someone still learning programming. Start with: "Sure! Let's break this down..." Give short, clear explanations using simple terms. Avoid jargon unless necessary—then briefly define it. Use analogies if helpful. Focus on what the code does, not theory. Keep total response under 150 words.`,
+    senior: `You are giving a quick technical overview to an experienced developer. Start with: "Here's what this code does:" Be concise and focus on purpose, patterns, and gotchas. Skip basics. Assume strong programming knowledge. Highlight anything clever, risky, or non-obvious. Keep total response under 100 words.`,
+    nontechnical: `You're explaining this to a manager or stakeholder who isn't technical. Start with: "In simple terms..." Use plain English, no code terms. Say what the code achieves, not how. One sentence summary is enough. Keep total response under 50 words.`,
+    default: `You're helping any developer understand the code quickly. Start with: "Let me walk you through this:" Explain clearly but don't overdo it. Cover main logic and key functions. Keep total response under 120 words.`,
 };
 
-/**
- * POST /api/explain
- * Generates a persona-based explanation for a specific code file.
- */
-export async function POST(request: NextRequest) {
-    const gateError = await requireFeature("codeExplain");
-    if (gateError) return gateError;
-
-    try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
-        }
-
-        // 1. Enforce rate limit (Free tier allowed)
-        await enforceRateLimit(session.user.id, "free");
-
-        const { fileId, persona } = await validateBody(request, explainSchema);
-
-        // 2. Check permissions
+export const POST = createApiHandler({
+    feature: "codeExplain",
+    rateLimit: "free",
+    bodySchema: explainSchema,
+    audit: {
+        action: "EXPLAIN_CODE",
+        entity: "File",
+        entityId: (body) => body.fileId,
+        details: (body) => ({ persona: body.persona }),
+    },
+    handler: async ({ body, session }) => {
+        const { fileId, persona } = body;
+        
         const hasPermission = await checkFilePermission(session.user.id, fileId, "view");
         if (!hasPermission) {
-            return errorResponse(ApiErrors.forbidden("You do not have permission to view this file."));
+            throw ApiErrors.forbidden("You do not have permission to view this file.");
         }
 
-        // 3. Fetch file details
         const file = await db.file.findUnique({
             where: { id: fileId },
             select: { name: true, language: true },
         });
-
         if (!file) {
-            return errorResponse(ApiErrors.notFound("File"));
+            throw ApiErrors.notFound("File");
         }
 
         const content = await getFileContent(fileId);
-        if (!content) {
-            return errorResponse(ApiErrors.notFound("File content"));
+        if (content === null) {
+            throw ApiErrors.notFound("File content");
         }
 
-        // 4. Run AI generation
         const personaPrompt = PERSONA_PROMPTS[persona] || PERSONA_PROMPTS.default;
-        const prompt = `${personaPrompt}
-
-Analyze and document the following ${file.language || "code"}:
-
-\`\`\`${file.language || "text"}
-${content.slice(0, 6000)}
-\`\`\`
-
-Provide a concise explanation in this persona's style.`;
+        const prompt = `${personaPrompt}\n\nAnalyze and document the following ${file.language || "code"}:\n\n\`\`\`${file.language || "text"}\n${content.slice(0, 6000)}\n\`\`\`\n\nProvide a concise explanation in this persona's style.`;
 
         const aiResult = await getAICompletion(
-            [
-                { role: "system", content: personaPrompt },
-                { role: "user", content: prompt },
-            ],
-            {
-                temperature: 0.4,
-                maxTokens: 2048,
-            }
+            [{ role: "system", content: personaPrompt }, { role: "user", content: prompt }],
+            { temperature: 0.4, maxTokens: 2048 }
         );
 
         if (!aiResult?.content) {
-            return errorResponse(ApiErrors.internalError("AI generation failed."));
+            throw ApiErrors.internalError("AI generation failed.");
         }
 
-        // 5. Audit Log
-        try {
-            const { logAudit } = await import("@/lib/audit-logger");
-            await logAudit({
-                userId: session.user.id,
-                action: "EXPLAIN_CODE",
-                entity: "File",
-                entityId: fileId,
-                details: {
-                    persona,
-                    language: file.language,
-                    fileName: file.name,
-                },
-            });
-        } catch {
-            // Non-blocking
-        }
-
-        return NextResponse.json({
+        return {
             persona,
             explanation: aiResult.content,
             fileName: file.name,
             language: file.language,
-        });
-    } catch (error) {
-        return errorResponse(error);
-    }
-}
+        };
+    },
+});

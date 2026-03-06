@@ -46,6 +46,19 @@ function isSlugUniqueConflict(error: unknown): boolean {
     return typeof target === "string" && target.includes("slug");
 }
 
+async function assertMemberAccess(teamId: string, userId: string): Promise<void> {
+    const membership = await db.teamMember.findUnique({
+        where: {
+            teamId_userId: { teamId, userId },
+        },
+        select: { role: true },
+    });
+
+    if (!membership) {
+        throw ApiErrors.forbidden("You are not a member of this team");
+    }
+}
+
 async function assertOwnerAccess(teamId: string, userId: string): Promise<void> {
     const [team, membership] = await Promise.all([
         db.team.findUnique({ where: { id: teamId }, select: { id: true } }),
@@ -62,7 +75,81 @@ async function assertOwnerAccess(teamId: string, userId: string): Promise<void> 
     }
 
     if (membership?.role !== "OWNER") {
-        throw ApiErrors.forbidden("Only team owners can change team settings");
+        throw ApiErrors.forbidden("Only team owners can perform this action");
+    }
+}
+
+/**
+ * GET /api/teams/[teamId]
+ * Get detailed information for a single team. Requires member access.
+ */
+export async function GET(
+    _req: NextRequest,
+    { params }: { params: Promise<{ teamId: string }> },
+) {
+    try {
+        const parsedParams = paramsSchema.safeParse(await params);
+        if (!parsedParams.success) {
+            throw ApiErrors.badRequest("Invalid team ID", parsedParams.error.flatten());
+        }
+
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            throw ApiErrors.unauthorized();
+        }
+
+        await enforceRateLimit(session.user.id, "api");
+
+        const { teamId } = parsedParams.data;
+
+        await assertMemberAccess(teamId, session.user.id);
+
+        const team = await db.team.findUnique({
+            where: { id: teamId },
+            select: {
+                id: true,
+                name: true,
+                slug: true,
+                createdAt: true,
+                updatedAt: true,
+                members: {
+                    select: {
+                        userId: true,
+                        role: true,
+                        joinedAt: true,
+                        user: {
+                            select: {
+                                name: true,
+                                email: true,
+                                image: true,
+                            },
+                        },
+                    },
+                    orderBy: {
+                        joinedAt: "asc",
+                    },
+                },
+                invites: {
+                    select: {
+                        id: true,
+                        email: true,
+                        role: true,
+                        createdAt: true,
+                    },
+                    orderBy: {
+                        createdAt: "desc",
+                    },
+                },
+            },
+        });
+
+        if (!team) {
+            throw ApiErrors.notFound("Team");
+        }
+
+        return NextResponse.json({ team });
+    } catch (error) {
+        return errorResponse(error);
     }
 }
 
@@ -131,7 +218,8 @@ export async function PATCH(
                     updatedFields: Object.keys(payload),
                 },
             });
-        } catch {
+        } catch (auditError) {
+            console.error("Failed to log audit event:", auditError);
             // Keep mutation non-blocking if audit logging fails.
         }
 
@@ -182,7 +270,8 @@ export async function DELETE(
                 entity: "Team",
                 entityId: teamId,
             });
-        } catch {
+        } catch (auditError) {
+            console.error("Failed to log audit event:", auditError);
             // Keep mutation non-blocking if audit logging fails.
         }
 

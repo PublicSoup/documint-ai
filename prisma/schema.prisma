@@ -32,6 +32,8 @@ model User {
   reviewRequestsSent     ReviewRequest[]      @relation("ReviewRequester")
   reviewRequestsReceived ReviewRequest[]      @relation("ReviewReviewer")
   passwordResetTokens    PasswordResetToken[]
+  agentStates            AgentState[]
+  deployments            Deployment[]
 }
 
 model Subscription {
@@ -161,6 +163,7 @@ model Team {
   invites      TeamInvite[]
   templates    DocTemplate[]
   integrations Integration[]
+  deployments  Deployment[]
 }
 
 model TeamMember {
@@ -262,6 +265,7 @@ model AuditLog {
   action    String // CREATE, UPDATE, DELETE, VIEW, EXPORT
   entity    String // File, Documentation, Team, etc.
   entityId  String
+  severity  AuditLogSeverity @default(INFO)
   details   Json? // Additional context
   ip        String?
   hash      String?  // SHA-256 of this entry + previousHash
@@ -277,7 +281,12 @@ model AuditLog {
   @@index([createdAt])
 }
 
-// Custom documentation templates
+enum AuditLogSeverity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
 model DocTemplate {
   id          String   @id @default(cuid())
   teamId      String?
@@ -344,6 +353,20 @@ model PasswordResetToken {
   @@index([expiresAt])
 }
 
+model AgentState {
+  id           String   @id @default(cuid())
+  userId       String
+  sessionId    String   @unique // A unique identifier for a specific agent session
+  stateJson    Json?    // Flexible JSON field to store agent's internal state (task queue, memory, etc.)
+  lastUpdated  DateTime @updatedAt
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([sessionId])
+}
+
 model DocShare {
   id          String    @id @default(cuid())
   docId       String
@@ -357,4 +380,24 @@ model DocShare {
   @@index([docId])
   @@index([token])
   @@index([expiresAt])
+}
+
+model Deployment {
+  id        String   @id @default(cuid())
+  userId    String
+  teamId    String?
+  name      String
+  url       String   @unique
+  status    String   @default("PENDING") // PENDING, BUILDING, DEPLOYED, FAILED
+  config    Json?    // Build settings, environment variables
+  files     Json?    // Snapshot of deployed file structure
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team? @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([teamId])
+  @@index([status])
 }

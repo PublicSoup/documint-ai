@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { runAgent } from "@/lib/agent/engine";
 import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
+import { v4 as uuidv4 } from 'uuid'; // Import uuid
 
 const historyMessageSchema = z
     .object({
@@ -38,6 +39,8 @@ export async function POST(req: Request) {
 
         const { message, history, contextFileId, contextContent, additionalContext, stream } = await validateBody(req, chatRequestSchema);
 
+        const sessionId = uuidv4(); // Generate a unique session ID for this agent run
+
         const fullMessage = additionalContext
             ? `${message}\n\nAdditional Context:\n${additionalContext}`
             : message;
@@ -48,6 +51,7 @@ export async function POST(req: Request) {
 
             const generator = runAgent(
                 session.user.id,
+                sessionId,
                 fullMessage,
                 contextFileId,
                 contextContent,
@@ -90,6 +94,7 @@ export async function POST(req: Request) {
 
                     const generator = runAgent(
                         session.user.id,
+                        sessionId,
                         fullMessage,
                         contextFileId,
                         contextContent,

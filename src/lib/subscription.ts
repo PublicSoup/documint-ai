@@ -104,6 +104,17 @@ const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
     },
 };
 
+export const DEFAULT_SUBSCRIPTION: SubscriptionInfo = {
+    plan: "free",
+    status: "none",
+    isActive: false,
+    isPro: false,
+    isTeam: false,
+    currentPeriodEnd: null,
+    cancelAtPeriodEnd: false,
+    limits: PLAN_LIMITS.free,
+};
+
 /**
  * Get user's subscription info with plan limits
  */
@@ -113,22 +124,12 @@ export async function getUserSubscription(userId: string): Promise<SubscriptionI
     });
 
     if (!subscription) {
-        return {
-            plan: "free",
-            status: "none",
-            isActive: false,
-            isPro: false,
-            isTeam: false,
-            currentPeriodEnd: null,
-            cancelAtPeriodEnd: false,
-            limits: PLAN_LIMITS.free,
-        };
+        return DEFAULT_SUBSCRIPTION;
     }
 
     const plan = (subscription.plan as PlanType) || "free";
     const isActive = ["active", "trialing"].includes(subscription.status);
 
-    // TEMPORARY BYPASS FOR VERIFICATION
     return {
         plan,
         status: subscription.status,
@@ -138,6 +139,7 @@ export async function getUserSubscription(userId: string): Promise<SubscriptionI
         currentPeriodEnd: subscription.currentPeriodEnd,
         cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
         limits: PLAN_LIMITS[plan] || PLAN_LIMITS.free,
+        isDevMode: env.NEXT_PUBLIC_DEV_PRO === 'true'
     };
 }
 

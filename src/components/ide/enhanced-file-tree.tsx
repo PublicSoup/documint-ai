@@ -40,7 +40,7 @@ interface EnhancedFileTreeProps {
     files: (File & { documentation?: any })[];
     activeFileId?: string;
     onSelect: (fileId: string) => void;
-    onAction?: (action: "ai" | "delete" | "rename" | "new_file" | "new_folder" | "refresh", fileId?: string) => void;
+    onAction?: (action: "ai" | "delete" | "rename" | "new_file" | "new_folder", fileId?: string) => void;
     onRefresh?: () => void;
 }
 
@@ -48,8 +48,6 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
     const [search, setSearch] = useState("");
     const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(["Project"]));
     const [menu, setMenu] = useState<{ x: number; y: number; nodeId: string; nodeType: "file" | "folder" } | null>(null);
-    const [newItem, setNewItem] = useState<{ parentId: string; type: "file" | "folder" } | null>(null);
-    const [renamingItem, setRenamingItem] = useState<{ id: string; name: string } | null>(null);
 
     // Build tree structure from flat files
     const buildTree = (files: File[]): TreeNode[] => {
@@ -153,12 +151,12 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
                 {
                     label: "New File",
                     icon: FileText,
-                    onClick: () => setNewItem({ parentId: nodeId, type: "file" })
+                    onClick: () => onAction?.("new_file", nodeId)
                 },
                 {
                     label: "New Folder",
                     icon: FolderPlus,
-                    onClick: () => setNewItem({ parentId: nodeId, type: "folder" })
+                    onClick: () => onAction?.("new_folder", nodeId)
                 },
                 { separator: true, label: "" },
                 {
@@ -177,11 +175,6 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
                 label: "Open File",
                 icon: FileText,
                 onClick: () => onSelect(nodeId)
-            },
-            {
-                label: "New File",
-                icon: Plus,
-                onClick: () => onAction?.("new_file")
             },
             {
                 label: "Ask AI Architect",
@@ -204,7 +197,7 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
             {
                 label: "Rename",
                 icon: Pencil,
-                onClick: () => setRenamingItem({ id: nodeId, name: file.name }),
+                onClick: () => onAction?.("rename", nodeId),
                 shortcut: "F2"
             },
             {
@@ -325,7 +318,7 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
                             <RefreshCw className="w-3.5 h-3.5" />
                         </button>
                         <button
-                            onClick={() => setNewItem({ parentId: "Project", type: "file" })}
+                            onClick={() => onAction?.("new_file", "Project")}
                             className="text-white/25 hover:text-white/50 transition-colors p-1 rounded hover:bg-white/[0.04]"
                             title="New File"
                         >
@@ -361,125 +354,6 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
                     items={getMenuItems(menu.nodeId, menu.nodeType)}
                     onClose={() => setMenu(null)}
                 />
-            )}
-
-            {renamingItem && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-[#0d0d11] border border-white/[0.06] rounded-lg p-4 w-80 shadow-2xl">
-                        <h3 className="text-sm font-medium mb-3">Rename Item</h3>
-                        <input
-                            type="text"
-                            defaultValue={renamingItem.name}
-                            className="w-full bg-black/20 border border-white/[0.06] rounded px-3 py-2 text-xs text-white mb-3 focus:outline-none focus:border-purple-500/40 transition-all"
-                            autoFocus
-                            onKeyDown={async (e) => {
-                                if (e.key === "Enter") {
-                                    const newName = (e.target as HTMLInputElement).value;
-                                    if (newName && newName !== renamingItem.name) {
-                                        try {
-                                            const res = await fetch(`/api/files/move`, {
-                                                method: "POST",
-                                                headers: { "Content-Type": "application/json" },
-                                                body: JSON.stringify({ fileId: renamingItem.id, newName })
-                                            });
-                                            if (res.ok) {
-                                                onRefresh?.();
-                                            }
-                                        } catch (err) {
-                                            console.error("Failed to rename:", err);
-                                        }
-                                    }
-                                    setRenamingItem(null);
-                                } else if (e.key === "Escape") {
-                                    setRenamingItem(null);
-                                }
-                            }}
-                        />
-                        <div className="flex gap-2 justify-end">
-                            <button
-                                onClick={() => setRenamingItem(null)}
-                                className="px-3 py-1.5 text-xs bg-white/5 hover:bg-white/10 rounded transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={async () => {
-                                    const input = document.querySelector('input[type="text"]') as HTMLInputElement;
-                                    const newName = input.value;
-                                    if (newName && newName !== renamingItem.name) {
-                                        try {
-                                            const res = await fetch(`/api/files/move`, {
-                                                method: "POST",
-                                                headers: { "Content-Type": "application/json" },
-                                                body: JSON.stringify({ fileId: renamingItem.id, newName })
-                                            });
-                                            if (res.ok) {
-                                                onRefresh?.();
-                                            }
-                                        } catch (err) {
-                                            console.error("Failed to rename:", err);
-                                        }
-                                    }
-                                    setRenamingItem(null);
-                                }}
-                                className="px-3 py-1.5 text-xs bg-purple-600 hover:bg-purple-500 rounded transition-colors font-medium"
-                            >
-                                Save
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {newItem && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-[#030014] border border-white/[0.06] rounded-lg p-4 w-80 shadow-2xl">
-                        <h3 className="text-sm font-medium mb-3">
-                            Create New {newItem.type === "file" ? "File" : "Folder"}
-                        </h3>
-                        <input
-                            type="text"
-                            placeholder={newItem.type === "file" ? "filename.ts" : "folder-name"}
-                            className="w-full bg-black/20 border border-white/[0.06] rounded px-3 py-2 text-xs text-white mb-3 focus:outline-none focus:border-purple-500/40 transition-all"
-                            autoFocus
-                            onKeyDown={async (e) => {
-                                if (e.key === "Enter") {
-                                    const name = (e.target as HTMLInputElement).value;
-                                    if (name) {
-                                        // Prefix with parent path if not root
-                                        const finalName = newItem.parentId === "Project" ? name : `${newItem.parentId.replace('Project/', '')}/${name}`;
-                                        onAction?.("new_file", finalName);
-                                    }
-                                    setNewItem(null);
-                                } else if (e.key === "Escape") {
-                                    setNewItem(null);
-                                }
-                            }}
-                        />
-                        <div className="flex gap-2 justify-end">
-                            <button
-                                onClick={() => setNewItem(null)}
-                                className="px-3 py-1.5 text-xs bg-white/5 hover:bg-white/10 rounded transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={() => {
-                                    const input = document.querySelector('input[placeholder]') as HTMLInputElement;
-                                    const name = input.value;
-                                    if (name) {
-                                        const finalName = newItem.parentId === "Project" ? name : `${newItem.parentId.replace('Project/', '')}/${name}`;
-                                        onAction?.("new_file", finalName);
-                                    }
-                                    setNewItem(null);
-                                }}
-                                className="px-3 py-1.5 text-xs bg-purple-600 hover:bg-purple-500 rounded transition-colors font-medium"
-                            >
-                                Create
-                            </button>
-                        </div>
-                    </div>
-                </div>
             )}
         </div>
     );

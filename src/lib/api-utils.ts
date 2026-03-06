@@ -1,5 +1,10 @@
-import { NextResponse } from "next/server";
-import { z } from "zod";
+import { NextRequest, NextResponse } from "next/server";
+import { z, ZodSchema } from "zod";
+import { getServerSession, Session } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { requireFeature, FeatureType } from "@/lib/feature-gate";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { logAudit } from "@/lib/audit-logger";
 
 /**
  * Standard API Error Response Format
@@ -88,9 +93,12 @@ export function formatError(error: unknown): ApiError {
     }
 
     if (error instanceof Error) {
+        // In development, expose the actual error message for generic Errors
+        // In production, keep it generic for security
+        const message = process.env.NODE_ENV !== "production" ? error.message : "Internal server error";
         return {
             error: "Error",
-            message: "Internal server error",
+            message,
             statusCode: 500,
         };
     }
@@ -127,16 +135,6 @@ export function successResponse<T>(data: T, status = 200): NextResponse {
     return NextResponse.json(data, { status });
 }
 
-/**
- * API route handler wrapper with automatic error handling
- */
-export function withErrorHandling<T>(
-    handler: () => Promise<T>
-): Promise<NextResponse> {
-    return handler()
-        .then(data => successResponse(data))
-        .catch(error => errorResponse(error));
-}
 
 /**
  * Validate request body against Zod schema
@@ -172,4 +170,79 @@ export function validateQuery<T>(
         }
         throw ApiErrors.badRequest("Invalid query parameters");
     }
+}
+
+interface ApiHandlerContext<TBody, TQuery> {
+    body: TBody;
+    query: TQuery;
+    session: Session;
+    request: NextRequest;
+}
+
+interface AuditConfig<TBody, TQuery, TResponse> {
+    action: string;
+    entity: string;
+    entityId: (body: TBody, query: TQuery, response: TResponse) => string;
+    details?: (body: TBody, query: TQuery, response: TResponse) => Record<string, unknown>;
+}
+
+interface ApiHandlerOptions<TBody, TQuery, TResponse> {
+    feature?: FeatureType;
+    rateLimit?: "free" | "pro" | "api" | "none";
+    bodySchema?: ZodSchema<TBody>;
+    querySchema?: ZodSchema<TQuery>;
+    audit?: AuditConfig<TBody, TQuery, TResponse>;
+    handler: (context: ApiHandlerContext<TBody, TQuery>) => Promise<TResponse>;
+}
+
+export function createApiHandler<TBody = unknown, TQuery = unknown, TResponse = unknown>(
+    options: ApiHandlerOptions<TBody, TQuery, TResponse>
+) {
+    return async (request: NextRequest) => {
+        try {
+            // 1. Feature Gate
+            if (options.feature) {
+                const gateError = await requireFeature(options.feature);
+                if (gateError) return gateError;
+            }
+
+            // 2. Authentication
+            const session = await getServerSession(authOptions);
+            if (!session?.user?.id) {
+                throw ApiErrors.unauthorized();
+            }
+
+            // 3. Rate Limiting
+            if (options.rateLimit && options.rateLimit !== "none") {
+                await enforceRateLimit(session.user.id, options.rateLimit);
+            }
+
+            // 4. Validation
+            const body = options.bodySchema ? await validateBody(request, options.bodySchema) : ({} as TBody);
+            const query = options.querySchema ? validateQuery(request.nextUrl.searchParams, options.querySchema) : ({} as TQuery);
+
+            // 5. Execute Handler
+            const responseData = await options.handler({ body, query, session, request });
+
+            // 6. Auditing (on success)
+            if (options.audit && request.method !== 'GET' && request.method !== 'HEAD') {
+                try {
+                    await logAudit({
+                        userId: session.user.id,
+                        action: options.audit.action,
+                        entity: options.audit.entity,
+                        entityId: options.audit.entityId(body, query, responseData),
+                        details: options.audit.details ? options.audit.details(body, query, responseData) : {},
+                    });
+                } catch (auditError) {
+                    console.error("Non-blocking audit log failure:", auditError);
+                }
+            }
+            
+            return successResponse(responseData);
+
+        } catch (error) {
+            return errorResponse(error);
+        }
+    };
 }

@@ -47,7 +47,7 @@ function isValidInviteEmail(value: string): boolean {
 
 export default function BillingHub() {
     const { toast } = useToast();
-    const { data: session } = useSession();
+    const { data: session, update } = useSession();
 
     // Core State
     const [activeTab, setActiveTab] = useState<"plans" | "profile" | "teams" | "api" | "notifications" | "integrations" | "audit" | "templates">("plans");
@@ -58,6 +58,7 @@ export default function BillingHub() {
     const [focusedPlanId, setFocusedPlanId] = useState<"starter" | "pro" | "team" | null>(null);
     const [trialIntentActive, setTrialIntentActive] = useState(false);
     const [checkoutCanceled, setCheckoutCanceled] = useState(false);
+    const [profileName, setProfileName] = useState("");
 
     // Profile State
     const [saving, setSaving] = useState(false);
@@ -102,6 +103,12 @@ export default function BillingHub() {
             setActiveTab("plans");
         }
     }, []);
+
+    useEffect(() => {
+        if (session?.user?.name) {
+            setProfileName(session.user.name);
+        }
+    }, [session?.user?.name]);
 
     useEffect(() => {
         if (activeTab === "teams") {
@@ -187,11 +194,28 @@ export default function BillingHub() {
 
     const handleSaveProfile = async () => {
         setSaving(true);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        setSaving(false);
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
-        toast("Profile updated successfully", "success");
+        try {
+            const res = await fetch("/api/user/update", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: profileName }),
+            });
+
+            if (res.ok) {
+                await update(); // Update local session
+                setSaved(true);
+                setTimeout(() => setSaved(false), 2000);
+                toast("Profile updated successfully", "success");
+            } else {
+                const data = await res.json();
+                throw new Error(data.error || "Failed to update profile");
+            }
+        } catch (error) {
+            console.error("Profile update error:", error);
+            toast(error instanceof Error ? error.message : "Failed to update profile", "error");
+        } finally {
+            setSaving(false);
+        }
     };
 
     const handleGenerateApiKey = async () => {
@@ -202,12 +226,17 @@ export default function BillingHub() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ name: "Default API Key" }),
             });
-            if (res.ok) {
-                const data = await res.json();
-                setApiKey(data.key || "dk_" + Math.random().toString(36).substring(2, 15));
+
+            const data = await res.json();
+
+            if (res.ok && data.key) {
+                setApiKey(data.key);
+            } else {
+                throw new Error(data.error || "An unknown error occurred.");
             }
-        } catch {
-            setApiKey("dk_" + Math.random().toString(36).substring(2, 15));
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Failed to generate API key. Please try again.";
+            toast(errorMessage, "error");
         } finally {
             setGeneratingKey(false);
         }
@@ -353,11 +382,6 @@ export default function BillingHub() {
                                                 <p className="text-white/60 text-sm">
                                                     {usage?.validUntil ? `Valid until ${usage.validUntil}` : "Basic feature set"}
                                                 </p>
-                                                {usage?.isDevMode && (
-                                                    <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-[9px] font-black text-amber-500 uppercase tracking-widest">
-                                                        Developer Pro Mode Active
-                                                    </div>
-                                                )}
                                             </div>
                                         </div>
                                         {usage?.plan && (usage.plan !== "Free" && usage.plan !== "Free Tier") && (
@@ -365,19 +389,14 @@ export default function BillingHub() {
                                                 <Button
                                                     onClick={handleManageBilling}
                                                     isLoading={billingLoading}
-                                                    disabled={usage.isDevMode}
                                                     className={cn(
-                                                        "bg-white/10 hover:bg-white/20 text-white border border-white/10",
-                                                        usage.isDevMode && "opacity-50 cursor-not-allowed"
+                                                        "bg-white/10 hover:bg-white/20 text-white border border-white/10"
                                                     )}
                                                     leftIcon={<CreditCard className="w-4 h-4" />}
-                                                    title={usage.isDevMode ? "Billing disabled in Dev Mode" : "Manage Subscription"}
+                                                    title={"Manage Subscription"}
                                                 >
                                                     Manage Subscription
                                                 </Button>
-                                                {usage.isDevMode && (
-                                                    <span className="text-[10px] text-amber-500/80 font-mono">Simulated Plan (No Billing)</span>
-                                                )}
                                             </div>
                                         )}
                                     </div>
@@ -537,7 +556,13 @@ export default function BillingHub() {
                                 </div>
                                 <div className="grid gap-2">
                                     <label className="text-sm font-medium text-white/80">Display Name</label>
-                                    <input type="text" placeholder="Your name" defaultValue={session?.user?.name || ""} className="glass-input p-3 rounded-xl w-full outline-none" />
+                                    <input
+                                        type="text"
+                                        placeholder="Your name"
+                                        value={profileName}
+                                        onChange={(e) => setProfileName(e.target.value)}
+                                        className="glass-input p-3 rounded-xl w-full outline-none focus:ring-2 focus:ring-primary/40 transition-all"
+                                    />
                                 </div>
                                 <div className="pt-4 flex justify-end">
                                     <Button onClick={handleSaveProfile} isLoading={saving}>{saved ? "Saved!" : "Save Changes"}</Button>

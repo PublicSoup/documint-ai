@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Component, ErrorInfo, ReactNode } from "react";
+import React, { Component, ErrorInfo, ReactNode } from 'react';
 
 interface Props {
     children: ReactNode;
@@ -10,35 +10,29 @@ interface State {
     hasError: boolean;
 }
 
-export class ErrorBoundary extends Component<Props, State> {
-    public state: State = {
-        hasError: false,
-    };
+class ErrorBoundary extends Component<Props, State> {
+    constructor(props: Props) {
+        super(props);
+        this.state = { hasError: false };
+    }
 
-    public static getDerivedStateFromError(_: Error): State {
+    static getDerivedStateFromError(_: Error) {
+        // Update state so the next render will show the fallback UI.
         return { hasError: true };
     }
 
-    public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-        console.error("Uncaught error:", error, errorInfo);
+    componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+        // You can also log the error to an error reporting service
+        console.error("Captured error:", error, errorInfo);
     }
 
-    public render() {
+    render() {
         if (this.state.hasError) {
+            // You can render any custom fallback UI
             return (
-                <div className="min-h-screen bg-[#0A0A0B] flex items-center justify-center p-6 text-center">
-                    <div className="glass p-12 rounded-3xl max-w-md border border-white/5 shadow-2xl">
-                        <h2 className="text-2xl font-bold mb-4 text-white">Something went wrong</h2>
-                        <p className="text-white/40 mb-8">
-                            DocuMint encountered an unexpected error. Please refresh the page or try again later.
-                        </p>
-                        <button
-                            onClick={() => this.setState({ hasError: false })}
-                            className="px-6 py-3 bg-primary text-white rounded-xl font-bold hover:scale-105 transition-all"
-                        >
-                            Try again
-                        </button>
-                    </div>
+                <div className="flex flex-col items-center justify-center h-full bg-[#0d0d11] text-white">
+                    <h2 className="text-xl font-semibold mb-4">Something went wrong in this section.</h2>
+                    <p className="text-gray-400">Please refresh the page or try again later.</p>
                 </div>
             );
         }
@@ -46,3 +40,5 @@ export class ErrorBoundary extends Component<Props, State> {
         return this.props.children;
     }
 }
+
+export default ErrorBoundary;

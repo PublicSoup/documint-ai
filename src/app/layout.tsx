@@ -49,7 +49,7 @@ export const metadata: Metadata = {
   },
 };
 
-import { ErrorBoundary } from "@/components/error-boundary";
+import ErrorBoundary from "@/components/error-boundary";
 import { PageTransition } from "@/components/page-transition";
 import { Analytics } from "@vercel/analytics/next";
 

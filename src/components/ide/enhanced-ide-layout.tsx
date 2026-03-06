@@ -1,8 +1,14 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import { WebContainerManager } from "@/lib/web-container";
+import { FileTreeContainer } from "./file-tree-container";
+import ErrorBoundary from "@/components/error-boundary";
 import { SimpleEnhancedEditor, SimpleEnhancedEditorRef } from "./simple-enhanced-editor";
+import DynamicDiagramViewer from "../dynamic-diagram-viewer";
+
+import React, { useState, useEffect, useRef, useCallback } from "react";
+
+import type { Monaco } from "@monaco-editor/react";
 import { Breadcrumbs } from "./breadcrumbs";
 import { KeyboardShortcuts } from "./keyboard-shortcuts";
 import { LivePreview } from "./live-preview";
@@ -15,9 +21,8 @@ import { cn } from "@/lib/utils";
 import { useToast } from "../toast";
 import { Button } from "../ui/button";
 import { AIChatPanel } from "./ai-chat-panel";
-import { EnhancedFileTree } from "./enhanced-file-tree";
-import { WebContainerManager } from "@/lib/web-container";
-import { Terminal as XTerm } from '@xterm/xterm';
+
+import { WebContainerTerminal as Terminal } from './webcontainer-terminal';
 import { useExecutionEngine } from "@/hooks/use-execution-engine";
 import { RunnerConfigDialog } from "./runner-config-dialog";
 import { ActivityBar } from "./activity-bar";
@@ -32,27 +37,11 @@ import { CommandPalette } from "../command-palette";
 import { DiffModal } from "./diff-modal";
 import { useIDESettings } from "@/hooks/use-ide-settings";
 import { loadTypesFromWebContainer } from "@/lib/monaco-type-loader";
-import type { Monaco } from "@monaco-editor/react";
 
-const DiagramViewer = dynamic(() => import("../diagram-viewer").then(mod => mod.DiagramViewer), {
-    ssr: false,
-    loading: () => (
-        <div className="flex items-center justify-center h-[300px] text-zinc-500">
-            <Loader2 className="w-6 h-6 animate-spin mr-2" />
-            Rendering Topology...
-        </div>
-    )
-});
 
-const Terminal = dynamic(() => import("./terminal").then(mod => mod.Terminal), {
-    ssr: false,
-    loading: () => (
-        <div className="flex items-center justify-center h-32 bg-[#020010] text-white/20 font-mono text-xs">
-            <Loader2 className="w-4 h-4 animate-spin mr-2" />
-            Connecting to Runtime...
-        </div>
-    )
-});
+
+
+
 
 // Auto-detect Monaco language from file name
 function getLanguageFromFileName(fileName: string): string {
@@ -116,13 +105,23 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     const [fileContents, setFileContents] = useState<Record<string, string>>({});
     const [unsavedChanges, setUnsavedChanges] = useState<Record<string, boolean>>({});
     const [isSaving, setIsSaving] = useState(false);
+    const [terminalInstance, setTerminalInstance] = useState<any>(null);
 
-    // WebContainer State
-    const [webContainerBooted, setWebContainerBooted] = useState(false);
-    const [terminalInstance, setTerminalInstance] = useState<XTerm | null>(null);
-    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-    const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-    const [isInstalling, setIsInstalling] = useState(false);
+    // Unify WebContainer logic via hook
+    const {
+        webContainerBooted,
+        isInstalling,
+        previewUrl,
+        isPreviewOpen,
+        setIsPreviewOpen,
+        run: runProject,
+        mountAll: mountAllFiles
+    } = useExecutionEngine({
+        files,
+        activeFileId,
+        fileContents,
+        terminalInstance
+    });
 
     // Diff Modal State
     const [diffModalOpen, setDiffModalOpen] = useState(false);
@@ -151,6 +150,9 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     const showLocalTopology = settings.showLocalTopology;
     const setShowLocalTopology = (val: boolean) => updateSetting("showLocalTopology", val);
 
+    const [isDeploying, setIsDeploying] = useState(false);
+    const [activeDeploymentId, setActiveDeploymentId] = useState<string | null>(null);
+    const [lastLogLength, setLastLogLength] = useState(0);
     const [localMermaid, setLocalMermaid] = useState<string>("");
     const editorRef = useRef<SimpleEnhancedEditorRef>(null);
     const [clickTimeout, setClickTimeout] = useState<NodeJS.Timeout | null>(null);
@@ -159,6 +161,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
     const [terminalMaximized, setTerminalMaximized] = useState(false);
     const [typesLoaded, setTypesLoaded] = useState(false);
+
     const monacoInstanceRef = useRef<Monaco | null>(null);
     const [showSecretsManager, setShowSecretsManager] = useState(false);
     const [envSecrets, setEnvSecrets] = useState<{ key: string; value: string }[]>([]);
@@ -219,10 +222,16 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                     setFileContents(prev => ({ ...prev, [fileId]: data.content }));
                 } else {
                     // New/empty file — set empty string so editor shows blank
-                    setFileContents(prev => ({ ...prev, [fileId]: "" }));
+                    try {
+                        setFileContents(prev => ({ ...prev, [fileId]: "" }));
+                    } catch (e) {
+                        toast("Failed to set initial file content", "error");
+                        console.error("Failed to set initial file content:", e);
+                    }
                 }
             } catch (e) {
                 toast("Failed to load file content", "error");
+                console.error("Failed to load file content:", e);
             }
         }
     };
@@ -244,57 +253,32 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     };
 
     const handleRunProject = async () => {
-        if (!webContainerBooted || !terminalInstance) {
+        if (!webContainerBooted) {
             toast("runtime not ready", "error");
             return;
         }
 
-        setIsInstalling(true);
         setShowTerminal(true);
         setIsPreviewOpen(true);
 
         try {
+            await runProject();
+
+            // Still handle type loading here or in hook? 
+            // Better to keep UI-specific things like type loading in the layout if it uses Monaco ref.
             const wc = await WebContainerManager.getInstance();
-
-            // Install dependencies
-            terminalInstance.writeln("\r\n> npm install\r\n");
-            const installProcess = await wc.spawn('npm', ['install']);
-            installProcess.output.pipeTo(new WritableStream({
-                write(data) {
-                    terminalInstance.write(data);
-                }
-            }));
-
-            if ((await installProcess.exit) !== 0) {
-                throw new Error("Installation failed");
-            }
-
-            // Load type definitions from installed packages into Monaco
             if (monacoInstanceRef.current) {
                 try {
                     const count = await loadTypesFromWebContainer(wc, monacoInstanceRef.current);
                     if (count > 0) {
-                        setTypesLoaded(true);
-                        toast(`Loaded ${count} type definitions — IntelliSense active`, "success");
+                        toast(`Loaded ${count} type definitions`, "success");
                     }
                 } catch (e) {
-                    console.warn("Type loading failed (non-critical):", e);
+                    console.warn("Type loading failed:", e);
                 }
             }
-
-            // Start Dev Server
-            terminalInstance.writeln("\r\n> npm run dev\r\n");
-            const devProcess = await wc.spawn('npm', ['run', 'dev']);
-            devProcess.output.pipeTo(new WritableStream({
-                write(data) {
-                    terminalInstance.write(data);
-                }
-            }));
-
-            setIsInstalling(false);
         } catch (e) {
-            terminalInstance.writeln(`\r\nError: ${e}\r\n`);
-            setIsInstalling(false);
+            toast(`Failed to run: ${e}`, "error");
         }
     };
 
@@ -345,121 +329,87 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
             } else {
                 const text = await res.text();
                 toast(text || "Failed to create file", "error");
+                console.error("File creation failed:", text);
             }
         } catch (e) {
             toast("Failed to create file", "error");
         }
     };
 
-    // Boot WebContainer
+    const handleDeploy = async () => {
+        if (files.length === 0) {
+            toast("No files to deploy", "error");
+            return;
+        }
+
+        setIsDeploying(true);
+        try {
+            const res = await fetch("/api/deploy", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    name: "Generated Project",
+                    files: files.map(f => ({ name: f.name, content: fileContents[f.id] || f.content || "" }))
+                })
+            });
+
+            const data = await res.json();
+            if (data.success && data.deployment) {
+                setActiveDeploymentId(data.deployment.id);
+                setLastLogLength(0);
+                setShowTerminal(true);
+                toast("Deployment initiated! Tracking build logs...", "success");
+            } else {
+                throw new Error(data.error || "Deployment failed");
+            }
+        } catch (e) {
+            console.error("Deployment failed:", e);
+            toast(e instanceof Error ? e.message : "Failed to deploy site", "error");
+            setIsDeploying(false);
+        }
+    };
+
+    // Poll deployment status
     useEffect(() => {
-        const boot = async () => {
+        if (!activeDeploymentId) return;
+
+        let interval = setInterval(async () => {
             try {
-                const wc = await WebContainerManager.getInstance();
-                setWebContainerBooted(true);
+                const resp = await fetch(`/api/deploy/${activeDeploymentId}`);
+                const data = await resp.json();
 
-                // Mount initial files (using state 'files' to be safe, though initially same as initialFiles)
-                const fileMounts: Record<string, { file: { contents: string } }> = {};
+                if (data.success) {
+                    const { status, logs, url } = data.deployment;
 
-                // Process files
-                // Helper to ensure directory structure exists
-                const ensureDir = (root: any, pathParts: string[]) => {
-                    let current = root;
-                    for (const part of pathParts) {
-                        if (!current[part]) {
-                            current[part] = { directory: {} };
+                    // Stream logs to terminal
+                    if (logs && logs.length > lastLogLength) {
+                        const newLogs = logs.substring(lastLogLength);
+                        if (terminalInstance) {
+                            terminalInstance.write(newLogs.replace(/\n/g, '\r\n'));
                         }
-                        current = current[part].directory;
-                    }
-                    return current;
-                };
-
-                // Process files
-                files.forEach(f => {
-                    let name = f.name;
-                    if (!name) return;
-
-                    name = name.trim();
-
-                    // Sanitize
-                    if (name.startsWith('//') || name.startsWith('#') || name.includes('\n') || !name.match(/^[a-zA-Z0-9@._\-\/]+$/)) {
-                        console.warn("Skipping invalid file mount:", name);
-                        return;
+                        setLastLogLength(logs.length);
                     }
 
-                    // Handle nested paths (e.g. src/components/button.tsx)
-                    if (name.includes('/')) {
-                        const parts = name.split('/');
-                        const fileName = parts.pop()!;
-                        const dirParts = parts;
-
-                        const dir = ensureDir(fileMounts, dirParts);
-                        dir[fileName] = { file: { contents: f.content || "" } };
-                    } else {
-                        // Flat file
-                        fileMounts[name] = { file: { contents: f.content || "" } };
+                    if (status === "DEPLOYED") {
+                        clearInterval(interval);
+                        setIsDeploying(false);
+                        setActiveDeploymentId(null);
+                        toast("Deployment successful!", "success");
+                        window.open(url, "_blank");
+                    } else if (status === "FAILED") {
+                        clearInterval(interval);
+                        setIsDeploying(false);
+                        setActiveDeploymentId(null);
+                        toast("Deployment failed. Check logs.", "error");
                     }
-                });
-
-                // Add package.json if missing (for React/Next support)
-                if (!fileMounts['package.json']) {
-                    fileMounts['package.json'] = {
-                        file: {
-                            contents: JSON.stringify({
-                                name: "documint-preview",
-                                private: true,
-                                scripts: {
-                                    "dev": "next dev",
-                                    "build": "next build",
-                                    "start": "next start"
-                                },
-                                dependencies: {
-                                    "next": "latest",
-                                    "react": "latest",
-                                    "react-dom": "latest"
-                                }
-                            }, null, 2)
-                        }
-                    };
                 }
-
-                await wc.mount(fileMounts);
-
-                // Listen for server-ready
-                wc.on('server-ready', (port, url) => {
-                    setPreviewUrl(url);
-                    setIsPreviewOpen(true);
-                    toast("Development server ready!", "success");
-                });
-
             } catch (e) {
-                console.error("WebContainer Boot Error:", e);
-                // toast("Failed to boot runtime environment. Check console.", "error");
+                console.error("Failed to poll deployment status:", e);
             }
-        };
+        }, 2000);
 
-        boot();
-    }, []); // Run once on mount
-
-    // Sync file changes to WebContainer
-    useEffect(() => {
-        const syncFile = async () => {
-            if (activeFileId && fileContents[activeFileId] && webContainerBooted) {
-                // Must search in current dynamic files state
-                const file = files.find(f => f.id === activeFileId);
-                if (file) {
-                    try {
-                        await WebContainerManager.writeFile(file.name, fileContents[activeFileId]);
-                    } catch (e) {
-                        console.error("Failed to sync file to WC:", e);
-                    }
-                }
-            }
-        };
-        const timeout = setTimeout(syncFile, 500); // Debounce
-        return () => clearTimeout(timeout);
-    }, [fileContents, activeFileId, webContainerBooted, files]); // Added files dependency
-
+        return () => clearInterval(interval);
+    }, [activeDeploymentId, lastLogLength, terminalInstance]);
 
     const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
@@ -515,90 +465,6 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     }, [activeFileId, fileContents, unsavedChanges, showSidebar, showAIChat, showTerminal]);
 
     const activeFile = files.find(f => f.id === activeFileId);
-
-
-
-    const handleAction = async (action: "ai" | "delete" | "rename" | "new_file" | "new_folder" | "refresh", fileId?: string) => {
-        if (action === "new_file") {
-            // If fileId contains a path (from folder context menu), pre-fill it
-            if (fileId && fileId.includes('/')) {
-                const fileName = prompt(`Enter file name (will be created in ${fileId}):`);
-                if (!fileName) return;
-                const fullName = `${fileId}/${fileName}`;
-                try {
-                    const res = await fetch("/api/files/create", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ name: fullName })
-                    });
-                    if (res.ok) {
-                        const newFile = await res.json();
-                        setFiles(prev => [...prev, newFile]);
-                        setFileContents(prev => ({ ...prev, [newFile.id]: newFile.content || "" }));
-                        setOpenFiles(prev => [...prev, newFile.id]);
-                        setActiveFileId(newFile.id);
-                        toast(`Created ${fullName}`, "success");
-                    } else {
-                        const text = await res.text();
-                        toast(text || "Failed to create file", "error");
-                    }
-                } catch (e) {
-                    toast("Failed to create file", "error");
-                }
-            } else {
-                await handleCreateFile();
-            }
-        } else if (action === "new_folder") {
-            toast("Create a file inside the folder to establish it", "success");
-        } else if (action === "refresh") {
-            window.location.reload();
-        } else if (action === "ai" && fileId) {
-            setActiveFileId(fileId);
-            setShowAIChat(true);
-            if (!openFiles.includes(fileId)) {
-                setOpenFiles([...openFiles, fileId]);
-            }
-        } else if (action === "rename" && fileId) {
-            const file = files.find(f => f.id === fileId);
-            const newName = prompt("Enter new file name:", file?.name || "");
-            if (!newName || newName === file?.name) return;
-            try {
-                const res = await fetch(`/api/files/move`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ fileId, newName })
-                });
-                if (res.ok) {
-                    setFiles(prev => prev.map(f => f.id === fileId ? { ...f, name: newName, language: getLanguageFromFileName(newName) } : f));
-                    toast(`Renamed to ${newName}`, "success");
-                } else {
-                    toast("Failed to rename file", "error");
-                }
-            } catch (e) {
-                toast("Failed to rename file", "error");
-            }
-        } else if (action === "delete" && fileId) {
-            if (confirm("Are you sure you want to delete this file?")) {
-                try {
-                    const res = await fetch(`/api/files/${fileId}/raw`, { method: "DELETE" });
-                    if (res.ok) {
-                        // Remove from state instead of reloading
-                        setFiles(prev => prev.filter(f => f.id !== fileId));
-                        setOpenFiles(prev => prev.filter(id => id !== fileId));
-                        if (activeFileId === fileId) {
-                            const remaining = openFiles.filter(id => id !== fileId);
-                            setActiveFileId(remaining[remaining.length - 1]);
-                        }
-                        toast("File deleted", "success");
-                    } else {
-                        toast("Failed to delete file", "error");
-                    }
-                } catch (e) {
-                    toast("Failed to delete", "error");
-                }
-            }
-        }
-    };
 
     return (
         <div className="flex h-screen w-screen overflow-hidden bg-[#030014] text-white fixed inset-0 z-[100] selection:bg-purple-500/30">
@@ -708,24 +574,24 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                     />
                     <div className="absolute md:relative w-56 md:w-64 flex-none flex flex-col border-r border-white/[0.04] bg-[#030014] h-full overflow-hidden animate-in slide-in-from-left-1 duration-200 z-30 shadow-2xl md:shadow-none">
                         {activeSidebarTab === "explorer" && (
-                            <EnhancedFileTree
-                                files={files}
+                            <FileTreeContainer
                                 activeFileId={activeFileId}
                                 onSelect={handleFileSelect}
-                                onAction={handleAction}
-                                onRefresh={async () => {
-                                    // Smart refresh: re-fetch file list without full page reload
-                                    try {
-                                        const res = await fetch('/api/files/list');
-                                        if (res.ok) {
-                                            const data = await res.json();
-                                            if (data.files) {
-                                                setFiles(data.files);
-                                            }
-                                        }
-                                    } catch (e) {
-                                        // Fallback to full reload if API fails
-                                        window.location.reload();
+                                onFileCreated={(newFile) => {
+                                    setFiles(prev => [...prev, newFile]);
+                                    setFileContents(prev => ({ ...prev, [newFile.id]: newFile.content || "" }));
+                                    setOpenFiles(prev => [...prev, newFile.id]);
+                                    setActiveFileId(newFile.id);
+                                }}
+                                onFileRenamed={(fileId, newName) => {
+                                    setFiles(prev => prev.map(f => f.id === fileId ? { ...f, name: newName, language: getLanguageFromFileName(newName) } : f));
+                                }}
+                                onFileDeleted={(fileId) => {
+                                    setFiles(prev => prev.filter(f => f.id !== fileId));
+                                    const newOpenFiles = openFiles.filter(id => id !== fileId);
+                                    setOpenFiles(newOpenFiles);
+                                    if (activeFileId === fileId) {
+                                        setActiveFileId(newOpenFiles[newOpenFiles.length - 1]);
                                     }
                                 }}
                             />
@@ -788,6 +654,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                 <ContextualHeader
                     filePath={activeFile?.name || "No file selected"}
                     isSaving={isSaving}
+                    isDeploying={isDeploying}
+                    onDeploy={handleDeploy}
                     onShare={async () => {
                         if (activeFile) {
                             await navigator.clipboard.writeText(window.location.href + '?file=' + activeFile.id);
@@ -1007,23 +875,25 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 <div className="flex flex-col h-full">
                                     <Breadcrumbs filePath={activeFile.name} />
                                     <div className="flex-1 min-h-0">
-                                        <SimpleEnhancedEditor
-                                            key={activeFileId} // Force remount on file change
-                                            ref={editorRef}
-                                            code={fileContents[activeFileId] ?? ""}
-                                            language={getLanguageFromFileName(activeFile.name)}
-                                            fileName={activeFile.name}
-                                            onChange={handleContentChange}
-                                            onSave={handleSave}
-                                            onRun={handleRunProject}
-                                            onMonacoMount={(monaco) => {
-                                                monacoInstanceRef.current = monaco;
-                                            }}
-                                            onCursorChange={(line, col) => {
-                                                setCursorLine(line);
-                                                setCursorColumn(col);
-                                            }}
-                                        />
+                                        <ErrorBoundary>
+                                            <SimpleEnhancedEditor
+                                                key={activeFileId} // Force remount on file change
+                                                ref={editorRef}
+                                                code={fileContents[activeFileId] ?? ""}
+                                                language={getLanguageFromFileName(activeFile.name)}
+                                                fileName={activeFile.name}
+                                                onChange={handleContentChange}
+                                                onSave={handleSave}
+                                                onRun={handleRunProject}
+                                                onMonacoMount={(monaco) => {
+                                                    monacoInstanceRef.current = monaco;
+                                                }}
+                                                onCursorChange={(line, col) => {
+                                                    setCursorLine(line);
+                                                    setCursorColumn(col);
+                                                }}
+                                            />
+                                        </ErrorBoundary>
                                     </div>
                                 </div>
                             )
@@ -1031,29 +901,48 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                             /* Empty State: Show Project Templates when no file is open */
                             <ProjectTemplates
                                 onSelectTemplate={async (templateFiles) => {
-                                    // Create files from template via API
-                                    for (const tf of templateFiles) {
-                                        try {
-                                            const res = await fetch("/api/files/create", {
-                                                method: "POST",
-                                                headers: { "Content-Type": "application/json" },
-                                                body: JSON.stringify({ name: tf.name, content: tf.content })
+                                    try {
+                                        // Use the new bulk-create API for efficiency
+                                        const res = await fetch("/api/files/bulk-create", {
+                                            method: "POST",
+                                            headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({ files: templateFiles })
+                                        });
+
+                                        if (res.ok) {
+                                            const data = await res.json();
+                                            const createdFiles = data.files;
+
+                                            // Update state with all new files
+                                            setFiles(prev => [...prev, ...createdFiles]);
+
+                                            // Update file contents and open files
+                                            const newContents: Record<string, string> = { ...fileContents };
+                                            createdFiles.forEach((f: any) => {
+                                                newContents[f.id] = f.content || "";
                                             });
-                                            if (res.ok) {
-                                                const newFile = await res.json();
-                                                setFiles(prev => [...prev, newFile]);
-                                                setFileContents(prev => ({ ...prev, [newFile.id]: newFile.content || tf.content }));
-                                                // Auto-open the first file
-                                                if (templateFiles.indexOf(tf) === 0) {
-                                                    setOpenFiles(prev => [...prev, newFile.id]);
-                                                    setActiveFileId(newFile.id);
-                                                }
+                                            setFileContents(newContents);
+
+                                            // Auto-open the first file if available
+                                            if (createdFiles.length > 0) {
+                                                setOpenFiles(prev => [...prev, createdFiles[0].id]);
+                                                setActiveFileId(createdFiles[0].id);
                                             }
-                                        } catch (e) {
-                                            console.error("Failed to create template file:", tf.name, e);
+
+                                            toast(`Created ${createdFiles.length} files from template`, "success");
+
+                                            // Synchronize all new files to WebContainer immediately
+                                            if (webContainerBooted) {
+                                                await mountAllFiles([...files, ...createdFiles]);
+                                            }
+                                        } else {
+                                            const errorData = await res.json();
+                                            toast(errorData.error || "Failed to create template files", "error");
                                         }
+                                    } catch (e) {
+                                        console.error("Failed to batch create template files:", e);
+                                        toast("Error initializing template", "error");
                                     }
-                                    toast(`Created ${templateFiles.length} files from template`, "success");
                                 }}
                             />
                         )}
@@ -1118,7 +1007,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 </div>
                             </div>
                             <div className="flex-1 p-4 overflow-hidden relative">
-                                <DiagramViewer code={localMermaid} type="flowchart" onNodeClick={(filePath) => {
+                                <DynamicDiagramViewer code={localMermaid} type="flowchart" onNodeClick={(filePath) => {
                                     // Resolve file path to database ID
                                     const file = files.find(f => f.name === filePath || f.id === filePath || f.name.endsWith(filePath));
                                     if (file) {
@@ -1155,8 +1044,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         <div className="flex-none h-8 flex items-center justify-between px-3 border-b border-white/[0.04] select-none bg-[#030014]">
                             <div className="flex items-center gap-4 h-full">
                                 <button className="h-full text-[11px] font-medium text-white/80 flex items-center gap-1.5 px-2 relative">
-                                    <TerminalIcon className="w-3.5 h-3.5 text-purple-400/60" />
-                                    Terminal
+                                    WebContainerTerminal
                                     <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-purple-500 to-violet-400" />
                                 </button>
                                 <button className="h-full text-[11px] font-medium text-white/25 hover:text-white/50 flex items-center gap-1.5 px-2 transition-colors">
@@ -1176,10 +1064,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 </button>
                                 <button
                                     onClick={() => {
-                                        if (terminalInstance) {
-                                            terminalInstance.clear();
-                                            toast('Terminal cleared', 'success');
-                                        }
+                                        toast('Terminal clear not available in interactive mode', "warning");
                                     }}
                                     className="p-1 rounded hover:bg-white/[0.06] text-white/25 hover:text-white/60 transition-colors"
                                     title="Clear Terminal"
@@ -1207,37 +1092,15 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         {/* Terminal Content */}
                         <div className="flex-1 min-h-0 bg-[#020010] p-1 pl-3 overflow-hidden">
                             <Terminal
-                                onTerminalReady={async (term) => {
-                                    setTerminalInstance(term);
-                                    term.writeln("\x1b[1;32m➜\x1b[0m \x1b[1;36mdocumint-project\x1b[0m");
-
-                                    // Connect shell
-                                    if (webContainerBooted) {
-                                        const wc = await WebContainerManager.getInstance();
-                                        const shellProcess = await wc.spawn('jsh', {
-                                            terminal: {
-                                                cols: term.cols,
-                                                rows: term.rows,
-                                            },
-                                        });
-
-                                        shellProcess.output.pipeTo(new WritableStream({
-                                            write(data) {
-                                                term.write(data);
-                                            }
-                                        }));
-
-                                        const input = term.onData((data) => {
-                                            (shellProcess.input as any).write(data);
-                                        });
-
-                                        return () => {
-                                            input.dispose();
-                                            shellProcess.kill();
-                                        };
-                                    } else {
-                                        term.writeln("\x1b[2mInitializing WebContainer runtime...\x1b[0m");
-                                    }
+                                onProcessStart={(process) => {
+                                    setTerminalInstance(null); // Clear old instance
+                                    toast("Command started in terminal", "success");
+                                }}
+                                onProcessExit={(code) => {
+                                    toast(`Command exited with code ${code}`, code === 0 ? "success" : "error");
+                                }}
+                                onError={(error) => {
+                                    toast(`Terminal error: ${error.message}`, "error");
                                 }}
                             />
                         </div>

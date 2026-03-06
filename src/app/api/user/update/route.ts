@@ -7,6 +7,7 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { ApiErrors, errorResponse } from "@/lib/api-utils";
+import { logAudit } from "@/lib/audit-logger"; // Centralized audit logger
 
 const jsonValueSchema: z.ZodType<Prisma.JsonValue> = z.lazy(() =>
     z.union([
@@ -136,9 +137,8 @@ export async function PATCH(request: NextRequest) {
             select: { id: true, name: true, email: true },
         });
 
+        // Audit logging
         try {
-            const { logAudit } = await import("@/lib/audit-logger");
-
             if (updateData.password) {
                 await logAudit({
                     userId: session.user.id,
@@ -168,9 +168,11 @@ export async function PATCH(request: NextRequest) {
                     details: { updatedKeys: Object.keys(settings) },
                 });
             }
-        } catch {
-            // Keep profile update non-blocking if audit logging fails
+        } catch (auditError) {
+            console.error("Failed to log audit event:", auditError);
         }
+
+
 
         return NextResponse.json({ success: true, user: updatedUser });
     } catch (error) {

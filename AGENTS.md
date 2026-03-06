@@ -218,7 +218,7 @@ When the user requests execution (e.g., "run it", "continue", "ship it"):
    - verification status
    - risk notes
    - next batch plan
-4. Prefer direct main-session execution when subagent runtime is degraded
+4. **Manage Subagents Ruthlessly:** If you delegate to subagents, VERIFY their work. Edit and fix their code if they leave stubs, make mistakes, or write non-robust code. Prefer direct main-session execution if subagents fail to deliver production-ready code.
 5. If verification is blocked by runtime/tooling, continue safe file-level hardening and provide exact unblock commands
 
 ## Make It Yours

@@ -16,16 +16,29 @@ let bootPromise: Promise<WebContainer> | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 const trackedProcesses = new Map<string, WebContainerProcess>();
 
-const runtimeHealth = {
-    recoveryCount: 0,
-    lastRecoveryAt: null as string | null,
-    lastRecoveryReason: null as string | null,
+type WebContainerHealthState = {
+    trackedProcessCount: number;
+    recoveryCount: number;
+    lastRecoveryAt: string | null;
+    lastRecoveryReason: string | null;
 };
+
+const runtimeHealth: WebContainerHealthState = {
+    trackedProcessCount: 0,
+    recoveryCount: 0,
+    lastRecoveryAt: null,
+    lastRecoveryReason: null,
+};
+
+type HealthSubscriber = (health: WebContainerHealthState) => void;
+const healthSubscribers: Set<HealthSubscriber> = new Set();
+
 
 function recordRecovery(reason: string): void {
     runtimeHealth.recoveryCount += 1;
     runtimeHealth.lastRecoveryAt = new Date().toISOString();
     runtimeHealth.lastRecoveryReason = reason;
+    healthSubscribers.forEach(cb => cb({ ...runtimeHealth }));
 }
 
 function trackProcess(processId: string, process: WebContainerProcess): void {
@@ -192,10 +205,20 @@ export class WebContainerManager {
         };
     }
 
+    static subscribeToHealth(callback: HealthSubscriber): () => void {
+        healthSubscribers.add(callback);
+        return () => healthSubscribers.delete(callback);
+    }
+
     static async reset(): Promise<void> {
         await this.stopAllProcesses();
         webcontainerInstance = null;
         bootPromise = null;
         writeQueue = Promise.resolve();
+        // Notify subscribers of reset health state
+        runtimeHealth.recoveryCount = 0;
+        runtimeHealth.lastRecoveryAt = null;
+        runtimeHealth.lastRecoveryReason = null;
+        healthSubscribers.forEach(cb => cb({ ...runtimeHealth }));
     }
 }

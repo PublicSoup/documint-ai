@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { Prisma } from "@prisma/client";
+import { Prisma, AuditLogSeverity } from "@prisma/client";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -8,6 +8,7 @@ import { requireFeature } from "@/lib/feature-gate";
 import { validateAdmin } from "@/lib/admin-auth";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { ApiErrors, errorResponse, validateQuery, validateBody } from "@/lib/api-utils";
+import { logAudit } from "@/lib/audit-logger";
 
 const querySchema = z.object({
     page: z.coerce.number().int().min(1).default(1),
@@ -117,6 +118,17 @@ export async function POST(request: NextRequest) {
         const isAdmin = adminCheck.authorized;
 
         const { format, startDate, endDate, userId: targetUserId } = await validateBody(request, exportSchema);
+
+        // Audit log the export action
+        await logAudit({
+            userId: session.user.id,
+            action: "AUDIT_LOG_EXPORT",
+            entity: "AuditLog",
+            entityId: "N/A", // No specific entity ID for a bulk export
+            details: { format, startDate, endDate, targetUserId, isAdmin },
+            severity: AuditLogSeverity.INFO,
+            ip: request.headers.get("x-forwarded-for") || "127.0.0.1",
+        });
 
         // Build where clause
         const where: Prisma.AuditLogWhereInput = {};

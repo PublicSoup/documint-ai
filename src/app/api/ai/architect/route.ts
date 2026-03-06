@@ -183,23 +183,19 @@ export async function POST(req: NextRequest) {
         }
 
         // Audit Logging
-        try {
-            const { logAudit } = await import("@/lib/audit-logger");
-            await logAudit({
-                userId: session.user.id,
-                action: "AI_ARCHITECT_QUERY",
-                entity: "AI",
-                entityId: fileId || "GLOBAL",
-                details: {
-                    promptLength: userPrompt.length,
-                    hasCode: !!code,
-                    historyLength: chatHistory.length,
-                    tier: rateLimitTier
-                },
-            });
-        } catch {
-            // Ignore
-        }
+        const { logAudit } = await import("@/lib/audit-logger");
+        await logAudit({
+            userId: session.user.id,
+            action: "AI_ARCHITECT_QUERY",
+            entity: "AI",
+            entityId: fileId || "GLOBAL",
+            details: {
+                promptLength: userPrompt.length,
+                hasCode: !!code,
+                historyLength: chatHistory.length,
+                tier: rateLimitTier
+            },
+        });
 
         // Persist Chat History (Async)
         if (fileId) {

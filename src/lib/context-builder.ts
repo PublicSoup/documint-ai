@@ -25,13 +25,14 @@ export async function buildFullCodebaseContext(
             name: true,
             language: true,
             content: true,
-            storagePath: true, // Added storagePath
+            storagePath: true,
             size: true,
             documentation: {
                 select: { content: true }
             }
         },
-        orderBy: { updatedAt: 'desc' }
+        orderBy: { updatedAt: 'desc' },
+        take: 500,
     });
 
     let context = "";

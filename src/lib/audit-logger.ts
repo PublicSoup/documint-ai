@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { createHash } from "crypto";
-import { Prisma } from "@prisma/client";
+import { Prisma, AuditLogSeverity } from "@prisma/client";
 import { getClientIP, getUserAgent } from "@/lib/rate-limit";
 
 /**
@@ -9,7 +9,7 @@ import { getClientIP, getUserAgent } from "@/lib/rate-limit";
 function maskSecrets(obj: Record<string, unknown>): Record<string, unknown> {
     if (!obj) return obj;
     const str = JSON.stringify(obj);
-    
+
     // Mask common secret patterns: passwords, api keys, tokens, auth headers
     const masked = str.replace(
         /Bearer\s+([a-zA-Z0-9\._\-]{4})[a-zA-Z0-9\._\-]+/gi,
@@ -20,7 +20,7 @@ function maskSecrets(obj: Record<string, unknown>): Record<string, unknown> {
             return `"${key}":"${val}****"`;
         }
     );
-    
+
     try {
         return JSON.parse(masked);
     } catch {
@@ -34,7 +34,8 @@ export async function logAudit({
     entityId,
     userId,
     details,
-    ip
+    ip,
+    severity = AuditLogSeverity.INFO
 }: {
     action: string;
     entity: string;
@@ -42,6 +43,7 @@ export async function logAudit({
     userId?: string | null;
     details?: Record<string, unknown>;
     ip?: string | null;
+    severity?: AuditLogSeverity;
 }) {
     try {
         // Automatically resolve IP and User Agent if not provided
@@ -77,7 +79,8 @@ export async function logAudit({
                 ip: resolvedIp,
                 hash,
                 previousHash,
-                createdAt: timestamp
+                createdAt: timestamp,
+                severity
             }
         });
     } catch (error) {
@@ -92,38 +95,42 @@ export async function logAudit({
  */
 export async function verifyAuditChain(entityId?: string): Promise<{ valid: boolean; brokenAtId?: string }> {
     const whereClause: Prisma.AuditLogWhereInput = entityId ? { entityId } : {};
-    
-    // Process in batches to avoid memory overload
-    let cursor: string | undefined;
+
     let lastHash = "GENESIS_HASH";
-    
-    // Fetch logs oldest to newest
-    // Note: This simplified version assumes sequential verification is feasible.
-    // In production with millions of rows, use targeted sampling or offline jobs.
-    const logs = await db.auditLog.findMany({
-        where: whereClause,
-        orderBy: { createdAt: "asc" },
-        take: 1000 // Limit for synchronous check
-    });
+    let cursorId: string | undefined;
+    const BATCH_SIZE = 500;
 
-    for (const log of logs) {
-        // Reconstruct the hash input
-        // previousHash | action | entityId | timestamp | details (JSON string)
-        const dataToHash = `${log.previousHash}|${log.action}|${log.entityId}|${log.createdAt.toISOString()}|${JSON.stringify(log.details)}`;
-        const expectedHash = createHash("sha256").update(dataToHash).digest("hex");
+    while (true) {
+        const logs = await db.auditLog.findMany({
+            where: whereClause,
+            orderBy: { createdAt: "asc" },
+            take: BATCH_SIZE,
+            cursor: cursorId ? { id: cursorId } : undefined,
+            skip: cursorId ? 1 : 0,
+        });
 
-        if (log.hash !== expectedHash) {
-            console.error(`Audit Chain Broken at ID: ${log.id}. Expected: ${expectedHash}, Found: ${log.hash}`);
-            return { valid: false, brokenAtId: log.id };
+        if (logs.length === 0) break;
+
+        for (const log of logs) {
+            // Reconstruct the hash input
+            // previousHash | action | entityId | timestamp | details (JSON string)
+            const dataToHash = `${log.previousHash}|${log.action}|${log.entityId}|${log.createdAt.toISOString()}|${JSON.stringify(log.details)}`;
+            const expectedHash = createHash("sha256").update(dataToHash).digest("hex");
+
+            if (log.hash !== expectedHash) {
+                console.error(`Audit Chain Broken at ID: ${log.id}. Expected: ${expectedHash}, Found: ${log.hash}`);
+                return { valid: false, brokenAtId: log.id };
+            }
+
+            // Chain link check: Does this log point to the correct previous hash?
+            if (lastHash !== "GENESIS_HASH" && log.previousHash !== lastHash) {
+                console.error(`Audit Chain Link Broken at ID: ${log.id}. Previous Hash Mismatch.`);
+                return { valid: false, brokenAtId: log.id };
+            }
+
+            lastHash = log.hash!;
+            cursorId = log.id;
         }
-        
-        // Chain link check: Does this log point to the correct previous hash?
-        if (lastHash !== "GENESIS_HASH" && log.previousHash !== lastHash) {
-             console.error(`Audit Chain Link Broken at ID: ${log.id}. Previous Hash Mismatch.`);
-             return { valid: false, brokenAtId: log.id };
-        }
-
-        lastHash = log.hash!;
     }
 
     return { valid: true };

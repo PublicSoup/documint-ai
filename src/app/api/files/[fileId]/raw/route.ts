@@ -51,10 +51,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ file
 
         // Check Access
         if (file.userId !== session.user.id) {
-            const hasAccess = file.teamId 
+            const hasAccess = file.teamId
                 ? await checkTeamPermission(session.user.id, file.teamId, "view")
                 : false;
-            
+
             if (!hasAccess) {
                 throw ApiErrors.forbidden();
             }
@@ -139,59 +139,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ file
 
         let intentDrift = null;
 
-        // Drift Detection Logic
-        if (updatedFile.documentation) {
-            await db.documentation.update({
-                where: { id: updatedFile.documentation.id },
-                data: { status: "DRAFT" }
-            });
-
-            // Async Drift Check (Fire & Forget to avoid blocking response)
-            (async () => {
-                try {
-                    const intentResult = await detectIntentDrift(content, updatedFile.documentation?.content || "");
-                    if (intentResult.drifted) {
-                        await db.reviewRequest.create({
-                            data: {
-                                documentationId: updatedFile.documentation!.id,
-                                requesterId: session.user.id,
-                                status: "PENDING",
-                                comments: `AI Shadowing detected intent drift: ${intentResult.reasoning}`
-                            }
-                        });
-
-                        await db.documentation.update({
-                            where: { id: updatedFile.documentation!.id },
-                            data: { status: "REVIEW" }
-                        });
-
-                        const { logAudit } = await import("@/lib/audit-logger");
-                        await logAudit({
-                            userId: session.user.id,
-                            action: "INTENT_DRIFT_DETECTED",
-                            entity: "Documentation",
-                            entityId: updatedFile.documentation!.id,
-                            details: { 
-                                reasoning: intentResult.reasoning,
-                                fileName: updatedFile.name
-                            }
-                        });
-
-                        await sendNotification({
-                            userId: session.user.id,
-                            teamId: updatedFile.teamId || undefined,
-                            type: "INTENT_DRIFT",
-                            title: "Critical Documentation Mismatch 🚩",
-                            message: `AI Shadowing detected that the latest changes to **${updatedFile.name}** conflict with the documented intent.\n\n**Reasoning:** ${intentResult.reasoning}`,
-                            fileId: fileId,
-                            fileName: updatedFile.name
-                        });
-                    }
-                } catch (e) {
-                    console.error("Shadowing failed:", e);
-                }
-            })();
-        }
+        // Automatic Event-Driven Triggers (Audits & Drift)
+        (async () => {
+            try {
+                const { triggerAutoAudit, triggerDriftDetection } = await import("@/lib/auto-triggers");
+                await Promise.all([
+                    triggerAutoAudit(fileId, session.user.id),
+                    triggerDriftDetection(fileId, session.user.id)
+                ]);
+            } catch (e) {
+                console.error("[AutoTrigger] Trigger execution failed:", e);
+            }
+        })();
 
         try {
             const { logAudit } = await import("@/lib/audit-logger");
@@ -200,8 +159,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ file
                 action: "UPDATE_FILE",
                 entity: "File",
                 entityId: fileId,
-                details: { 
-                    name: updatedFile.name, 
+                details: {
+                    name: updatedFile.name,
                     size: content.length,
                     hadDrift: !!updatedFile.documentation
                 }
@@ -212,7 +171,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ file
 
         // Handle Notifications / Auto-Regen logic asynchronously
         (async () => {
-             try {
+            try {
                 const user = await db.user.findUnique({
                     where: { id: session.user.id },
                     select: { email: true, name: true, settings: true }
@@ -323,7 +282,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ f
         await enforceRateLimit(session.user.id, "security");
 
         const canDelete = await checkFilePermission(session.user.id, fileId, "delete");
-        
+
         if (!canDelete) {
             throw ApiErrors.forbidden("You do not have permission to delete this file");
         }

@@ -57,10 +57,37 @@ const limiters = {
         redis,
         limiter: Ratelimit.slidingWindow(10, "1 m"),
         prefix: "rl:upload"
+    }) : null,
+
+    // File creations: 10 per minute
+    file_create: redis ? new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(10, "1 m"),
+        prefix: "rl:file_create"
+    }) : null,
+
+    // File deletions: 10 per 5 minutes
+    file_delete: redis ? new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(10, "5 m"),
+        prefix: "rl:file_delete"
+    }) : null,
+
+    // File renames: 10 per 5 minutes
+    file_rename: redis ? new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(10, "5 m"),
+        prefix: "rl:file_rename"
+    }) : null,
+    // Bulk file creations: 5 per minute
+    file_create_bulk: redis ? new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(5, "1 m"),
+        prefix: "rl:file_create_bulk"
     }) : null
 };
 
-type RateLimitTier = "auth" | "free" | "pro" | "api" | "upload" | "security";
+type RateLimitTier = "auth" | "free" | "pro" | "api" | "upload" | "security" | "file_create" | "file_delete" | "file_rename" | "file_create_bulk";
 
 const fallbackLimits: Record<RateLimitTier, { requests: number; windowMs: number }> = {
     auth: { requests: 5, windowMs: 15 * 60 * 1000 },
@@ -68,7 +95,11 @@ const fallbackLimits: Record<RateLimitTier, { requests: number; windowMs: number
     pro: { requests: 500, windowMs: 60 * 1000 },
     security: { requests: 10, windowMs: 30 * 60 * 1000 },
     api: { requests: 300, windowMs: 60 * 1000 },
-    upload: { requests: 10, windowMs: 60 * 1000 }
+    upload: { requests: 10, windowMs: 60 * 1000 },
+    file_create: { requests: 10, windowMs: 60 * 1000 },
+    file_delete: { requests: 10, windowMs: 5 * 60 * 1000 }, // 10 deletions per 5 minutes
+    file_rename: { requests: 10, windowMs: 5 * 60 * 1000 }, // 10 renames per 5 minutes
+    file_create_bulk: { requests: 5, windowMs: 60 * 1000 }
 };
 
 const memoryFallbackStore = new Map<string, { count: number; windowStart: number }>();
@@ -200,7 +231,7 @@ export async function getClientIP(req?: Request): Promise<string> {
         try {
             // Try to use next/headers if called in a request context
             headersList = await nextHeaders();
-        } catch {
+        } catch (error: unknown) {
             // Not in a request context or headers() failed
             return "127.0.0.1";
         }
@@ -227,7 +258,7 @@ export async function getUserAgent(req?: Request): Promise<string> {
     } else {
         try {
             headersList = await nextHeaders();
-        } catch {
+        } catch (error: unknown) {
             return "unknown";
         }
     }
@@ -257,19 +288,10 @@ export async function validateApiKey(apiKey: string): Promise<string | null> {
         });
 
         return user?.id || null;
-    } catch {
-        // Fallback: manual scan if json search fails
-        // This is slow but works as a last resort
-        const users = await db.user.findMany({
-            select: { id: true, settings: true }
-        });
-
-        for (const u of users) {
-            const settings = u.settings as { apiKey?: string } | null;
-            if (settings?.apiKey === apiKey) {
-                return u.id;
-            }
-        }
+    } catch (error: unknown) {
+        // Log the error but do NOT fetch all users (OOM risk)
+        console.error("[RateLimit] API key lookup failed:", error);
+        return null;
     }
 
     return null;

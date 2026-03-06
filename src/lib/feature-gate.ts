@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { hasFeatureAccess } from "@/lib/subscription";
 
-type FeatureType = "analytics" | "changelog" | "smartSuggestions" | "auditLog" | "customTemplates" | "prioritySupport" | "diagramGenerator" | "rulesetGenerator" | "aiArchitect" | "codeExplain";
+export type FeatureType = "analytics" | "changelog" | "smartSuggestions" | "auditLog" | "customTemplates" | "prioritySupport" | "diagramGenerator" | "rulesetGenerator" | "aiArchitect" | "codeExplain";
 
 /**
  * Middleware helper to check feature access

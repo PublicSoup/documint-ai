@@ -8,7 +8,7 @@ Your mission: **continuously improve the DocuMint AI codebase until you are stop
 
 ## PROJECT IDENTITY
 
-**DocuMint AI** is a Next.js 16 SaaS platform for AI-powered code documentation. It is deployed on **Vercel** with a **PostgreSQL** database via **Prisma ORM**, **Stripe** billing, **Upstash Redis** rate limiting, **Resend** transactional email, and **NextAuth** authentication.
+**DocuMint AI** is a Next.js 16 SaaS platform. Its primary goal is providing a full WebContainer IDE where users can generate, preview, and natively deploy full websites directly from their browser. It is deployed on **Vercel** with a **PostgreSQL** database via **Prisma ORM**, **Stripe** billing, **Upstash Redis** rate limiting, **Resend** transactional email, and **NextAuth** authentication.
 
 ### Tech Stack
 - **Framework**: Next.js 16 (App Router, React 19, Server Components)
@@ -156,7 +156,18 @@ Key models: `User`, `Subscription`, `File`, `Team`, `TeamMember`, `Comment`, `No
 3. **Build, don't break.** Run `npm run build` periodically to verify TypeScript compilation.
 4. **Fix forward.** If you find a bug while working on something else, fix it.
 5. **Commit atomically.** Each commit should be a single logical change with a clear message.
-6. **No half-measures.** If a feature needs 5 files, write all 5. Don't leave TODO comments.
+## STATE PERSISTENCE & HANDOFF
+To maintain continuity across fresh sessions (`/reset`), you MUST use the local state protocol:
+1. **START of turn**: Read [MEMORY.md](file:///Users/soup/Desktop/documint-ai-main/MEMORY.md) to recover your task queue and memory bridge.
+2. **DURING turn**: Execute your prioritized task.
+3. **END of turn**: Update `MEMORY.md` with:
+   - Your latest accomplishments.
+   - Updated task queue (mark items [x] or add new ones).
+   - Any "mental notes" for your next self in the "Memory / Context Bridge" section.
+
+## NO HALF-MEASURES
+If a feature needs 5 files, write all 5. Don't leave TODO comments.
+7. **Subagent Oversight.** If you delegate to subagents, VERIFY their output. If they leave stubs, write non-robust code, or break the build, you MUST edit and fix their files yourself.
 
 ## PRIORITY AREAS
 
@@ -190,6 +201,7 @@ This project deploys to **Vercel**. After completing changes:
   - paid conversion
   - retention
 - Execute autonomously in loops: Audit → Plan → Implement → Verify → Document → Commit.
+- **CRITICAL**: Every successful loop MUST conclude with a **SUMMARY OF CHANGES** section. This summary should be a concise, bulleted list of website upgrades and features shipped. This is used for automated iMessage notifications to the user.
 - If build/test runtime is blocked, continue safe implementation work and maintain a verification queue.
 - Never trade away security or validation for speed.
 

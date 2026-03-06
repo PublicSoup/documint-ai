@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { sendEmail, emailTemplates } from "@/lib/email";
 import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
 import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
+import { logAudit } from "@/lib/audit-logger";
 
 const resetRequestSchema = z.object({
     email: z.string().trim().email().max(100),
@@ -13,7 +14,10 @@ const resetRequestSchema = z.object({
 
 const resetConfirmSchema = z.object({
     token: z.string().min(1).max(255),
-    password: z.string().min(8).max(100),
+    password: z.string().min(8).max(100)
+        .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/, {
+            message: "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character."
+        }),
 }).strict();
 
 /**
@@ -58,6 +62,15 @@ export async function POST(req: NextRequest) {
             },
         });
 
+        // Log audit event for password reset initiation
+        await logAudit({
+            userId: user.id,
+            action: "PASSWORD_RESET_INITIATED",
+            entity: "User",
+            entityId: user.id,
+            details: { email: user.email, method: "forgot-password-flow" }
+        });
+
         // Send reset email
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
         const resetUrl = `${appUrl}/auth/reset-password?token=${token}`;
@@ -69,9 +82,7 @@ export async function POST(req: NextRequest) {
                 html: emailTemplates.passwordReset(user.name || "User", resetUrl),
             });
         } catch (emailError) {
-            console.error("Failed to send password reset email:", emailError);
-            // We still return success-like message to avoid enumeration, 
-            // but log the error for ops.
+            // Non-blocking email delivery failure.
         }
 
         return NextResponse.json({ message: successMessage });
@@ -125,18 +136,13 @@ export async function PUT(req: NextRequest) {
         ]);
 
         // Log audit event
-        try {
-            const { logAudit } = await import("@/lib/audit-logger");
-            await logAudit({
-                userId: resetToken.userId,
-                action: "RESET_PASSWORD",
-                entity: "User",
-                entityId: resetToken.userId,
-                details: { method: "forgot-password-flow" }
-            });
-        } catch {
-            // Non-blocking
-        }
+        await logAudit({
+            userId: resetToken.userId,
+            action: "RESET_PASSWORD",
+            entity: "User",
+            entityId: resetToken.userId,
+            details: { method: "forgot-password-flow" }
+        });
 
         // Send confirmation email (async)
         if (resetToken.user.email) {

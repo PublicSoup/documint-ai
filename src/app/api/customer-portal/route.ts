@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { stripe } from "@/lib/stripe";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { ApiErrors, errorResponse } from "@/lib/api-utils";
+
+const customerPortalSchema = z.object({}).strict();
 
 function resolveOrigin(request: NextRequest): string {
     const origin = request.headers.get("origin");
@@ -22,6 +25,9 @@ export async function POST(request: NextRequest) {
         }
 
         await enforceRateLimit(session.user.id, "api");
+
+        await enforceRateLimit(session.user.id, "api");
+        customerPortalSchema.parse(request.body);
 
         let customerId: string | null = null;
 

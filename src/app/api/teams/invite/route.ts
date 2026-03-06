@@ -11,6 +11,7 @@ import { checkTeamPermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { getUserSubscription } from "@/lib/subscription";
 import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
+import { logAudit } from "@/lib/audit-logger";
 
 const inviteSchema = z
     .object({
@@ -159,7 +160,8 @@ export async function POST(req: NextRequest) {
                 subject: `You've been invited to join ${team.name} on DocuMint AI`,
                 html: emailTemplates.teamInvite(inviter.name || inviter.email || "Someone", team.name, acceptUrl),
             });
-        } catch {
+        } catch (emailError) {
+            console.error("Failed to send invite email:", emailError);
             // Invitation remains valid even if email delivery fails.
         }
 
@@ -178,12 +180,12 @@ export async function POST(req: NextRequest) {
                     link: acceptUrl,
                 });
             }
-        } catch {
+        } catch (notificationError) {
+            console.error("Failed to send invite notification:", notificationError);
             // Non-blocking channel notification.
         }
 
         try {
-            const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
                 userId: inviter.id,
                 action: "INVITE_MEMBER",
@@ -196,7 +198,8 @@ export async function POST(req: NextRequest) {
                     teamSlug: team.slug,
                 },
             });
-        } catch {
+        } catch (auditError) {
+            console.error("Failed to log audit event:", auditError);
             // Keep mutation non-blocking if audit logging fails.
         }
 

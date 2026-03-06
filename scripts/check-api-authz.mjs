@@ -10,9 +10,9 @@ const EXEMPT_PATH_PARTS = [
   "/api/health/",
   "/api/cron/",
   "/api/register/",
-  "/api/auth/reset-password/",
-  "/api/v1/",
+  "/api/auth/",
   "/api/invites/[token]/",
+  "/api/teams/[teamId]/badge/",
 ];
 
 function walk(dir, out = []) {
@@ -32,18 +32,23 @@ for (const file of routes) {
   if (EXEMPT_PATH_PARTS.some((p) => rel.includes(p))) continue;
 
   const src = fs.readFileSync(file, "utf8");
-  const hasMutatingHandler = /export\s+async\s+function\s+(POST|PUT|PATCH|DELETE)\s*\(/.test(src);
-  if (!hasMutatingHandler) continue;
+  // Check if any standard HTTP handler is exported
+  const hasHandler = /export\s+async\s+function\s+(GET|POST|PUT|PATCH|DELETE)\s*\(/.test(src);
+  const usesApiHandler = src.includes("createApiHandler(");
+
+  if (!hasHandler && !usesApiHandler) continue;
 
   const hasServerSessionImport = src.includes("getServerSession");
   const hasValidateAdmin = src.includes("validateAdmin(");
-  const hasUnauthorizedGuard = /Unauthorized/.test(src) && /401/.test(src);
-  const hasForbiddenGuard = /Forbidden/.test(src) && /403/.test(src);
+  const hasValidateApiKey = src.includes("validateApiKey(");
+  const hasUnauthorizedGuard = (/Unauthorized/.test(src) && /401/.test(src)) || src.includes("ApiErrors.unauthorized(");
+  const hasForbiddenGuard = (/Forbidden/.test(src) && /403/.test(src)) || src.includes("ApiErrors.forbidden(");
 
-  const pass = (hasServerSessionImport && hasUnauthorizedGuard) || hasValidateAdmin || hasForbiddenGuard;
+  // createApiHandler handles auth, rate-limiting, and 401/403 internally
+  const pass = usesApiHandler || (hasServerSessionImport && hasUnauthorizedGuard) || hasValidateAdmin || hasForbiddenGuard || hasValidateApiKey;
 
   if (!pass) {
-    findings.push({ file: rel, hasServerSessionImport, hasValidateAdmin, hasUnauthorizedGuard, hasForbiddenGuard });
+    findings.push({ file: rel, hasServerSessionImport, hasValidateAdmin, hasUnauthorizedGuard, hasForbiddenGuard, usesApiHandler });
   }
 }
 

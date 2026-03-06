@@ -5,6 +5,7 @@ import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { logAudit } from "@/lib/audit-logger";
 import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 
 const createTeamSchema = z
@@ -86,7 +87,6 @@ export async function POST(req: NextRequest) {
         });
 
         try {
-            const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
                 userId: session.user.id,
                 action: "CREATE_TEAM",

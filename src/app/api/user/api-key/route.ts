@@ -107,11 +107,74 @@ export async function POST() {
                 entity: "User",
                 entityId: session.user.id,
             });
-        } catch {
+        } catch (auditError) {
+            console.error("Failed to log audit event:", auditError);
             // Non-blocking
         }
 
         return NextResponse.json({ apiKey: key });
+    } catch (error) {
+        return errorResponse(error);
+    }
+}
+
+/**
+ * DELETE /api/user/api-key
+ * Revokes the current API key.
+ */
+export async function DELETE() {
+    try {
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.id) {
+            throw ApiErrors.unauthorized();
+        }
+
+        // 1. Enforce Security Rate Limit (Revocation is sensitive)
+        await enforceRateLimit(session.user.id, "security");
+
+        const user = await db.user.findUnique({
+            where: { id: session.user.id },
+            select: { id: true, settings: true },
+        });
+
+        if (!user) {
+            throw ApiErrors.notFound("User");
+        }
+
+        const currentSettings = toSettingsObject(user.settings);
+
+        // Check if a key even exists to be deleted
+        if (!currentSettings.apiKey) {
+            return NextResponse.json({ success: true, message: "No API key to revoke." });
+        }
+
+        // 2. Remove apiKey from settings
+        const { apiKey, ...remainingSettings } = currentSettings;
+
+        await db.user.update({
+            where: { id: session.user.id },
+            data: {
+                settings: {
+                    ...remainingSettings,
+                } as Prisma.InputJsonValue,
+            },
+        });
+
+        // 3. Audit Log
+        try {
+            const { logAudit } = await import("@/lib/audit-logger");
+            await logAudit({
+                userId: session.user.id,
+                action: "REVOKE_API_KEY",
+                entity: "User",
+                entityId: session.user.id,
+            });
+        } catch (auditError) {
+            console.error("Failed to log audit event:", auditError);
+            // Non-blocking
+        }
+
+        return NextResponse.json({ success: true });
     } catch (error) {
         return errorResponse(error);
     }

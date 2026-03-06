@@ -9,11 +9,13 @@ PRIMARY OBJECTIVE
 Increase subscriber conversion by making the IDE feel instant and reliable under real workload.
 
 OPERATING MODE
-- Execute in autonomous loops: Audit → Implement one high-impact optimization → Verify → Document → Commit.
+- Execute in autonomous loops: Audit → Implement one high-impact optimization → Verify → Document → Commit → Push to GitHub.
 - Exactly one measurable optimization per loop.
 - Keep changes backward-compatible and production-safe.
 
 HARD GATES (MUST PASS)
+- **Subagent Oversight**: Rigorously verify all subagent changes. Edit and fix their work if it is flawed or non-robust.
+- **Zero Stubs**: Every optimization must be fully coded, robust, and complete.
 - `npm run build`
 - no new `any`
 - no bare `console.*` in API/server code

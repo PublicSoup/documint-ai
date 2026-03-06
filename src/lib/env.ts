@@ -77,7 +77,7 @@ export const env = envSchema.parse({
     STRIPE_PRICE_ID_PRO: process.env.STRIPE_PRICE_ID_PRO || undefined,
     STRIPE_PRICE_ID_TEAM: process.env.STRIPE_PRICE_ID_TEAM || undefined,
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || undefined,
-    NEXT_PUBLIC_DEV_PRO: (process.env.NEXT_PUBLIC_DEV_PRO || 'true'),
+    NEXT_PUBLIC_DEV_PRO: (process.env.NEXT_PUBLIC_DEV_PRO || 'false'),
 
     // Email
     RESEND_API_KEY: process.env.RESEND_API_KEY || undefined,

@@ -38,14 +38,13 @@ export default async function AnalyticsPage({
                 <p className="text-muted-foreground max-w-md text-lg leading-relaxed">
                     Gain deep insights into your documentation coverage, team activity, and usage trends.
                 </p>
-       <Link href="/dashboard/settings?tab=billing"
-                    aria-label="Upgrade to Pro and unlock advanced analytics"
->
+                <Link href="/dashboard/settings?tab=billing"
+                    aria-label="Upgrade to Pro and unlock advanced analytics">
                     <Button size="lg" className="px-8 shadow-lg shadow-primary/20">
                         Upgrade to Pro
                         <Crown className="w-4 h-4 ml-2 text-amber-200" />
                     </Button>
-                </Link aria-label="Upgrade to Pro and unlock advanced analytics">
+                </Link>
             </div>
         );
     }
@@ -223,8 +222,6 @@ function StatCard({ label, value, icon, bg }: { label: string, value: string, ic
             <CardContent className="p-6 flex items-center gap-4">
                 <div className={`w-12 h-12 rounded-2xl ${bg} flex items-center justify-center shrink-0 transition-transform group-hover:scale-110 duration-300`}>
                     <span aria-hidden="true">{icon}</span>
-                </div>
-                </div>
                 </div>
                 <div>
                     <p className="text-sm font-medium text-muted-foreground group-hover:text-white/60 transition-colors">{label}</p>

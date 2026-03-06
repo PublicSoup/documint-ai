@@ -1,5 +1,13 @@
 
 import { db } from "../db";
+import { AgentState } from "@prisma/client";
+
+interface AgentInternalState {
+    history: any[];
+    toolAttempts: { [key: string]: number };
+    // Add other internal state variables as needed
+}
+
 import { getAICompletion, getAICompletionWithDetailedError } from "../ai";
 import * as fs from "fs/promises"; // Keep for utility usage if needed, but VFS preferred
 import * as path from "path";
@@ -10,99 +18,25 @@ import { buildProjectGraph, generateGraphSummary } from "../graph/project-graph"
 
 const execAsync = promisify(exec);
 
-// Helper function to detect comment-related requests
-const isCommentRequest = (message: string): boolean => {
-    const commentKeywords = [
-        'comment', 'explain this', 'document this', 'add comments',
-        'help me understand', 'what does this do', 'describe this',
-        'clarify this', 'annotate this', 'comment on', 'explain code',
-        'code explanation', 'what is this code', 'how does this work'
-    ];
-    const lowerMessage = message.toLowerCase();
-    return commentKeywords.some(keyword => lowerMessage.includes(keyword));
-};
+// Helper to sanitize content from the LLM (remove accidental JSON stringification)
+const sanitizeContent = (content: string): string => {
+    if (!content) return "";
 
-// Generate concise, Cline-like explanations for simple code
-const generateConciseExplanation = (code: string): string => {
-    const trimmedCode = code.trim();
+    let clean = content.trim();
 
-    // Handle single line expressions
-    if (!trimmedCode.includes('\n') && trimmedCode.length < 100) {
-        if (trimmedCode.includes('console.log')) {
-            return "Outputs text to the console - commonly used for debugging.";
-        }
-        if (trimmedCode.includes('=')) {
-            return "Assigns a value to a variable.";
-        }
-        if (trimmedCode.match(/^\d+$/)) {
-            return "This is a numeric literal.";
-        }
-        if (trimmedCode.match(/^['"`].*['"`]$/)) {
-            return "This is a string literal.";
-        }
-        if (trimmedCode.includes('return')) {
-            return "Returns a value from a function.";
+    // Check for double-escaping (common with LLMs thinking they need to JSON.stringify)
+    // e.g. "import React..." (with quotes)
+    if (clean.startsWith('"') && clean.endsWith('"') && clean.includes('\\n')) {
+        try {
+            const parsed = JSON.parse(clean);
+            if (typeof parsed === 'string') return parsed;
+        } catch (e) {
+            // Fallback: manual unescape
+            return clean.slice(1, -1).replace(/\\n/g, '\n').replace(/\\"/g, '"');
         }
     }
 
-    // Handle common patterns
-    if (trimmedCode.includes('console.log')) {
-        return "Logs output to console for debugging/testing.";
-    }
-    if (trimmedCode.includes('function') || trimmedCode.includes('=>')) {
-        return "Defines a reusable function/method.";
-    }
-    if (trimmedCode.includes('import') || trimmedCode.includes('require')) {
-        return "Imports external modules/libraries.";
-    }
-    if (trimmedCode.includes('export')) {
-        return "Exports code for use in other files.";
-    }
-    if (trimmedCode.includes('class')) {
-        return "Defines a class blueprint for objects.";
-    }
-    if (trimmedCode.includes('if') || trimmedCode.includes('else')) {
-        return "Conditional logic based on boolean expressions.";
-    }
-    if (trimmedCode.includes('for') || trimmedCode.includes('while')) {
-        return "Loops through code multiple times.";
-    }
-    if (trimmedCode.includes('try') || trimmedCode.includes('catch')) {
-        return "Handles errors and exceptions.";
-    }
-
-    return "Simple code snippet. Need help with something specific?";
-};
-
-// Clean up overly verbose AI responses to be more Cline-like
-const cleanVerboseResponse = (response: string): string => {
-    let cleaned = response
-        .replace(/### Explanation:/gi, '')
-        .replace(/1\. File Name:[\s\S]*?(?=\n\n|$)/gi, '')
-        .replace(/2\. Code Content:/gi, '')
-        .replace(/3\. What It Does:/gi, '**What it does:**')
-        .replace(/\(e\.g\.,/gi, '(')
-        .replace(/etc\.\)/gi, ')')
-        .replace(/Here's what this code does:/gi, '')
-        .replace(/Let me explain this code:/gi, '')
-        .replace(/In simple terms:/gi, '')
-        .replace(/Sure! Let's break this down\.\.\./gi, '')
-        .replace(/Let me walk you through this:/gi, '')
-        .replace(/\*\*Summary\*\*:/gi, 'Summary:')
-        .replace(/\*\*Purpose\*\*:/gi, 'Purpose:')
-        .replace(/\*\*Key Points\*\*:/gi, 'Key Points:')
-        .replace(/\*\*Note\*\*:/gi, 'Note:')
-        .trim();
-
-    // Remove excessive whitespace and newlines
-    cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
-
-    // If the response starts with a code block, add a brief intro
-    if (cleaned.startsWith('```')) {
-        cleaned = "Here's the code with helpful comments:\n\n" + cleaned;
-    }
-
-    return cleaned;
+    return content;
 };
 
 export type AgentEvent =
@@ -136,38 +70,18 @@ const isDestructiveCommand = (cmd: string): boolean => {
     );
 };
 
-// Helper to sanitize content from the LLM (remove accidental JSON stringification)
-const sanitizeContent = (content: string): string => {
-    if (!content) return "";
-
-    let clean = content.trim();
-
-    // Check for double-escaping (common with LLMs thinking they need to JSON.stringify)
-    // e.g. "import React..." (with quotes)
-    if (clean.startsWith('"') && clean.endsWith('"') && clean.includes('\\n')) {
-        try {
-            const parsed = JSON.parse(clean);
-            if (typeof parsed === 'string') return parsed;
-        } catch (e) {
-            // Fallback: manual unescape
-            return clean.slice(1, -1).replace(/\\n/g, '\n').replace(/\\"/g, '"');
-        }
-    }
-
-    return content;
-};
-
 /**
  * A Senior AI Software Engineer Agent inspired by Cline (Roo Code).
  * Features real file system access and streaming steps.
  */
 export async function* runAgent(
     userId: string,
+    sessionId: string, // Unique identifier for this agent run
     userMessage: string,
     contextFileId: string | undefined,
     activeFileContent: string | undefined,
     onStateChange?: (state: string, tool?: string) => void,
-    history: any[] = []
+    initialHistory: any[] = []
 ): AsyncGenerator<AgentEvent, void, unknown> {
 
     // Use process.cwd() as the base directory (read-only in serverless, writable via Supabase VFS overlay)
@@ -216,7 +130,7 @@ Every file must be fully functional and beautifully styled out of the box.
 - React functional components with hooks, TypeScript types (no \`any\`)
 - Tailwind CSS for all styling — responsive, mobile-first
 - Premium UI: gradients, shadows, hover states, transitions, spacing
-- Real content — no "Lorem ipsum", no "add your API key here"
+- Real content — no placeholders, no "add your API key here"
 - Complete files: imports, component, exports — everything included
 
 ## FILE OPERATIONS
@@ -248,14 +162,42 @@ ${graphSummary}
 ${activeCtx}
 `;
 
-    const messages: any[] = [
-        { role: "system", content: CORE_SYSTEM_PROMPT },
-        ...history.slice(-10), // Keep last 10 messages for context
-        { role: "user", content: userMessage }
-    ];
+    let messages: any[] = [];
+    let toolAttempts = new Map<string, number>();
 
-    // Track tool attempts to prevent infinite retry loops
-    const toolAttempts = new Map<string, number>();
+    // Load existing agent state
+    const existingAgentState = await db.agentState.findUnique({
+        where: { sessionId: sessionId },
+    });
+
+    if (existingAgentState && existingAgentState.stateJson) {
+        try {
+            // Ensure stateJson is an object before casting
+            if (typeof existingAgentState.stateJson === 'object' && existingAgentState.stateJson !== null) {
+                const parsedState: AgentInternalState = existingAgentState.stateJson as unknown as AgentInternalState;
+                messages = parsedState.history || [];
+                toolAttempts = new Map(Object.entries(parsedState.toolAttempts || {}));
+                // Restore other state variables here if needed
+                console.log(`Agent state loaded for session ${sessionId}. History length: ${messages.length}`);
+            } else {
+                console.warn(`Agent state for session ${sessionId} is not a valid object. Initializing fresh state.`);
+                messages = initialHistory;
+                toolAttempts = new Map();
+            }
+        } catch (e) {
+            console.error(`Failed to parse agent state for session ${sessionId}:`, e);
+            messages = initialHistory;
+            toolAttempts = new Map();
+        }
+    } else {
+        messages = initialHistory;
+        toolAttempts = new Map();
+    }
+
+    // Always push the current user message to the messages array, whether loaded or fresh
+    messages.push({ role: "system", content: CORE_SYSTEM_PROMPT });
+    messages.push({ role: "user", content: userMessage });
+
     const MAX_RETRIES = 2;
 
     // Helper to determine if tool result should be shown to user
@@ -309,16 +251,10 @@ ${activeCtx}
 
         const response = result.data.content;
         messages.push({ role: "assistant", content: response });
-
-        let finalResponse = response;
-        if (isCommentRequest(userMessage)) {
-            if (activeFileContent && activeFileContent.length < 150 && userMessage.length < 30) {
-                finalResponse = `Here's a clear explanation of this code:\n\n\`\`\`javascript\n${activeFileContent}\n\`\`\`\n\n${generateConciseExplanation(activeFileContent)}`;
-            }
-        }
+        await saveAgentState(userId, sessionId, { history: messages, toolAttempts: Object.fromEntries(toolAttempts) });
 
         // ====== Multi-layer response sanitization ======
-        let cleanedResponse = finalResponse;
+        let cleanedResponse = response;
 
         // 1. Strip <tool_code>...</tool_code> blocks (including malformed/multiline)
         cleanedResponse = cleanedResponse.replace(/<tool_code>[\s\S]*?<\/tool_code>/gi, '');
@@ -505,6 +441,7 @@ ${activeCtx}
                 yield { type: "tool_result", result: toolResult };
             }
             messages.push({ role: "user", content: `[TOOL_OUTPUT]: ${toolResult}` });
+            await saveAgentState(userId, sessionId, { history: messages, toolAttempts: Object.fromEntries(toolAttempts) });
             if (onStateChange) onStateChange("THINKING");
         }
 
@@ -512,6 +449,28 @@ ${activeCtx}
     }
 
     if (onStateChange) onStateChange("COMPLETED");
+    await saveAgentState(userId, sessionId, { history: messages, toolAttempts: Object.fromEntries(toolAttempts) });
+}
+
+async function saveAgentState(
+    userId: string,
+    sessionId: string,
+    currentState: AgentInternalState
+): Promise<void> {
+    try {
+        await db.agentState.upsert({
+            where: { sessionId: sessionId },
+            update: { stateJson: currentState as any }, // Prisma needs `any` for Json type updates
+            create: {
+                userId: userId,
+                sessionId: sessionId,
+                stateJson: currentState as any,
+            },
+        });
+        // console.log(`Agent state saved for session ${sessionId}.`);
+    } catch (e) {
+        console.error(`Failed to save agent state for session ${sessionId}:`, e);
+    }
 }
 
 function parseArgs(raw: string): string[] {

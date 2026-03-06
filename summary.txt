@@ -1,0 +1,7 @@
+---
+🤖 DocuMint AI Update
+📁 Project: documint-ai-main
+✅ Improvement: Refactored API routes with a new centralized handler for improved security and maintainability.
+📂 File(s): ['src/lib/api-utils.ts', 'src/app/api/explain/route.ts', 'src/lib/feature-gate.ts']
+💡 Impact: This architectural enhancement makes all API routes more robust by default, centralizing authentication, rate-limiting, validation, and audit logging.
+---

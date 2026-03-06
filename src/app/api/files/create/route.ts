@@ -3,15 +3,21 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { enforceRateLimit } from "@/lib/rate-limit";
+import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
 import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
 import { createLocalFile } from "@/lib/local-dev-storage";
+import { checkTeamPermission } from "@/lib/permissions";
+import { logAudit } from "@/lib/audit-logger";
 
 const createFileSchema = z.object({
-    name: z.string().trim().min(1).max(255),
-    path: z.string().trim().max(1024).optional(),
+    name: z.string().trim().min(1).max(255)
+        .refine(name => !name.includes('/'), { message: "File name cannot contain slashes." })
+        .refine(name => !name.includes('..'), { message: "File name cannot contain directory traversal." }),
+    path: z.string().trim().max(1024)
+        .refine(path => !path.includes('..'), { message: "Path cannot contain directory traversal." })
+        .optional(),
     language: z.string().trim().max(50).optional(),
-    content: z.string().max(1024 * 1024).optional(), // 1MB limit for in-db content
+    content: z.string().max(1024 * 1024).optional(), // 1MB limit
     teamId: z.string().trim().min(1).max(100).optional(),
 }).strict();
 
@@ -49,6 +55,8 @@ function detectLanguage(fileName: string): string {
     return languageMap[ext || ''] || 'plaintext';
 }
 
+
+
 /**
  * POST /api/files/create
  * Creates a new file record in the database.
@@ -60,24 +68,23 @@ export async function POST(req: NextRequest) {
             return errorResponse(ApiErrors.unauthorized());
         }
 
+        const ip = getClientIP(req);
+
         // 1. Enforce Rate Limit
-        await enforceRateLimit(session.user.id, "upload");
+        await enforceRateLimit(`${session.user.id}:${ip}`, "file_create");
 
         // 2. Validate Request Body
         const { name, path, language, content, teamId } = await validateBody(req, createFileSchema);
 
         // Auto-detect language from file extension if not explicitly provided
         const resolvedLanguage = language || detectLanguage(name);
+        
+        const finalContent = content || "";
 
-        // DEV MODE BYPASS: Use local storage when user is dev admin
-        if (session.user.id.startsWith("dev-")) {
-            const file = await createLocalFile(name, content || "");
-            return NextResponse.json(file);
-        }
+
 
         // 3. Verify Team Access if applicable
         if (teamId) {
-            const { checkTeamPermission } = await import("@/lib/permissions");
             const hasPermission = await checkTeamPermission(session.user.id, teamId, "edit");
             if (!hasPermission) {
                 return errorResponse(ApiErrors.forbidden("You do not have permission to create files in this team."));
@@ -105,15 +112,14 @@ export async function POST(req: NextRequest) {
                 teamId: teamId || null,
                 name: name,
                 language: resolvedLanguage,
-                content: content || "",
-                size: content ? content.length : 0,
+                content: finalContent,
+                size: finalContent.length,
                 storagePath: path || `/${name}`
             }
         });
 
         // 6. Audit Logging
         try {
-            const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({
                 userId: session.user.id,
                 action: "CREATE_FILE",
@@ -126,8 +132,9 @@ export async function POST(req: NextRequest) {
                     teamId: teamId || null
                 }
             });
-        } catch {
-            // Non-blocking
+        } catch (auditError) {
+            console.error("Failed to log audit event:", auditError);
+            // Non-blocking, but should be monitored
         }
 
         return NextResponse.json(file, { status: 201 });
