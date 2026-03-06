@@ -68,7 +68,11 @@ export async function GET(request: NextRequest) {
             orderBy: { updatedAt: "desc" },
         });
 
-        return NextResponse.json({ templates });
+        return NextResponse.json({ templates }, {
+            headers: {
+                "Cache-Control": "private, max-age=60, stale-while-revalidate=300"
+            }
+        });
     } catch (error) {
         return errorResponse(error);
     }

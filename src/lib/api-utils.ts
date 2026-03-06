@@ -192,6 +192,7 @@ interface ApiHandlerOptions<TBody, TQuery, TResponse> {
     bodySchema?: ZodSchema<TBody>;
     querySchema?: ZodSchema<TQuery>;
     audit?: AuditConfig<TBody, TQuery, TResponse>;
+    cacheControl?: string;
     handler: (context: ApiHandlerContext<TBody, TQuery>) => Promise<TResponse>;
 }
 
@@ -238,8 +239,12 @@ export function createApiHandler<TBody = unknown, TQuery = unknown, TResponse = 
                     console.error("Non-blocking audit log failure:", auditError);
                 }
             }
-            
-            return successResponse(responseData);
+
+            const response = successResponse(responseData);
+            if (options.cacheControl) {
+                response.headers.set("Cache-Control", options.cacheControl);
+            }
+            return response;
 
         } catch (error) {
             return errorResponse(error);

@@ -29,7 +29,10 @@ interface FileTreeContainerProps {
 }
 
 export function FileTreeContainer({ activeFileId, onSelect, onFileCreated, onFileRenamed, onFileDeleted }: FileTreeContainerProps) {
-    const { data: files, error, isLoading, mutate } = useSWR<(File & { documentation?: any })[]>('/api/files', fetcher);
+    const { data: files, error, isLoading, mutate } = useSWR<(File & { documentation?: any })[]>('/api/files', fetcher, {
+        revalidateOnFocus: false,
+        revalidateOnReconnect: false,
+    });
     const { toast } = useToast();
 
     const handleAction = async (action: "ai" | "delete" | "rename" | "new_file" | "new_folder", contextId?: string) => {
@@ -97,7 +100,7 @@ export function FileTreeContainer({ activeFileId, onSelect, onFileCreated, onFil
                     }
                 }
                 break;
-            
+
             case "new_folder":
                 toast("Create a file inside a folder to establish it.", "success");
                 break;

@@ -13,6 +13,7 @@ const querySchema = z.object({}).strict();
 export const GET = createApiHandler({
     querySchema: querySchema,
     rateLimit: "api",
+    cacheControl: "private, max-age=60, stale-while-revalidate=300",
     handler: async ({ session, query, request }) => {
         try {
             const files = await db.file.findMany({

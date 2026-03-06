@@ -38,15 +38,15 @@ export async function GET() {
 
         const validUntil = subscription.currentPeriodEnd
             ? subscription.currentPeriodEnd.toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-              })
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+            })
             : new Date(now.getFullYear(), now.getMonth() + 1, 0).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-              });
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+            });
 
         const planDisplay = subscription.plan.charAt(0).toUpperCase() + subscription.plan.slice(1);
 
@@ -65,6 +65,10 @@ export async function GET() {
             features: subscription.limits.features,
             canUpgrade: subscription.plan !== "team",
             upgradePlan: subscription.plan === "free" ? "starter" : subscription.plan === "starter" ? "pro" : "team",
+        }, {
+            headers: {
+                "Cache-Control": "private, max-age=60, stale-while-revalidate=300"
+            }
         });
     } catch (error) {
         return errorResponse(error);
