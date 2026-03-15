@@ -1,3 +1,4 @@
+import { File } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
@@ -83,19 +84,19 @@ export async function GET(
             return NextResponse.json({ summary: "No files found in project.", hotspots: [] });
         }
 
-        const undocumentedFiles = files.filter((file) => !file.documentation).slice(0, 15);
-        const staleFiles = files.filter((file) => file.documentation?.status === "DRAFT").slice(0, 10);
+        const undocumentedFiles = files.filter((file: File & { documentation: { status: string } | null }) => !file.documentation).slice(0, 15);
+        const staleFiles = files.filter((file: File & { documentation: { status: string } | null }) => file.documentation?.status === "DRAFT").slice(0, 10);
 
         const projectContext: DebtContext = {
             totalFiles: files.length,
-            undocumentedCount: files.filter((file) => !file.documentation).length,
-            staleCount: files.filter((file) => file.documentation?.status === "DRAFT").length,
-            topUndocumented: undocumentedFiles.map((file) => ({
+            undocumentedCount: files.filter((file: File & { documentation: { status: string } | null }) => !file.documentation).length,
+            staleCount: files.filter((file: File & { documentation: { status: string } | null }) => file.documentation?.status === "DRAFT").length,
+            topUndocumented: undocumentedFiles.map((file: File) => ({
                 name: file.name,
                 size: file.size,
                 lang: file.language,
             })),
-            topStale: staleFiles.map((file) => ({
+            topStale: staleFiles.map((file: File) => ({
                 name: file.name,
                 updated: file.updatedAt.toISOString(),
             })),

@@ -1,3 +1,4 @@
+import { Documentation, AuditLog } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -78,7 +79,7 @@ export async function POST(
         const apiGuidelines = config.apiGuidelines || "";
 
         // 5. Construct Audit Prompt
-        const docSummaries = docs.map(d => {
+        const docSummaries = docs.map((d: Documentation & { file: { name: string, language: string } }) => {
             try {
                 const parsed = JSON.parse(d.content);
                 return `File: ${d.file.name} (${d.file.language})\nSummary: ${parsed.summary?.slice(0, 200)}...`;
@@ -216,7 +217,7 @@ export async function GET(
             take: 20
         });
 
-        const history = logs.map(l => ({
+        const history = logs.map((l: AuditLog) => ({
             date: l.createdAt.toISOString().split("T")[0],
             score: (l.details as { score?: number } | null)?.score || 0
         }));

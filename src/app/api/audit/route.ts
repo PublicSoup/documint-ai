@@ -153,7 +153,7 @@ export async function POST(request: NextRequest) {
 
         if (format === "csv") {
             const header = "Timestamp,Action,Entity,EntityID,Details,IP,User\n";
-            const rows = logs.map(log => {
+            const rows = logs.map((log: any) => {
                 const details = JSON.stringify(log.details || {}).replace(/"/g, '""');
                 return `"${log.createdAt.toISOString()}","${log.action}","${log.entity}","${log.entityId}","${details}","${log.ip || ''}","${log.userId || 'SYSTEM'}"`;
             }).join("\n");

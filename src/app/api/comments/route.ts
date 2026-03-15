@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
                     include: { user: true },
                 });
 
-                const mentionedUsers = teamUsers.filter((member) => {
+                const mentionedUsers = teamUsers.filter((member: any) => {
                     if (member.userId === userId) return false;
                     if (member.userId === file.userId) return false;
 
@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
                 });
 
                 await Promise.all(
-                    mentionedUsers.map((member) =>
+                    mentionedUsers.map((member: any) =>
                         sendNotification({
                             userId: member.userId,
                             type: "MENTION",
@@ -199,7 +199,7 @@ export async function GET(req: NextRequest) {
             orderBy: { createdAt: "desc" },
         });
 
-        const topLevelComments = comments.filter((comment) => !comment.parentId);
+        const topLevelComments = comments.filter((comment: any) => !comment.parentId);
         return NextResponse.json({ comments: topLevelComments });
     } catch (error) {
         return errorResponse(error);

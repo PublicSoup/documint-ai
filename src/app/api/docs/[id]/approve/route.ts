@@ -55,7 +55,7 @@ export async function POST(
         }
 
         // 5. Update documentation status in a transaction
-        const updatedDoc = await db.$transaction(async (tx) => {
+        const updatedDoc = await db.$transaction(async (tx: any) => {
             // Update the main doc record
             const updated = await tx.documentation.update({
                 where: { fileId },

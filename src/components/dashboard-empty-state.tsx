@@ -59,7 +59,7 @@ export function DashboardEmptyState({ teamId, isPro }: DashboardEmptyStateProps)
 
                         <button
                             onClick={async () => {
-                                const { createDemoProject } = await import("@/app/dashboard/actions");
+                                const { createDemoProject } = await import("@/app/dashboard/client-actions");
                                 await createDemoProject(teamId);
                                 window.location.href = "/dashboard?demo=true";
                             }}

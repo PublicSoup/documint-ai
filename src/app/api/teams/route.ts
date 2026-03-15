@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { Team, TeamMember } from "@prisma/client";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { ApiErrors, errorResponse } from "@/lib/api-utils";
 
@@ -84,7 +85,18 @@ export async function GET(req: NextRequest) {
             }),
         ]);
 
-        const teams = teamMemberships.map((membership) => ({
+        // Define the complex type for the membership object based on the Prisma query
+        type TeamMembershipWithDetails = TeamMember & {
+            team: Team & {
+                _count: { members: number };
+                members: (TeamMember & {
+                    user: { name: string | null; email: string | null; image: string | null };
+                })[];
+                invites: { id: string; email: string; role: string; createdAt: Date }[];
+            };
+        };
+
+        const teams = teamMemberships.map((membership: TeamMembershipWithDetails) => ({
             id: membership.team.id,
             name: membership.team.name,
             role: membership.role,

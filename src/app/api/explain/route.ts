@@ -21,7 +21,7 @@ const PERSONA_PROMPTS: Record<Persona, string> = {
 
 export const POST = createApiHandler({
     feature: "codeExplain",
-    rateLimit: "free",
+    rateLimit: "pro",
     bodySchema: explainSchema,
     audit: {
         action: "EXPLAIN_CODE",

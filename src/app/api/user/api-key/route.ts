@@ -1,11 +1,14 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { randomBytes } from "crypto";
 import { Prisma } from "@prisma/client";
+import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { errorResponse, ApiErrors } from "@/lib/api-utils";
+import { errorResponse, ApiErrors, validateBody } from "@/lib/api-utils";
+
+const emptySchema = z.object({}).strict();
 
 function toSettingsObject(value: Prisma.JsonValue | null | undefined): Prisma.JsonObject {
     if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -32,7 +35,7 @@ function maskApiKey(apiKey: string | null): string | null {
  * GET /api/user/api-key
  * Returns a masked representation of the current API key.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
@@ -64,12 +67,14 @@ export async function GET() {
  * POST /api/user/api-key
  * Generates and stores a rotated API key.
  */
-export async function POST() {
+export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
             throw ApiErrors.unauthorized();
         }
+        
+        await validateBody(req, emptySchema);
 
         // 1. Enforce Security Rate Limit (Rotation is sensitive)
         await enforceRateLimit(session.user.id, "security");
@@ -122,12 +127,14 @@ export async function POST() {
  * DELETE /api/user/api-key
  * Revokes the current API key.
  */
-export async function DELETE() {
+export async function DELETE(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
             throw ApiErrors.unauthorized();
         }
+        
+        await validateBody(req, emptySchema);
 
         // 1. Enforce Security Rate Limit (Revocation is sensitive)
         await enforceRateLimit(session.user.id, "security");

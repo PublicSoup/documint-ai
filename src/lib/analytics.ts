@@ -190,14 +190,14 @@ async function computeAnalyticsData(userId: string, teamId?: string, days = 30):
         take: 5,
     });
 
-    const topDocsFileIds = topDocsData.map(d => d.fileId);
+    const topDocsFileIds = topDocsData.map((d: { fileId: string }) => d.fileId);
     const topDocsFiles = await db.file.findMany({
         where: { id: { in: topDocsFileIds } },
         select: { id: true, name: true, language: true },
     });
-    const topDocsFileMap = new Map(topDocsFiles.map(f => [f.id, f]));
+    const topDocsFileMap = new Map<string, { id: string; name: string; language: string | null }>(topDocsFiles.map((f: { id: string; name: string; language: string | null }) => [f.id, f]));
 
-    const topDocs = topDocsData.map(data => {
+    const topDocs = topDocsData.map((data: { fileId: string; _count: { _all: number }; _sum: { duration: number | null } }) => {
         const file = topDocsFileMap.get(data.fileId);
         return {
             id: data.fileId,
@@ -223,7 +223,7 @@ async function computeAnalyticsData(userId: string, teamId?: string, days = 30):
 
     const staleThreshold = subDays(now, 30);
     const staleDocs = filesForStaleCheck
-        .map((file) => {
+        .map((file: { id: string; name: string; updatedAt: Date; documentation: { updatedAt: Date } | null }) => {
             if (!file.documentation) return null;
             const docUpdatedAt = new Date(file.documentation.updatedAt);
             const isOutOfSync = new Date(file.updatedAt).getTime() > docUpdatedAt.getTime() + 5 * 60 * 1000;
@@ -238,8 +238,8 @@ async function computeAnalyticsData(userId: string, teamId?: string, days = 30):
                 reason: (isOutOfSync ? "OUT_OF_SYNC" : "OLD_VERSION") as "OUT_OF_SYNC" | "OLD_VERSION",
             };
         })
-        .filter((doc): doc is NonNullable<typeof doc> => doc !== null)
-        .sort((a, b) => b.daysSinceUpdate - a.daysSinceUpdate)
+        .filter((doc: { id: string; name: string; daysSinceUpdate: number; reason: "OUT_OF_SYNC" | "OLD_VERSION"; } | null): doc is NonNullable<typeof doc> => doc !== null)
+        .sort((a: { daysSinceUpdate: number }, b: { daysSinceUpdate: number }) => b.daysSinceUpdate - a.daysSinceUpdate)
         .slice(0, 10);
 
     // Recent activity & Heatmap (still requires some in-memory mapping)
@@ -267,12 +267,12 @@ async function computeAnalyticsData(userId: string, teamId?: string, days = 30):
     for (let i = 0; i < Math.min(days, 30); i++) {
         activityMap.set(toDateKey(subDays(now, i)), { views: 0, creations: 0 });
     }
-    viewActivity.forEach(v => {
+    viewActivity.forEach((v: { createdAt: Date; _count: { _all: number } }) => {
         const key = toDateKey(v.createdAt);
         const activity = activityMap.get(key);
         if (activity) activity.views = v._count._all;
     });
-    creationActivity.forEach(c => {
+    creationActivity.forEach((c: { createdAt: Date; _count: { _all: number } }) => {
         const key = toDateKey(c.createdAt);
         const activity = activityMap.get(key);
         if (activity) activity.creations = c._count._all;
@@ -286,7 +286,7 @@ async function computeAnalyticsData(userId: string, teamId?: string, days = 30):
     for (let i = 0; i < days; i++) {
         heatmapMap.set(toDateKey(subDays(now, i)), 0);
     }
-    versionActivity.forEach(v => {
+    versionActivity.forEach((v: { createdAt: Date; _count: { _all: number } }) => {
         heatmapMap.set(toDateKey(v.createdAt), v._count._all);
     });
 

@@ -11,6 +11,31 @@ const querySchema = z.object({
     type: z.enum(["overview", "files", "usage"]).default("overview"),
 }).strict();
 
+type FileForExport = {
+    name: string;
+    language: string | null;
+    size: number;
+    documentation: {
+        status: string | null;
+        updatedAt: Date | null;
+    } | null;
+    _count: {
+        views: number;
+        comments: number;
+    };
+};
+
+type AuditLogRow = {
+    createdAt: Date;
+    action: string;
+    entity: string | null;
+    details: any;
+};
+
+type DocContent = {
+    content: string | null;
+};
+
 /**
  * GET /api/analytics/export
  * Exports analytics data in CSV format. Premium feature.
@@ -49,7 +74,7 @@ export async function GET(request: NextRequest) {
             });
 
             csv = "File Name,Language,Size,Doc Status,Last Updated,Views,Comments\n";
-            files.forEach(f => {
+            files.forEach((f: FileForExport) => {
                 csv += [
                     `"${f.name}"`,
                     f.language,
@@ -69,7 +94,7 @@ export async function GET(request: NextRequest) {
             });
 
             csv = "Date,Action,Entity,Details\n";
-            logs.forEach(log => {
+            logs.forEach((log: AuditLogRow) => {
                 csv += [
                     log.createdAt.toISOString(),
                     log.action,
@@ -93,12 +118,14 @@ export async function GET(request: NextRequest) {
 
             let totalScore = 0;
             let scoreCount = 0;
-            docs.forEach(d => {
+            docs.forEach((d: DocContent) => {
                 try {
-                    const parsed = JSON.parse(d.content);
-                    if (parsed.qualityScore) {
-                        totalScore += parsed.qualityScore;
-                        scoreCount++;
+                    if (d.content) {
+                        const parsed = JSON.parse(d.content);
+                        if (parsed.qualityScore) {
+                            totalScore += parsed.qualityScore;
+                            scoreCount++;
+                        }
                     }
                 } catch { 
                     // Non-critical parsing failure

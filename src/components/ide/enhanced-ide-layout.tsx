@@ -32,8 +32,9 @@ import { SecretsManager } from "./secrets-manager";
 import { IDEStatusBar } from "./status-bar";
 import ReadmeGenerator from "../readme-generator";
 import { ContextualHeader } from "./contextual-header";
-import { getProjectGraphMermaid } from "@/app/dashboard/actions";
+import { getProjectGraphMermaid } from "@/app/dashboard/client-actions";
 import { CommandPalette } from "../command-palette";
+import { SourceControlPanel } from "./source-control-panel";
 import { DiffModal } from "./diff-modal";
 import { useIDESettings } from "@/hooks/use-ide-settings";
 import { loadTypesFromWebContainer } from "@/lib/monaco-type-loader";
@@ -306,35 +307,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
         }
     };
 
-    const handleCreateFile = async () => {
-        const fileName = prompt("Enter file name (e.g., myFile.ts, styles.css):");
-        if (!fileName) return;
-
-        try {
-            const res = await fetch("/api/files/create", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: fileName })
-            });
-
-            if (res.ok) {
-                const newFile = await res.json();
-                // Add to file list state so it appears immediately (no reload needed)
-                setFiles(prev => [...prev, newFile]);
-                // Auto-open the new file
-                setFileContents(prev => ({ ...prev, [newFile.id]: newFile.content || "" }));
-                setOpenFiles(prev => [...prev, newFile.id]);
-                setActiveFileId(newFile.id);
-                toast(`Created ${fileName}`, "success");
-            } else {
-                const text = await res.text();
-                toast(text || "Failed to create file", "error");
-                console.error("File creation failed:", text);
-            }
-        } catch (e) {
-            toast("Failed to create file", "error");
-        }
-    };
+    
 
     const handleDeploy = async () => {
         if (files.length === 0) {
@@ -614,35 +587,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                             </div>
                         )}
                         {activeSidebarTab === "git" && (
-                            <div className="flex flex-col h-full overflow-hidden">
-                                <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
-                                    <h2 className="text-[10px] font-black uppercase tracking-widest text-white/30">Source Control</h2>
-                                    <div className="bg-white/5 rounded-md p-3 border border-white/5">
-                                        <p className="text-xs text-white/70 mb-2 font-medium">Staged Changes</p>
-                                        <div className="space-y-1">
-                                            <div className="flex items-center justify-between text-[11px] text-emerald-400/80 hover:bg-white/5 p-1 rounded group cursor-pointer">
-                                                <span className="truncate flex-1">modified: package.json</span>
-                                                <div className="flex gap-1 opacity-0 group-hover:opacity-100">
-                                                    <X className="w-3 h-3 hover:text-red-400" />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="bg-white/5 rounded-md p-3 border border-white/5">
-                                        <p className="text-xs text-white/70 mb-2 font-medium">Changes</p>
-                                        <div className="space-y-1 italic text-white/20 text-[10px]">
-                                            No unstaged changes
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="p-4 mt-auto border-t border-white/5">
-                                    <textarea
-                                        placeholder="Message (Cmd+Enter to commit)"
-                                        className="w-full bg-black/20 border border-white/10 rounded-md p-2 text-xs text-white focus:outline-none focus:border-primary/50 resize-none h-20 mb-2"
-                                    />
-                                    <Button className="w-full h-8 text-xs font-bold" size="sm">Commit to main</Button>
-                                </div>
-                            </div>
+                            <SourceControlPanel />
                         )}
                     </div>
                 </>

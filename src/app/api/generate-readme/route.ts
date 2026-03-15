@@ -1,3 +1,4 @@
+import { File } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
@@ -288,10 +289,22 @@ export async function POST(request: NextRequest) {
         }
 
         // Collect comprehensive project info
-        const projectInfo = {
+        interface ProjectInfo {
+    fileCount: number;
+    languages: string[];
+    totalLines: number;
+    functions: { name: string; doc: string }[];
+    classes: { name: string; doc: string }[];
+    dependencies: string[];
+    avgQuality: number;
+    securityIssues: string[];
+}
+
+// ... inside the function
+        const projectInfo: ProjectInfo = {
             fileCount: files.length,
-            languages: [...new Set(files.map(f => f.language))],
-            totalLines: files.reduce((a, f: { content?: string | null }) => a + (f.content?.split("\n").length || 0), 0),
+            languages: [...new Set(files.map((f: File) => f.language))] as string[],
+            totalLines: files.reduce((a: number, f: File) => a + (f.content?.split("\n").length || 0), 0),
             functions: [] as { name: string; doc: string }[],
             classes: [] as { name: string; doc: string }[],
             dependencies: [] as string[],
@@ -303,7 +316,7 @@ export async function POST(request: NextRequest) {
         let qualitySum = 0;
         let qualityCount = 0;
 
-        files.forEach(file => {
+        files.forEach((file: File & { documentation: { content: string } | null }) => {
             if (file.documentation?.content) {
                 try {
                     const doc = JSON.parse(file.documentation.content);

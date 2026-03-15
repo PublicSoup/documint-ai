@@ -1,3 +1,6 @@
+// Zod validation is not used here because the Stripe SDK's `constructEvent`
+// function is the canonical way to verify and parse the webhook body.
+// This ensures the event is authentic and matches Stripe's defined schemas.
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { db } from "@/lib/db";

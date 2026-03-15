@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
         // 1. Check Database Connectivity
         const dbCheck = db.$queryRaw`SELECT 1`.then(() => {
             dbStatus = "healthy";
-        }).catch((e) => {
+        }).catch((e: Error) => {
             console.error("Database health check failed:", e);
             dbStatus = "unhealthy";
         });
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
                 } else {
                     redisStatus = "unhealthy";
                 }
-            }).catch((e) => {
+            }).catch((e: Error) => {
                 console.error("Redis health check failed:", e);
                 redisStatus = "unhealthy";
             });

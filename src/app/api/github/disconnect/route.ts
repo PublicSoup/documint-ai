@@ -1,21 +1,25 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { z } from "zod";
 import { authOptions } from "../../../../lib/auth";
 import { db } from "../../../../lib/db";
 import { enforceRateLimit } from "../../../../lib/rate-limit";
-import { errorResponse, ApiErrors } from "../../../../lib/api-utils";
+import { errorResponse, ApiErrors, validateBody } from "../../../../lib/api-utils";
+
+const emptySchema = z.object({}).strict();
 
 /**
  * POST /api/github/disconnect
  * Removes the GitHub connection for the authenticated user.
  */
-export async function POST() {
+export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
             throw ApiErrors.unauthorized();
         }
 
+        await validateBody(req, emptySchema);
         await enforceRateLimit(session.user.id, "api");
 
         const connection = await db.gitHubConnection.findUnique({

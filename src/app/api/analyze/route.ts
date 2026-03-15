@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
                 }
 
                 // 6. DB File and Documentation creation in a transaction
-                const result = await db.$transaction(async (tx) => {
+                const result = await db.$transaction(async (tx: any) => {
                     const dbFile = await tx.file.create({
                         data: {
                             name,

@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
-import { getProjectGraphMermaid, createDemoProject } from "@/app/dashboard/actions";
+import { getProjectGraphMermaid, createDemoProject } from "@/app/dashboard/client-actions";
 import { useRouter } from "next/navigation";
 import { Loader2, Share2, Info, Upload, Sparkles, FileCode2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";

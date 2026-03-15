@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
+import { Prisma, TeamMember } from "@prisma/client";
 import { rateLimit } from "@/lib/rate-limit";
 
 // Define action types and their corresponding points
@@ -65,7 +65,7 @@ export async function GET(
     const auditLogs = await db.auditLog.groupBy({
         by: ['userId', 'action'],
         where: {
-            userId: { in: teamMembers.map(tm => tm.userId) },
+            userId: { in: teamMembers.map((tm: TeamMember) => tm.userId) },
             action: { in: Object.keys(ACTION_POINTS) },
         },
         _count: {
@@ -92,8 +92,20 @@ export async function GET(
         }
     }
 
+    // Define an interface for the leaderboard member shape
+    interface LeaderboardMember {
+        userId: string;
+        name: string;
+        image: string | null;
+        role: string;
+        points: number;
+        approvals: number;
+        updates: number;
+        creations: number;
+    }
+
     // 8. Construct the final leaderboard data
-    const leaderboard = teamMembers.map(member => {
+    const leaderboard: LeaderboardMember[] = teamMembers.map((member: TeamMember & { user: { id: string; name: string | null; image: string | null; } }) => {
         const scores = userScores[member.userId] || { points: 0, approvals: 0, updates: 0, creations: 0 };
         return {
             userId: member.user.id,
@@ -106,8 +118,8 @@ export async function GET(
             creations: scores.creations,
         };
     })
-    .filter(member => member.points > 0)
-    .sort((a, b) => b.points - a.points);
+    .filter((member: LeaderboardMember) => member.points > 0)
+    .sort((a: LeaderboardMember, b: LeaderboardMember) => b.points - a.points);
 
 
     return NextResponse.json({ leaderboard });

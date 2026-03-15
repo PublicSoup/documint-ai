@@ -11,6 +11,11 @@ const querySchema = z.object({
     period: z.enum(["7d", "30d", "90d"]).default("7d"),
 });
 
+type AuditLogUsage = {
+    action: string;
+    createdAt: Date;
+};
+
 /**
  * GET /api/analytics/usage
  * Returns daily API usage stats for the current user.
@@ -54,7 +59,7 @@ export async function GET(req: Request) {
         const dailyUsage: Record<string, number> = {};
         const actionCounts: Record<string, number> = {};
 
-        logs.forEach(log => {
+        logs.forEach((log: AuditLogUsage) => {
             const day = log.createdAt.toISOString().split('T')[0];
             dailyUsage[day] = (dailyUsage[day] || 0) + 1;
             actionCounts[log.action] = (actionCounts[log.action] || 0) + 1;

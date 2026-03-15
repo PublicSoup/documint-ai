@@ -1,3 +1,4 @@
+import { Prisma, File } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
@@ -61,15 +62,39 @@ export async function POST(req: NextRequest) {
         }
 
         const ip = getClientIP(req);
-        await enforceRateLimit(`${session.user.id}:${ip}`, "file_create_bulk");
+        await enforceRateLimit(session.user.id, "file_create_bulk");
 
         const { files, teamId } = await validateBody(req, bulkCreateSchema);
+
+        if (teamId) {
+            const { checkTeamPermission } = await import("@/lib/permissions");
+            const hasPermission = await checkTeamPermission(session.user.id, teamId, "edit");
+            if (!hasPermission) {
+                return errorResponse(ApiErrors.forbidden("You do not have permission to create files in this team."));
+            }
+        }
+
+
+        // Check for file name collisions before starting the transaction
+        const fileNames = files.map(f => path.basename(f.name.startsWith('/') ? f.name : `/${f.name}`));
+        const existingFiles = await db.file.findMany({
+            where: {
+                name: { in: fileNames },
+                teamId: teamId || null,
+                userId: teamId ? undefined : session.user.id,
+            },
+            select: { name: true }
+        });
+
+        if (existingFiles.length > 0) {
+            return errorResponse(ApiErrors.conflict(`One or more files already exist: ${existingFiles.map((f: { name: string }) => f.name).join(', ')}`));
+        }
 
         // Check if all files can be created (collision check)
         // For bulk, let's just prefix-check or handle in transaction.
         // We'll use a transaction to ensure all or nothing.
 
-        const createdFiles = await db.$transaction(async (tx) => {
+        const createdFiles = await db.$transaction(async (tx: Prisma.TransactionClient) => {
             const results = [];
             for (const f of files) {
                 const fullPath = f.name.startsWith('/') ? f.name : `/${f.name}`;
@@ -105,7 +130,7 @@ export async function POST(req: NextRequest) {
                 entityId: session.user.id, // Batch action
                 details: {
                     count: createdFiles.length,
-                    fileNames: createdFiles.map(f => f.name),
+                    fileNames: createdFiles.map((f: File) => f.name),
                     teamId: teamId || null
                 }
             });

@@ -1,5 +1,17 @@
-import { Sandbox } from "@vercel/sandbox";
+// @ts-ignore
+import type { Sandbox } from "@vercel/sandbox";
 import { PassThrough } from "node:stream";
+import { currentRuntime } from "./runtime";
+
+// We dynamically import Sandbox to avoid issues in Edge environment if it's not present
+let SandboxClass: any = null;
+if (currentRuntime.canUseSandbox) {
+    try {
+        SandboxClass = require("@vercel/sandbox").Sandbox;
+    } catch (e) {
+        console.warn("Vercel Sandbox module not found, execution might fail.");
+    }
+}
 
 export interface SandboxResult {
     success: boolean;
@@ -29,11 +41,19 @@ export class SandboxSession {
     }
 
     async init() {
-        this.sandbox = await Sandbox.create();
+        if (!currentRuntime.canUseSandbox || !SandboxClass) {
+            this.log("[Sandbox] Disabled in current runtime. Skipping initialization.");
+            return;
+        }
+        this.sandbox = await SandboxClass.create();
         this.log("[Sandbox] Session initialized.");
     }
 
     async writeFile(path: string, content: string) {
+        if (!currentRuntime.canUseSandbox) {
+            this.log("[Sandbox] Disabled. Cannot write file.");
+            return;
+        }
         if (!this.sandbox) throw new Error("Sandbox not initialized");
         // Ensure path starts with /vercel/sandbox as per docs if needed, 
         // but often relative to CWD works. Let's assume relative to root of sandbox.
@@ -41,6 +61,16 @@ export class SandboxSession {
     }
 
     async runCommand(cmd: string, args: string[] = [], timeout: number = 60000): Promise<SandboxResult> {
+        if (!currentRuntime.canUseSandbox) {
+            this.log("[Sandbox] Disabled. Cannot run command.");
+            return {
+                success: false,
+                stdout: "",
+                stderr: "",
+                output: "[Sandbox] Command execution is disabled in the current runtime.",
+                error: "Execution disabled",
+            };
+        }
         if (!this.sandbox) throw new Error("Sandbox not initialized");
 
         this.log(`[Sandbox] Running: ${cmd} ${args.join(' ')}`);

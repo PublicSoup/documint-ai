@@ -22,19 +22,17 @@ export function extractCodeBlocks(text: string): CodeBlock[] {
   while ((match = codeBlockRegex.exec(text)) !== null) {
     let filename = match[2]?.trim();
 
-    // Sanitize filename: strip comment prefixes (// or /* or #) that LLMs sometimes include
     if (filename) {
       filename = filename
-        .replace(/^\/\/\s*/, '')    // Strip leading // 
-        .replace(/^\/\*\s*/, '')    // Strip leading /*
-        .replace(/\*\/\s*$/, '')    // Strip trailing */
-        .replace(/^#\s*/, '')       // Strip leading #
-        .replace(/^["'`]+|["'`]+$/g, '') // Strip quotes
+        .replace(/^\/\/\s*/, '')
+        .replace(/^\/\*\s*/, '')
+        .replace(/\*\/\s*$/, '')
+        .replace(/^#\s*/, '')
+        .replace(/^["'`]+|["'`]+$/g, '')
         .trim();
 
-      // Only keep filename if it looks like a valid file path
       if (filename && !/^[a-zA-Z0-9@._\-\/]+\.[a-zA-Z0-9]+$/.test(filename)) {
-        filename = ''; // Discard garbage filenames
+        filename = '';
       }
     }
 
@@ -57,4 +55,22 @@ export function safeJsonParse<T>(json: string, defaultValue: T): T {
   } catch {
     return defaultValue;
   }
+}
+
+/**
+ * Reads a ReadableStream of strings to a single string.
+ * @param stream The readable stream to read.
+ * @returns A promise that resolves to the string content of the stream.
+ */
+export async function streamToString(stream: ReadableStream<string>): Promise<string> {
+    const reader = stream.getReader();
+    let result = '';
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+            break;
+        }
+        result += value;
+    }
+    return result;
 }

@@ -1,0 +1,18 @@
+name = "documint-ai"
+main = ".open-next/worker.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Assets for static files served by the worker
+[assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
+
+[vars]
+NEXTAUTH_URL = "https://documintai.dev"
+NEXT_PUBLIC_APP_URL = "https://documintai.dev"
+NODE_ENV = "production"
+
+# Secrets (STRIPE_SECRET_KEY, NEXTAUTH_SECRET, DATABASE_URL, etc.)
+# must be set via: wrangler secret put SECRET_NAME
+# Or configured in the Cloudflare Dashboard → Workers & Pages → Settings → Variables

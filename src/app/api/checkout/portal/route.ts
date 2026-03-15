@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { stripe } from "@/lib/stripe";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { errorResponse, ApiErrors } from "@/lib/api-utils";
+import { errorResponse, ApiErrors, validateBody } from "@/lib/api-utils";
+
+const emptySchema = z.object({}).strict();
 
 function isAllowedOrigin(origin: string): boolean {
     try {
@@ -53,10 +56,13 @@ export async function POST(request: NextRequest) {
             return errorResponse(ApiErrors.unauthorized());
         }
 
-        // 1. Enforce Rate Limit
+        // 1. Validate empty body
+        await validateBody(request, emptySchema);
+
+        // 2. Enforce Rate Limit
         await enforceRateLimit(session.user.id, "api");
 
-        // 2. Fetch User and Subscription
+        // 3. Fetch User and Subscription
         const user = await db.user.findUnique({
             where: { id: session.user.id },
             include: { subscription: true },
@@ -66,7 +72,7 @@ export async function POST(request: NextRequest) {
             return errorResponse(ApiErrors.badRequest("No active billing account found. Please subscribe first."));
         }
 
-        // 3. Create Portal Session
+        // 4. Create Portal Session
         const resolvedOrigin = resolveOrigin(request);
         const portalSession = await stripe.billingPortal.sessions.create({
             customer: user.subscription.stripeCustomerId,
@@ -77,7 +83,7 @@ export async function POST(request: NextRequest) {
             throw ApiErrors.serviceUnavailable("Unable to create billing portal session");
         }
 
-        // 4. Audit Log
+        // 5. Audit Log
         try {
             const { logAudit } = await import("@/lib/audit-logger");
             await logAudit({

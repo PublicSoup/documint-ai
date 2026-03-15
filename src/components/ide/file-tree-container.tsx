@@ -6,6 +6,7 @@ import { File } from "@prisma/client";
 import { EnhancedFileTree } from "./enhanced-file-tree";
 import { Loader2 } from "lucide-react";
 import { useToast } from "../toast";
+import { CreateFileDialog } from "./create-file-dialog";
 
 const fetcher = (url: string) => fetch(url).then((res) => {
     if (!res.ok) {
@@ -14,15 +15,9 @@ const fetcher = (url: string) => fetch(url).then((res) => {
     return res.json();
 });
 
-function getLanguageFromFileName(fileName: string): string {
-    const ext = fileName.split('.').pop()?.toLowerCase();
-    return ext || 'plaintext';
-}
-
 interface FileTreeContainerProps {
     activeFileId?: string;
     onSelect: (fileId: string) => void;
-    // Callbacks to notify parent of state changes
     onFileCreated: (file: File) => void;
     onFileRenamed: (fileId: string, newName: string) => void;
     onFileDeleted: (fileId: string) => void;
@@ -35,30 +30,41 @@ export function FileTreeContainer({ activeFileId, onSelect, onFileCreated, onFil
     });
     const { toast } = useToast();
 
+    const [dialogState, setDialogState] = useState<{ open: boolean; type: "file" | "folder"; parentId: string }>({
+        open: false,
+        type: "file",
+        parentId: "Project"
+    });
+
+    const handleCreate = async (name: string) => {
+        try {
+            const res = await fetch("/api/files/create", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    name,
+                    type: dialogState.type,
+                    parentId: dialogState.parentId,
+                }),
+            });
+            if (!res.ok) throw new Error(await res.text());
+            const newFile = await res.json();
+            toast(`Created ${dialogState.type} '${name}'`, "success");
+            onFileCreated(newFile);
+            mutate();
+        } catch (e: any) {
+            toast(`Failed to create ${dialogState.type}: ${e.message}`, "error");
+        }
+    };
+
     const handleAction = async (action: "ai" | "delete" | "rename" | "new_file" | "new_folder", contextId?: string) => {
         switch (action) {
             case "new_file":
-                const fileName = prompt(`Enter new file name${contextId !== 'Project' ? ` in ${contextId}` : ''}:`);
-                if (!fileName) return;
-
-                const fullPath = contextId && contextId !== "Project" ? `${contextId}/${fileName}` : fileName;
-
-                try {
-                    const res = await fetch("/api/files/create", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ name: fullPath })
-                    });
-                    if (!res.ok) throw new Error(await res.text());
-                    const newFile = await res.json();
-                    toast(`Created ${fullPath}`, "success");
-                    onFileCreated(newFile); // Notify parent
-                    mutate(); // Re-fetch file list
-                } catch (e: any) {
-                    toast(`Failed to create file: ${e.message}`, "error");
-                }
+                setDialogState({ open: true, type: "file", parentId: contextId || "Project" });
                 break;
-
+            case "new_folder":
+                setDialogState({ open: true, type: "folder", parentId: contextId || "Project" });
+                break;
             case "rename":
                 if (!contextId) return;
                 const fileToRename = files?.find(f => f.id === contextId);
@@ -71,18 +77,17 @@ export function FileTreeContainer({ activeFileId, onSelect, onFileCreated, onFil
                     const res = await fetch(`/api/files/${contextId}`, {
                         method: "PUT",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ newName })
+                        body: JSON.stringify({ name: newName }) // API should handle full path update
                     });
                     if (!res.ok) throw new Error(await res.text());
                     const updatedFile = await res.json();
                     toast(`Renamed to ${newName}`, "success");
-                    onFileRenamed(updatedFile.id, updatedFile.name); // Notify parent with updated name (includes language change)
+                    onFileRenamed(updatedFile.id, updatedFile.name);
                     mutate();
                 } catch (e: any) {
                     toast(`Failed to rename: ${e.message}`, "error");
                 }
                 break;
-
             case "delete":
                 if (!contextId) return;
                 const fileToDelete = files?.find(f => f.id === contextId);
@@ -93,16 +98,12 @@ export function FileTreeContainer({ activeFileId, onSelect, onFileCreated, onFil
                         const res = await fetch(`/api/files/${contextId}`, { method: "DELETE" });
                         if (!res.ok) throw new Error(await res.text());
                         toast("File deleted", "success");
-                        onFileDeleted(contextId); // Notify parent
+                        onFileDeleted(contextId);
                         mutate();
                     } catch (e: any) {
                         toast(`Failed to delete: ${e.message}`, "error");
                     }
                 }
-                break;
-
-            case "new_folder":
-                toast("Create a file inside a folder to establish it.", "success");
                 break;
         }
     };
@@ -130,12 +131,21 @@ export function FileTreeContainer({ activeFileId, onSelect, onFileCreated, onFil
     }
 
     return (
-        <EnhancedFileTree
-            files={files || []}
-            activeFileId={activeFileId}
-            onSelect={onSelect}
-            onAction={handleAction}
-            onRefresh={() => mutate()}
-        />
+        <>
+            <EnhancedFileTree
+                files={files || []}
+                activeFileId={activeFileId}
+                onSelect={onSelect}
+                onAction={handleAction}
+                onRefresh={() => mutate()}
+            />
+            <CreateFileDialog
+                open={dialogState.open}
+                onOpenChange={(open) => setDialogState(prev => ({ ...prev, open }))}
+                type={dialogState.type}
+                parentId={dialogState.parentId}
+                onCreate={handleCreate}
+            />
+        </>
     );
 }

@@ -1,6 +1,18 @@
 import { db } from "./db";
 import { getFileContent } from "./files";
 
+interface FileWithDocs {
+    id: string;
+    name: string;
+    language: string | null;
+    content: string | null;
+    storagePath: string | null;
+    size: number;
+    documentation: {
+        content: string;
+    } | null;
+}
+
 // Gemini 2.0 Flash: 1M context window
 // We'll use a generous 200k limit for robustness while keeping responses snappy
 const MAX_CONTEXT_TOKENS = 200000;
@@ -18,7 +30,7 @@ export async function buildFullCodebaseContext(
     contentOverrides: Record<string, string> = {}
 ): Promise<string> {
 
-    const allFiles = await db.file.findMany({
+    const allFiles: FileWithDocs[] = await db.file.findMany({
         where: { userId },
         select: {
             id: true,
@@ -49,7 +61,7 @@ export async function buildFullCodebaseContext(
     usedChars = context.length;
 
     // === SECTION 2: Priority Files (Full Content) ===
-    const priorityFiles = allFiles.filter(f =>
+    const priorityFiles = allFiles.filter((f: FileWithDocs) =>
         priorityFileIds.includes(f.id) || f.id === currentFileId
     );
 

@@ -4,15 +4,22 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { ApiErrors, errorResponse } from "@/lib/api-utils";
 
+interface RouteContext {
+    params: {
+        deploymentId: string;
+    };
+}
+
 /**
  * GET /api/deploy/[deploymentId]
  * Fetches the status and logs of a specific deployment.
  */
 export async function GET(
     req: NextRequest,
-    { params }: { params: { deploymentId: string } }
+    context: { params: Promise<{ deploymentId: string }> }
 ) {
     try {
+        const { params } = { params: await context.params };
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) throw ApiErrors.unauthorized();
 

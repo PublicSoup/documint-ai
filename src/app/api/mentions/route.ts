@@ -1,3 +1,4 @@
+import { TeamMember, User } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
@@ -49,7 +50,7 @@ async function getSharedTeamIds(userId: string): Promise<string[]> {
         select: { teamId: true },
     });
 
-    return memberships.map((membership) => membership.teamId);
+    return memberships.map((membership: TeamMember) => membership.teamId);
 }
 
 /**
@@ -82,7 +83,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ mentions: [], notificationsSent: 0 });
         }
 
-        const searchClauses = handles.flatMap((handle) => [
+        const searchClauses = handles.flatMap((handle: string) => [
             { name: { contains: handle, mode: "insensitive" as const } },
             { email: { startsWith: `${handle}@`, mode: "insensitive" as const } },
         ]);
@@ -106,7 +107,7 @@ export async function POST(req: NextRequest) {
         }
 
         const notificationResults = await Promise.allSettled(
-            users.map((user) =>
+            users.map((user: User) =>
                 sendNotification({
                     userId: user.id,
                     type: "MENTION",
@@ -117,7 +118,7 @@ export async function POST(req: NextRequest) {
             ),
         );
 
-        const notificationsSent = notificationResults.filter((result) => result.status === "fulfilled").length;
+        const notificationsSent = notificationResults.filter((result: PromiseSettledResult<any>) => result.status === "fulfilled").length;
 
         try {
             const { logAudit } = await import("@/lib/audit-logger");
@@ -138,7 +139,7 @@ export async function POST(req: NextRequest) {
         }
 
         return NextResponse.json({
-            mentions: users.map((user) => ({
+            mentions: users.map((user: User) => ({
                 id: user.id,
                 name: user.name,
                 email: user.email,

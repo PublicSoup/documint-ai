@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { File } from "@prisma/client";
 import { requireFeature } from "@/lib/feature-gate";
 import { checkTeamPermission } from "@/lib/permissions";
 import { safeJsonParse } from "@/lib/utils";
@@ -64,8 +65,10 @@ export async function GET(
             updatedAt: Date;
         }[] = [];
 
+        type FileWithDoc = File & { documentation: { content: string | null; updatedAt: Date; } | null; };
+
         // 5. Parse and aggregate insights
-        files.forEach(file => {
+        files.forEach((file: FileWithDoc) => {
             if (file.documentation?.content) {
                 const doc = safeJsonParse(file.documentation.content, { securityInsights: [] as string[] }) as { securityInsights?: string[] };
                 if (doc.securityInsights && Array.isArray(doc.securityInsights)) {

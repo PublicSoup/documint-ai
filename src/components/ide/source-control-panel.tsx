@@ -1,0 +1,143 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { RefreshCw, Plus, GitCommitHorizontal } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
+
+interface GitStatus {
+    branch: string;
+    files: { path: string; status: 'M' | 'A' | 'D' | 'R' | 'C' | '??' }[];
+}
+
+const parseGitStatus = (statusText: string): GitStatus => {
+    const lines = statusText.split('\n');
+    const branchLine = lines.find(line => line.startsWith('##'));
+    const branch = branchLine ? branchLine.replace(/^## /, '').split('...')[0] : 'HEAD';
+
+    const files = lines
+        .filter(line => !line.startsWith('##') && line.trim() !== '')
+        .map(line => {
+            const status = line.substring(0, 2).trim();
+            const path = line.substring(3).trim();
+            return { path, status: status as GitStatus['files'][0]['status'] };
+        });
+
+    return { branch, files };
+};
+
+export function SourceControlPanel() {
+    const [status, setStatus] = useState<GitStatus | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [commitMessage, setCommitMessage] = useState('');
+
+    const fetchStatus = useCallback(async () => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const res = await fetch('/api/git/status');
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.message || 'Failed to fetch git status');
+            }
+            const data = await res.json();
+            setStatus(parseGitStatus(data.status));
+        } catch (e: any) {
+            setError(e.message);
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchStatus();
+    }, [fetchStatus]);
+
+    const handleStage = async (filePath: string) => {
+        try {
+            const res = await fetch('/api/git/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filePath }),
+            });
+            if (!res.ok) throw new Error('Failed to stage file');
+            await fetchStatus(); // Refresh status
+        } catch (e: any) {
+            setError(e.message);
+        }
+    };
+
+    const handleCommit = async () => {
+        if (!commitMessage.trim()) {
+            setError("Commit message cannot be empty.");
+            return;
+        }
+        try {
+            const res = await fetch('/api/git/commit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: commitMessage }),
+            });
+            if (!res.ok) throw new Error('Failed to commit changes');
+            setCommitMessage('');
+            await fetchStatus(); // Refresh status
+        } catch (e: any) {
+            setError(e.message);
+        }
+    };
+    
+    return (
+        <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900 p-4">
+            <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold">Source Control</h2>
+                <Button variant="ghost" size="icon" onClick={fetchStatus} disabled={isLoading}>
+                    <RefreshCw className="h-4 w-4" />
+                </Button>
+            </div>
+
+            <div className="flex-grow flex flex-col">
+                <Textarea
+                    placeholder="Commit message..."
+                    value={commitMessage}
+                    onChange={(e) => setCommitMessage(e.target.value)}
+                    className="mb-2"
+                    rows={3}
+                />
+                <Button onClick={handleCommit} disabled={isLoading || !commitMessage.trim()} className="mb-4">
+                    <GitCommitHorizontal className="mr-2 h-4 w-4" /> Commit
+                </Button>
+                
+                <h3 className="font-semibold mb-2">Changes</h3>
+                <div className="flex-1 overflow-auto border rounded-md">
+                    {isLoading ? (
+                        <div className="p-2 space-y-2">
+                            <Skeleton className="h-6 w-full" />
+                            <Skeleton className="h-6 w-full" />
+                            <Skeleton className="h-6 w-2/3" />
+                        </div>
+                    ) : error ? (
+                        <div className="p-2 text-red-500">{error}</div>
+                    ) : status?.files.length === 0 ? (
+                        <div className="p-4 text-center text-gray-500">No changes detected.</div>
+                    ) : (
+                        <ul className="divide-y">
+                            {status?.files.map(({ path, status: fileStatus }) => (
+                                <li key={path} className="p-2 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-800">
+                                    <span className="flex items-center">
+                                        <span className="font-mono text-sm mr-4">{path}</span>
+                                        <span className="text-xs font-bold text-blue-500">{fileStatus}</span>
+                                    </span>
+                                    <Button variant="outline" size="sm" onClick={() => handleStage(path)}>
+                                        <Plus className="h-4 w-4" />
+                                    </Button>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}

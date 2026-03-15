@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
-import { Prisma } from "@prisma/client";
+import { Prisma, File } from "@prisma/client";
 
 const scheduleTypeSchema = z.enum(["daily", "weekly", "monthly"]);
 
@@ -204,7 +204,7 @@ export async function POST(req: NextRequest) {
 
         // 3. Trigger regeneration (Background)
         const results = await Promise.allSettled(
-            files.map((file) =>
+            files.map((file: File) =>
                 fetch(`${baseUrl}/api/regenerate/${file.id}`, {
                     method: "POST",
                     headers: {
@@ -216,7 +216,7 @@ export async function POST(req: NextRequest) {
             )
         );
 
-        const succeeded = results.filter((r) => r.status === "fulfilled").length;
+        const succeeded = results.filter((r: PromiseSettledResult<any>) => r.status === "fulfilled").length;
 
         // 4. Update status in settings
         await db.user.update({
@@ -251,7 +251,7 @@ export async function POST(req: NextRequest) {
             message: "Regeneration triggered",
             queued: files.length,
             succeeded,
-            files: files.map((f) => f.name),
+            files: files.map((f: File) => f.name),
         });
     } catch (error) {
         return errorResponse(error);

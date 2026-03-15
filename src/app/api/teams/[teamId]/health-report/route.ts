@@ -1,3 +1,4 @@
+import { File, Documentation, TeamMember, User, Integration } from "@prisma/client";
 import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
@@ -109,10 +110,10 @@ export async function POST(
         });
 
         const totalFiles = files.length;
-        const documentedFiles = files.filter((f) => f.documentation).length;
+        const documentedFiles = files.filter((f: File & { documentation: Documentation | null }) => f.documentation).length;
         const coverage = totalFiles > 0 ? Math.round((documentedFiles / totalFiles) * 100) : 0;
 
-        const staleFiles = files.filter((f) => {
+        const staleFiles = files.filter((f: File & { documentation: Documentation | null }) => {
             if (!f.documentation) return false;
             const fileUpdated = new Date(f.updatedAt).getTime();
             const docUpdated = new Date(f.documentation.updatedAt).getTime();
@@ -125,15 +126,15 @@ export async function POST(
             documentedFiles,
             staleCount: staleFiles.length,
             coverageGoal:
-                ((team.integrations.find((i) => i.type === "TEAM_CONFIG")?.config as { coverageGoal?: number } | null)
+                ((team.integrations.find((i: Integration) => i.type === "TEAM_CONFIG")?.config as { coverageGoal?: number } | null)
                     ?.coverageGoal) || 80,
         };
 
         const dashboardUrl = `${env.NEXT_PUBLIC_APP_URL}/dashboard?teamId=${teamId}`;
 
         const emailPromises = team.members
-            .filter((m) => m.user.email)
-            .map((m) =>
+            .filter((m: TeamMember & { user: User }) => m.user.email)
+            .map((m: TeamMember & { user: User }) =>
                 sendEmail({
                     to: m.user.email!,
                     subject: `Team Health Report: ${team.name}`,
@@ -142,7 +143,7 @@ export async function POST(
             );
 
         const emailResults = await Promise.allSettled(emailPromises);
-        const successCount = emailResults.filter((r) => r.status === "fulfilled").length;
+        const successCount = emailResults.filter((r: PromiseSettledResult<any>) => r.status === "fulfilled").length;
 
         try {
             const goalStatus =

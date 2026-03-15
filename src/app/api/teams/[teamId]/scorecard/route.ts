@@ -4,6 +4,7 @@ import { z } from "zod";
 import { subDays } from "date-fns";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { File } from "@prisma/client";
 import { checkTeamPermission } from "@/lib/permissions";
 import { requireFeature } from "@/lib/feature-gate";
 import { enforceRateLimit } from "@/lib/rate-limit";
@@ -93,10 +94,12 @@ export async function GET(
             });
         }
 
-        const documentedCount = files.filter((file) => file.documentation !== null).length;
+        type FileWithDoc = (File & { documentation: { updatedAt: Date; } | null; });
+
+        const documentedCount = files.filter((file: FileWithDoc) => file.documentation !== null).length;
         const coverage = Math.round((documentedCount / totalFiles) * 100);
 
-        const driftCount = files.filter((file) => {
+        const driftCount = files.filter((file: FileWithDoc) => {
             if (!file.documentation) {
                 return false;
             }
@@ -106,7 +109,7 @@ export async function GET(
         const driftRate = documentedCount > 0 ? Math.round((driftCount / documentedCount) * 100) : 0;
 
         const sevenDaysAgo = subDays(new Date(), 7);
-        const velocity = files.filter((file) => file.createdAt >= sevenDaysAgo).length;
+        const velocity = files.filter((file: FileWithDoc) => file.createdAt >= sevenDaysAgo).length;
 
         const coverageWeight = coverage * 0.5;
         const driftWeight = (100 - driftRate) * 0.3;

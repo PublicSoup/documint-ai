@@ -26,6 +26,16 @@ interface DocMetadata {
     path?: string;
 }
 
+type DocToUpdate = {
+    id: string;
+    metadata: unknown;
+    fileId: string;
+    file: {
+        name:string;
+        teamId: string | null;
+    };
+};
+
 function hasValidSignature(body: string, signature: string, secret: string): boolean {
     const hmac = crypto.createHmac("sha256", secret);
     const digest = Buffer.from(`sha256=${hmac.update(body).digest("hex")}`, "utf8");
@@ -105,7 +115,7 @@ export async function POST(req: NextRequest) {
             },
         });
 
-        const affectedDocs = docsToUpdate.filter((doc) => {
+        const affectedDocs = docsToUpdate.filter((doc: DocToUpdate) => {
             const metadata = (doc.metadata as DocMetadata | null) || {};
             return typeof metadata.path === "string" && filesList.includes(metadata.path);
         });
@@ -118,7 +128,7 @@ export async function POST(req: NextRequest) {
             });
         }
 
-        const affectedDocIds = affectedDocs.map((doc) => doc.id);
+        const affectedDocIds = affectedDocs.map((doc: DocToUpdate) => doc.id);
 
         await db.documentation.updateMany({
             where: { id: { in: affectedDocIds } },

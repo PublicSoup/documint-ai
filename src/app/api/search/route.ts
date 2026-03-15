@@ -1,3 +1,4 @@
+import { File, Documentation } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
@@ -46,7 +47,7 @@ export async function GET(req: NextRequest) {
                 take: 10,
             });
 
-            files.forEach((file) => {
+            files.forEach((file: File) => {
                 results.push({
                     type: "file",
                     id: file.id,
@@ -67,7 +68,7 @@ export async function GET(req: NextRequest) {
                 take: 10,
             });
 
-            codeMatches.forEach((file) => {
+            codeMatches.forEach((file: File) => {
                 if (!file.content) return;
                 const lines = file.content.split("\n");
                 const matchLine = lines.findIndex((line) => line.toLowerCase().includes(queryLower));
@@ -98,7 +99,7 @@ export async function GET(req: NextRequest) {
                 take: 10,
             });
 
-            docs.forEach((doc) => {
+            docs.forEach((doc: Documentation & { file: { name: string } }) => {
                 try {
                     const parsedDoc = JSON.parse(doc.content) as { summary?: string };
                     const summary = typeof parsedDoc.summary === "string" ? parsedDoc.summary : "";

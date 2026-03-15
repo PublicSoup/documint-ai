@@ -94,6 +94,10 @@ export const authOptions: NextAuthOptions = {
                 password: { label: "Password", type: "password" }
             },
             async authorize(credentials) {
+                const { getClientIP, enforceRateLimit } = await import("./rate-limit");
+                const clientIp = await getClientIP();
+                await enforceRateLimit(clientIp, "auth-ip");
+
                 const LoginCredentialsSchema = z.object({
                     email: z.string().email({ message: "Invalid email address." }),
                     password: z.string().min(8, { message: "Password must be at least 8 characters." }),

@@ -49,6 +49,15 @@ const architectRequestSchema = z.object({
     userPrompt: z.string().trim().min(1).max(4_000, "Prompt too long"), // Reduced from 8k
 }).strict();
 
+type SiblingFile = {
+    id: string;
+    name: string;
+    content: string | null;
+    documentation: {
+        content: string | null;
+    } | null;
+};
+
 export async function POST(req: NextRequest) {
     const gateResponse = await requireFeature("aiArchitect");
     if (gateResponse) return gateResponse;
@@ -61,7 +70,7 @@ export async function POST(req: NextRequest) {
 
         // 1. Rate Limit based on Plan
         const subscription = await getUserSubscription(session.user.id);
-        const rateLimitTier = (subscription.isPro || subscription.isTeam) ? "pro" : "free";
+        const rateLimitTier = (subscription.isPro || subscription.isTeam) ? "pro" : "architect";
         await enforceRateLimit(session.user.id, rateLimitTier);
 
         const { fileId, code, chatHistory, userPrompt } = await validateBody(req, architectRequestSchema);
@@ -106,11 +115,11 @@ export async function POST(req: NextRequest) {
                         take: 20, // Reduced from 40
                     });
 
-                    // Build graph safely
-                    const graphFiles = siblingFiles.map((file) => ({ 
-                        path: file.name, 
-                        content: (file.content || "").slice(0, 5000) // Truncate content for graph build
-                    }));
+                     // Build graph safely
+                     const graphFiles = siblingFiles.map((file: any) => ({
+                         path: file.name,
+                         content: (file.content || "").slice(0, 5000) // Truncate content for graph build
+                     }));
                     const graph = await buildProjectGraph(graphFiles);
 
                     const relatedFileNames = new Set<string>();
@@ -120,8 +129,8 @@ export async function POST(req: NextRequest) {
                     });
 
                     const relatedSummaries = siblingFiles
-                        .filter((file) => relatedFileNames.has(file.name) && file.id !== fileId)
-                        .map((file) => {
+                        .filter((file: SiblingFile) => relatedFileNames.has(file.name) && file.id !== fileId)
+                        .map((file: SiblingFile) => {
                             let summary = "No summary available.";
                             if (file.documentation?.content) {
                                 try {

@@ -5,6 +5,7 @@ type MountTree = Record<string, { file: { contents: string } } | { directory: Mo
 interface SpawnOptions {
     args?: string[];
     processId?: string;
+    cwd?: string;
 }
 
 const MAX_BOOT_RETRIES = 3;
@@ -156,7 +157,8 @@ export class WebContainerManager {
     static async spawn(command: string, options: SpawnOptions = {}): Promise<WebContainerProcess> {
         const process = await this.runWithRecovery(async () => {
             const instance = await this.getInstance();
-            return await instance.spawn(command, options.args ?? []);
+            const spawnOpts = options.cwd ? { cwd: options.cwd } : undefined;
+            return await instance.spawn(command, options.args ?? [], spawnOpts);
         }, `spawn ${command}`);
 
         if (options.processId) {

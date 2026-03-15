@@ -1,3 +1,4 @@
+import { File } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
@@ -53,7 +54,7 @@ export async function GET(
             select: { id: true },
         });
 
-        const fileIds = teamFiles.map((file) => file.id);
+        const fileIds = teamFiles.map((file: File) => file.id);
 
         const logs = await db.auditLog.findMany({
             where: {

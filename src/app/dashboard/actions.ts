@@ -6,8 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 import { unstable_cache as cache } from 'next/cache';
-
-// --- Reconstructed Functions to Fix Build ---
+import { File, Prisma } from "@prisma/client";
 
 // Reconstructed based on usage in src/app/dashboard/page.tsx
 export const getPriorityActions = cache(
@@ -34,30 +33,12 @@ export const getPriorityActions = cache(
         { id: "1", fileId: "placeholder-file-1", label: "Review outdated documentation in api/route.ts", priority: "CRITICAL" },
         { id: "2", fileId: "placeholder-file-2", label: "Refactor complex component: <PaymentForm>", priority: "HIGH" },
       ],
-      hotspots: hotspots.map(f => ({ ...f, riskScore: Math.floor(Math.random() * 50) + 50, isDocumented: Math.random() > 0.5 }))
+      hotspots: hotspots.map((f: File) => ({ ...f, riskScore: Math.floor(Math.random() * 50) + 50, isDocumented: Math.random() > 0.5 }))
     };
   },
   ['priority-actions'], // Cache key prefix
   { revalidate: 60 } // Revalidate every 60 seconds
 );
-
-// Reconstructed based on usage in src/components/architecture-tab.tsx
-export async function getProjectGraphMermaid(teamId?: string): Promise<string> {
-    // Placeholder implementation
-    return `flowchart TB
-        subgraph "Placeholder Project"
-            A["Component A"] --> B["Component B"]
-        end
-    `;
-}
-
-// Reconstructed based on usage in src/components/architecture-tab.tsx
-export async function createDemoProject(teamId?: string): Promise<{ success: boolean }> {
-    // Placeholder implementation
-    console.log(`Creating demo project for team: ${teamId}`);
-    return { success: true };
-}
-
 
 // --- NEW 'createTeam' ACTION ---
 
@@ -98,7 +79,7 @@ export async function createTeam(
   const slug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
   try {
-    await db.$transaction(async (prisma) => {
+    await db.$transaction(async (prisma: Prisma.TransactionClient) => {
       const newTeam = await prisma.team.create({
         data: {
           name,

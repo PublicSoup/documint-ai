@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
@@ -88,7 +89,7 @@ export async function POST(req: NextRequest) {
             throw ApiErrors.notFound("Documentation");
         }
 
-        const version = await db.$transaction(async (tx) => {
+        const version = await db.$transaction(async (tx: Prisma.TransactionClient) => {
             const latestVersion = await tx.docVersion.findFirst({
                 where: { documentationId: file.documentation!.id },
                 orderBy: { version: "desc" },

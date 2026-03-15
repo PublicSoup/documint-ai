@@ -32,27 +32,44 @@ export async function GET(req: NextRequest) {
         const { searchParams } = new URL(req.url);
         const { q: query, teamId, limit } = validateQuery(searchParams, fileSearchSchema);
 
+        const userTeams = await db.teamMember.findMany({
+            where: { userId: session.user.id },
+            select: { teamId: true },
+        });
+        const userTeamIds = userTeams.map((tm: { teamId: string }) => tm.teamId);
+
         const where: Prisma.FileWhereInput = {
-            OR: [
-                { name: { contains: query, mode: "insensitive" } },
-                { content: { contains: query, mode: "insensitive" } },
+            AND: [
                 {
-                    documentation: {
-                        content: { contains: query, mode: "insensitive" },
-                    },
+                    OR: [
+                        { name: { contains: query, mode: "insensitive" } },
+                        { content: { contains: query, mode: "insensitive" } },
+                        {
+                            documentation: {
+                                content: { contains: query, mode: "insensitive" },
+                            },
+                        },
+                    ],
                 },
-            ],
+                {
+                    OR: [
+                        // User's personal files
+                        { userId: session.user.id, teamId: null },
+                        // Files in any of the user's teams
+                        { teamId: { in: userTeamIds } },
+                    ],
+                }
+            ]
         };
 
+        // If a specific teamId is provided, narrow the search to just that team
         if (teamId) {
-            const hasPermission = await checkTeamPermission(session.user.id, teamId, "view");
+            const hasPermission = userTeamIds.includes(teamId);
             if (!hasPermission) {
-                throw ApiErrors.forbidden("Not a team member");
+                throw ApiErrors.forbidden("You do not have permission to search in this team.");
             }
-            where.teamId = teamId;
-        } else {
-            where.userId = session.user.id;
-            where.teamId = null;
+            // Add teamId to the main condition
+            (where.AND as Prisma.FileWhereInput[]).push({ teamId: teamId });
         }
 
         const files = await db.file.findMany({

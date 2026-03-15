@@ -57,6 +57,12 @@ import { GlobalSearch } from "@/components/global-search";
 import { TrackedLink } from "@/components/marketing/tracked-link";
 import { getPriorityActions } from "./actions";
 import { Network, Sparkles, BrainCircuit, Fingerprint } from "lucide-react";
+import { File } from "@prisma/client";
+
+type Hotspot = File & {
+    riskScore: number;
+    isDocumented: boolean;
+};
 
 export default async function DashboardPage(props: {
     searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
@@ -483,7 +489,7 @@ export default async function DashboardPage(props: {
                                             <span className="text-[10px] text-muted-foreground uppercase tracking-widest">Beta</span>
                                         </div>
                                         <div className="space-y-4">
-                                            {hotspots.length > 0 ? hotspots.map((f, i) => (
+                                            {hotspots.length > 0 ? hotspots.map((f: Hotspot, i: number) => (
                                                 <Link
                                                     key={i}
                                                     href={`/dashboard?${teamId ? `teamId=${teamId}&` : ""}docId=${f.id}`}

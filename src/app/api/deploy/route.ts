@@ -10,6 +10,7 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { ApiErrors, errorResponse } from "@/lib/api-utils";
 import { logAudit } from "@/lib/audit-logger";
 import { SandboxSession } from "@/lib/sandbox";
+import { currentRuntime } from "@/lib/runtime";
 
 const deploySchema = z.object({
     name: z.string().min(1).max(100),
@@ -29,6 +30,13 @@ export async function POST(req: NextRequest) {
 
         const body = await req.json();
         const { name, files, teamId } = deploySchema.parse(body);
+
+        if (!currentRuntime.canUseSandbox) {
+            return NextResponse.json({
+                success: false,
+                error: "Deployment via Sandbox is not supported in this runtime (Cloudflare). Use GitHub integration instead."
+            }, { status: 400 });
+        }
 
         // 1. Create a pending deployment record
         const deployment = await db.deployment.create({

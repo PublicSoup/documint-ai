@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
 
         if (format === "csv") {
             const headers = ["ID", "Action", "Entity", "EntityID", "Details", "IP", "User", "Timestamp"];
-            const rows = logs.map((log) => [
+            const rows = logs.map((log: any) => [
                 log.id,
                 log.action,
                 log.entity,
@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
 
             const csv = [
                 headers.join(","),
-                ...rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")),
+                ...rows.map((row: any[]) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")),
             ].join("\n");
 
             return new NextResponse(csv, {

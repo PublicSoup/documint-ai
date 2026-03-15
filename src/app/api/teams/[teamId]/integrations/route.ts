@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { Prisma } from "@prisma/client";
+import { Prisma, Integration } from "@prisma/client";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -139,7 +139,7 @@ export async function GET(
             },
         });
 
-        const sanitizedIntegrations = integrations.map((integration) => ({
+        const sanitizedIntegrations = integrations.map((integration: Integration) => ({
             ...integration,
             config: sanitizeConfigForRead(integration.type, integration.config, canManage),
         }));

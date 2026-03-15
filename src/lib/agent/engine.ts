@@ -9,14 +9,33 @@ interface AgentInternalState {
 }
 
 import { getAICompletion, getAICompletionWithDetailedError } from "../ai";
-import * as fs from "fs/promises"; // Keep for utility usage if needed, but VFS preferred
+// import * as fs from "fs/promises"; // Removed for Cloudflare compatibility
 import * as path from "path";
-import { exec } from "child_process";
+// import { exec } from "child_process"; // Removed for Cloudflare compatibility
 import { promisify } from "util";
 import * as vfs from "./vm-fs";
 import { buildProjectGraph, generateGraphSummary } from "../graph/project-graph";
+import { currentRuntime } from "../runtime";
 
-const execAsync = promisify(exec);
+type DbFile = {
+    name: string;
+    content: string | null;
+};
+
+// Only promisify exec if we are in an environment that supports it
+let execAsync: any;
+if (currentRuntime.canExecuteCommands) {
+    try {
+        const { exec } = require("child_process");
+        execAsync = promisify(exec);
+    } catch (e) {
+        execAsync = async () => { throw new Error("child_process not available"); };
+    }
+} else {
+    execAsync = async (cmd: string, opts?: any) => {
+        throw new Error(`Command execution is disabled in the current runtime (${currentRuntime.runtimeName})`);
+    };
+}
 
 // Helper to sanitize content from the LLM (remove accidental JSON stringification)
 const sanitizeContent = (content: string): string => {
@@ -96,14 +115,15 @@ export async function* runAgent(
         where: { userId },
         select: { name: true, content: true }
     });
-    const graphFiles = dbFiles.map(f => ({ path: f.name, content: f.content || "" }));
+    const graphFiles = dbFiles.map((f: DbFile) => ({ path: f.name, content: f.content || "" }));
     const graph = await buildProjectGraph(graphFiles);
     const graphSummary = generateGraphSummary(graph);
 
     let activeCtx = "";
     if (contextFileId && !contextFileId.includes("-")) {
         try {
-            const content = await fs.readFile(path.resolve(cwd, contextFileId), 'utf-8');
+            // Use VFS instead of direct fs for read-only safety in Edge
+            const content = await vfs.readFile(userId, contextFileId, cwd);
             activeCtx = `\n[OPEN_FILE]: ${contextFileId}\n[CONTENT]:\n\`\`\`typescript\n${content}\n\`\`\`\n`;
         } catch (e) { }
     } else if (activeFileContent) {
@@ -386,9 +406,11 @@ ${activeCtx}
                         const cmd = args[0];
                         if (isDestructiveCommand(cmd)) {
                             toolResult = `[ERROR]: Command blocked for safety.`;
+                        } else if (!currentRuntime.canExecuteCommands && !currentRuntime.canUseSandbox) {
+                            toolResult = `[ERROR]: Command execution is disabled in the current runtime (${currentRuntime.runtimeName}). Use VFS or storage APIs instead.`;
                         } else {
-                            // Use Vercel Sandbox in production, fall back to child_process in local dev
-                            if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+                            // Use Vercel Sandbox in production (if enabled), fall back to child_process in local dev
+                            if (currentRuntime.canUseSandbox && (process.env.VERCEL || process.env.NODE_ENV === 'production')) {
                                 try {
                                     const { runInSandbox } = await import("../sandbox");
                                     // Split command and args for sandbox
@@ -405,26 +427,36 @@ ${activeCtx}
                                 } catch (e: any) {
                                     toolResult = `[SANDBOX_EXCEPTION]: ${e.message}`;
                                 }
-                            } else {
+                            } else if (currentRuntime.canExecuteCommands) {
                                 const { stdout, stderr } = await execAsync(cmd, { cwd });
                                 toolResult = `[STDOUT]:\n${stdout}\n[STDERR]:\n${stderr}`;
+                            } else {
+                                toolResult = `[ERROR]: Execution path blocked.`;
                             }
                         }
                         break;
                     }
 
                     case "search_files": {
+                        if (!currentRuntime.canExecuteCommands) {
+                             toolResult = `[ERROR]: search_files relies on shell execution which is disabled in ${currentRuntime.runtimeName}.`;
+                             break;
+                        }
                         const pattern = args[0];
                         const findCmd = `find . -type f -name "*${pattern}*" -not -path "*/node_modules/*" -not -path "*/.git/*" | head -n 25`;
-                        const res = await execAsync(findCmd, { cwd }).catch(e => ({ stdout: "", stderr: e.message }));
+                        const res = await execAsync(findCmd, { cwd }).catch((e: any) => ({ stdout: "", stderr: e.message }));
                         toolResult = `[RESULTS]:\n${res.stdout || "None found."}`;
                         break;
                     }
 
                     case "grep_search": {
+                        if (!currentRuntime.canExecuteCommands) {
+                             toolResult = `[ERROR]: grep_search relies on shell execution which is disabled in ${currentRuntime.runtimeName}.`;
+                             break;
+                        }
                         const query = args[0];
                         const grepCmd = `grep -r "${query.replace(/"/g, '\\"')}" . --exclude-dir=node_modules --exclude-dir=.git | head -n 25`;
-                        const res = await execAsync(grepCmd, { cwd }).catch(e => ({ stdout: "", stderr: e.message }));
+                        const res = await execAsync(grepCmd, { cwd }).catch((e: any) => ({ stdout: "", stderr: e.message }));
                         toolResult = `[RESULTS]:\n${res.stdout || "None found."}`;
                         break;
                     }
@@ -502,20 +534,15 @@ function parseArgs(raw: string): string[] {
     return args;
 }
 
-async function getSimpleFileList(dir: string, depth = 0): Promise<string[]> {
+async function getSimpleFileList(userId: string, dir: string, cwd: string, depth = 0): Promise<string[]> {
     if (depth > 2) return [];
     try {
-        const entries = await fs.readdir(dir, { withFileTypes: true });
+        // vfs.listFiles returns a string array of file/dir names
+        const entries = await vfs.listFiles(userId, dir, cwd);
         const results: string[] = [];
-        for (const entry of entries) {
-            if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '.next') continue;
-            const resPath = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-                const subs = await getSimpleFileList(resPath, depth + 1);
-                results.push(...subs.map(s => path.join(entry.name, s)));
-            } else {
-                results.push(entry.name);
-            }
+        for (const entryName of entries) {
+            if (entryName.startsWith('.') || entryName === 'node_modules' || entryName === '.next') continue;
+            results.push(entryName);
         }
         return results;
     } catch { return []; }

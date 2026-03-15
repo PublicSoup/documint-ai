@@ -1,3 +1,4 @@
+import { File, Documentation } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -74,10 +75,10 @@ export async function GET(
 
         // 6. Aggregate stats
         const totalFiles = files.length;
-        const documentedFiles = files.filter(f => f.documentation).length;
+        const documentedFiles = files.filter((f: File & { documentation: Documentation | null }) => f.documentation).length;
         const coverage = totalFiles > 0 ? Math.round((documentedFiles / totalFiles) * 100) : 0;
         
-        const staleFiles = files.filter(f => {
+        const staleFiles = files.filter((f: File & { documentation: Documentation | null }) => {
             if (!f.documentation) return false;
             // Drift detection: code updated more than 5 minutes after doc update
             return new Date(f.updatedAt).getTime() > new Date(f.documentation.updatedAt).getTime() + 300000;
@@ -85,17 +86,17 @@ export async function GET(
 
         // Identify critical undocumented components (hotspots)
         const criticalUndocumented = files
-            .filter(f => !f.documentation)
-            .map(f => ({
+            .filter((f: File & { documentation: Documentation | null }) => !f.documentation)
+            .map((f: File) => ({
                 name: f.name,
                 size: f.size,
                 lang: f.language,
                 riskScore: Math.min(100, Math.round((f.size / 2000) * 70) + (f.name.includes("api") ? 20 : 0) + (f.language === "typescript" || f.language === "javascript" ? 10 : 0))
             }))
-            .sort((a, b) => b.riskScore - a.riskScore)
+            .sort((a: { riskScore: number }, b: { riskScore: number }) => b.riskScore - a.riskScore)
             .slice(0, 5);
 
-        const verifiedCount = files.filter(f => f.documentation?.verifiedAt).length;
+        const verifiedCount = files.filter((f: File & { documentation: Documentation | null }) => f.documentation?.verifiedAt).length;
         const teamConfigRaw = team.integrations[0]?.config;
         const teamConfig = (teamConfigRaw && typeof teamConfigRaw === "object" ? teamConfigRaw : {}) as { coverageGoal?: number };
         const coverageGoal = teamConfig.coverageGoal ?? 80;
@@ -124,7 +125,7 @@ export async function GET(
                 memberCount: team._count.members
             },
             criticalUndocumented,
-            files: files.map(f => ({
+            files: files.map((f: File & { documentation: Documentation | null }) => ({
                 name: f.name,
                 lang: f.language,
                 status: f.documentation?.status || "MISSING",

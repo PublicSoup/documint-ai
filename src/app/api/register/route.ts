@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     try {
         // Rate limit: registration attempts per IP
         const clientIp = await getClientIP(req);
-        await enforceRateLimit(clientIp, "auth");
+        await enforceRateLimit(clientIp, "auth-ip");
 
         // Validate request body
         const { email, name, password } = await validateBody(req, registerSchema);

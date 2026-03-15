@@ -4,6 +4,7 @@ import { z } from "zod";
 import { subDays } from "date-fns";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { File } from "@prisma/client";
 import { checkTeamPermission } from "@/lib/permissions";
 import { requireFeature } from "@/lib/feature-gate";
 import { enforceRateLimit } from "@/lib/rate-limit";
@@ -63,7 +64,7 @@ export async function GET(
             select: { id: true },
         });
 
-        const fileIds = teamFiles.map((file) => file.id);
+        const fileIds = teamFiles.map((file: File) => file.id);
 
         const entityFilters: { entityId: string | { in: string[] } }[] = [{ entityId: teamId }];
         if (fileIds.length > 0) {

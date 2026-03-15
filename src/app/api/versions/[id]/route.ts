@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { ApiErrors, errorResponse } from "@/lib/api-utils";
@@ -52,7 +53,7 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
             throw ApiErrors.forbidden("Access denied");
         }
 
-        await db.$transaction(async (tx) => {
+        await db.$transaction(async (tx: Prisma.TransactionClient) => {
             const latestVersion = await tx.docVersion.findFirst({
                 where: { documentationId: version.documentationId },
                 orderBy: { version: "desc" },

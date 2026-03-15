@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { rateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { enforceRateLimit } from "@/lib/rate-limit";
+import { getUserSubscription } from "@/lib/subscription";
 import { runAgent } from "@/lib/agent/engine";
 import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid
@@ -32,10 +33,9 @@ export async function POST(req: Request) {
             throw ApiErrors.unauthorized();
         }
 
-        const limit = await rateLimit(session.user.id, "pro");
-        if (limit && !limit.success) {
-            return rateLimitResponse(limit.remaining, limit.reset);
-        }
+        const subscription = await getUserSubscription(session.user.id);
+        const rateLimitTier = (subscription.isPro || subscription.isTeam) ? "pro" : "chat";
+        await enforceRateLimit(session.user.id, rateLimitTier);
 
         const { message, history, contextFileId, contextContent, additionalContext, stream } = await validateBody(req, chatRequestSchema);
 
