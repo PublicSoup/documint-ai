@@ -43,6 +43,11 @@ ACTIVITY_LOG.md
 STRIPE_KEYS.md
 node.zip
 
+# screenshots & local docs
+src/ScrennShots/
+ACTIVITY_LOG.md
+logs/
+
 # vercel
 .vercel
 

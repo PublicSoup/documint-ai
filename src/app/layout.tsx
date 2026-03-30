@@ -51,7 +51,11 @@ export const metadata: Metadata = {
 
 import ErrorBoundary from "@/components/error-boundary";
 import { PageTransition } from "@/components/page-transition";
-import { Analytics } from "@vercel/analytics/next";
+
+// Conditionally load Vercel Analytics — noop on Cloudflare
+const Analytics = process.env.VERCEL
+  ? (await import("@vercel/analytics/next")).Analytics
+  : () => null;
 
 export default function RootLayout({
   children,
@@ -69,7 +73,7 @@ export default function RootLayout({
               {children}
             </PageTransition>
           </ErrorBoundary>
-          <Analytics />
+          {Analytics && <Analytics />}
         </Providers>
       </body>
     </html>

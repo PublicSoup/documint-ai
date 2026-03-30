@@ -1,13 +1,18 @@
-// @ts-ignore
-import type { Sandbox } from "@vercel/sandbox";
-import { PassThrough } from "node:stream";
 import { currentRuntime } from "./runtime";
+import { PassThrough } from "node:stream";
 
-// We dynamically import Sandbox to avoid issues in Edge environment if it's not present
+// Fully dynamic import — never reference @vercel/sandbox at module scope
+// This prevents CF Workers from failing at import time
 let SandboxClass: any = null;
-if (currentRuntime.canUseSandbox) {
+let sandboxInitialized = false;
+
+async function initSandbox() {
+    if (sandboxInitialized) return;
+    sandboxInitialized = true;
+    if (!currentRuntime.canUseSandbox) return;
     try {
-        SandboxClass = require("@vercel/sandbox").Sandbox;
+        const mod = await import("@vercel/sandbox");
+        SandboxClass = mod.Sandbox;
     } catch (e) {
         console.warn("Vercel Sandbox module not found, execution might fail.");
     }
@@ -25,7 +30,7 @@ export interface SandboxResult {
  * Handles a multi-step sandbox session (write files, run commands)
  */
 export class SandboxSession {
-    private sandbox: Sandbox | null = null;
+    private sandbox: any = null;
     private logs: string[] = [];
     private onLogCallback?: (msg: string) => void;
 
@@ -41,8 +46,13 @@ export class SandboxSession {
     }
 
     async init() {
-        if (!currentRuntime.canUseSandbox || !SandboxClass) {
+        if (!currentRuntime.canUseSandbox) {
             this.log("[Sandbox] Disabled in current runtime. Skipping initialization.");
+            return;
+        }
+        await initSandbox();
+        if (!SandboxClass) {
+            this.log("[Sandbox] Module not available. Skipping initialization.");
             return;
         }
         this.sandbox = await SandboxClass.create();

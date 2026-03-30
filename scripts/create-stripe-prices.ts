@@ -8,7 +8,7 @@ import Stripe from "stripe";
 
 // Manually initialize Stripe here to ensure it uses the loaded env vars
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2025-12-15.clover",
+  apiVersion: "2026-02-25.clover",
   typescript: true,
 });
 

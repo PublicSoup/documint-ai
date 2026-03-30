@@ -11,8 +11,6 @@ interface AgentInternalState {
 import { getAICompletion, getAICompletionWithDetailedError } from "../ai";
 // import * as fs from "fs/promises"; // Removed for Cloudflare compatibility
 import * as path from "path";
-// import { exec } from "child_process"; // Removed for Cloudflare compatibility
-import { promisify } from "util";
 import * as vfs from "./vm-fs";
 import { buildProjectGraph, generateGraphSummary } from "../graph/project-graph";
 import { currentRuntime } from "../runtime";
@@ -22,19 +20,19 @@ type DbFile = {
     content: string | null;
 };
 
-// Only promisify exec if we are in an environment that supports it
-let execAsync: any;
-if (currentRuntime.canExecuteCommands) {
+// Dynamic import of child_process to avoid CF Workers import failures
+let execFile: any = null;
+async function getExecFile() {
+    if (execFile) return execFile;
+    if (!currentRuntime.canExecuteCommands) return null;
     try {
-        const { exec } = require("child_process");
-        execAsync = promisify(exec);
-    } catch (e) {
-        execAsync = async () => { throw new Error("child_process not available"); };
+        const { promisify } = await import("util");
+        const { execFile: execFileCb } = await import("child_process");
+        execFile = promisify(execFileCb);
+        return execFile;
+    } catch {
+        return null;
     }
-} else {
-    execAsync = async (cmd: string, opts?: any) => {
-        throw new Error(`Command execution is disabled in the current runtime (${currentRuntime.runtimeName})`);
-    };
 }
 
 // Helper to sanitize content from the LLM (remove accidental JSON stringification)
@@ -428,8 +426,14 @@ ${activeCtx}
                                     toolResult = `[SANDBOX_EXCEPTION]: ${e.message}`;
                                 }
                             } else if (currentRuntime.canExecuteCommands) {
-                                const { stdout, stderr } = await execAsync(cmd, { cwd });
-                                toolResult = `[STDOUT]:\n${stdout}\n[STDERR]:\n${stderr}`;
+                                const execFn = await getExecFile();
+                                if (!execFn) {
+                                    toolResult = `[ERROR]: Command execution unavailable in this runtime.`;
+                                } else {
+                                    const parts = cmd.split(' ');
+                                    const { stdout, stderr } = await execFn(parts[0], parts.slice(1), { cwd, timeout: 30000 });
+                                    toolResult = `[STDOUT]:\n${stdout}\n[STDERR]:\n${stderr}`;
+                                }
                             } else {
                                 toolResult = `[ERROR]: Execution path blocked.`;
                             }
@@ -442,10 +446,19 @@ ${activeCtx}
                              toolResult = `[ERROR]: search_files relies on shell execution which is disabled in ${currentRuntime.runtimeName}.`;
                              break;
                         }
+                        const execFn = await getExecFile();
+                        if (!execFn) {
+                            toolResult = `[ERROR]: Command execution unavailable in this runtime.`;
+                            break;
+                        }
                         const pattern = args[0];
-                        const findCmd = `find . -type f -name "*${pattern}*" -not -path "*/node_modules/*" -not -path "*/.git/*" | head -n 25`;
-                        const res = await execAsync(findCmd, { cwd }).catch((e: any) => ({ stdout: "", stderr: e.message }));
-                        toolResult = `[RESULTS]:\n${res.stdout || "None found."}`;
+                        try {
+                            const res = await execFn("find", [".", "-type", "f", "-name", `*${pattern}*`, "-not", "-path", "*/node_modules/*", "-not", "-path", "*/.git/*"], { cwd, timeout: 15000 });
+                            const lines = (res.stdout || "").split("\n").slice(0, 25).join("\n");
+                            toolResult = `[RESULTS]:\n${lines || "None found."}`;
+                        } catch (e: any) {
+                            toolResult = `[RESULTS]:\nNone found.`;
+                        }
                         break;
                     }
 
@@ -454,10 +467,19 @@ ${activeCtx}
                              toolResult = `[ERROR]: grep_search relies on shell execution which is disabled in ${currentRuntime.runtimeName}.`;
                              break;
                         }
+                        const execFn = await getExecFile();
+                        if (!execFn) {
+                            toolResult = `[ERROR]: Command execution unavailable in this runtime.`;
+                            break;
+                        }
                         const query = args[0];
-                        const grepCmd = `grep -r "${query.replace(/"/g, '\\"')}" . --exclude-dir=node_modules --exclude-dir=.git | head -n 25`;
-                        const res = await execAsync(grepCmd, { cwd }).catch((e: any) => ({ stdout: "", stderr: e.message }));
-                        toolResult = `[RESULTS]:\n${res.stdout || "None found."}`;
+                        try {
+                            const res = await execFn("grep", ["-r", query, ".", "--exclude-dir=node_modules", "--exclude-dir=.git"], { cwd, timeout: 15000 });
+                            const lines = (res.stdout || "").split("\n").slice(0, 25).join("\n");
+                            toolResult = `[RESULTS]:\n${lines || "None found."}`;
+                        } catch (e: any) {
+                            toolResult = `[RESULTS]:\nNone found.`;
+                        }
                         break;
                     }
 
@@ -534,16 +556,3 @@ function parseArgs(raw: string): string[] {
     return args;
 }
 
-async function getSimpleFileList(userId: string, dir: string, cwd: string, depth = 0): Promise<string[]> {
-    if (depth > 2) return [];
-    try {
-        // vfs.listFiles returns a string array of file/dir names
-        const entries = await vfs.listFiles(userId, dir, cwd);
-        const results: string[] = [];
-        for (const entryName of entries) {
-            if (entryName.startsWith('.') || entryName === 'node_modules' || entryName === '.next') continue;
-            results.push(entryName);
-        }
-        return results;
-    } catch { return []; }
-}
