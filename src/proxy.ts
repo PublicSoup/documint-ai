@@ -10,7 +10,7 @@ import { getToken } from "next-auth/jwt";
  * API rate limiting is handled at route level to avoid duplicate network calls
  * and reduce request latency.
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
     const response = NextResponse.next();
     const ip =
         request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??

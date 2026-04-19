@@ -7,13 +7,18 @@ import { env } from "./env";
 import { ApiErrors } from "./api-utils";
 import { db } from "./db";
 
-// Initialize Redis client (falls back to null for dev/when not configured)
-const redis = env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN
-    ? new Redis({
-        url: env.UPSTASH_REDIS_REST_URL,
-        token: env.UPSTASH_REDIS_REST_TOKEN
-    })
-    : null;
+// Initialize Redis client with absolute safety for build-time execution
+let redis: Redis | null = null;
+try {
+    if (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN && env.UPSTASH_REDIS_REST_URL !== "https://upstash-redis-url.com") {
+        redis = new Redis({
+            url: env.UPSTASH_REDIS_REST_URL,
+            token: env.UPSTASH_REDIS_REST_TOKEN
+        });
+    }
+} catch (error) {
+    console.warn("[RateLimit] Failed to initialize Upstash Redis (likely build-time):", error);
+}
 
 // Rate limiters for different tiers and endpoints
 const limiters = {
