@@ -54,6 +54,9 @@ const envSchema = z.object({
     // Admin
     ADMIN_EMAIL: z.string().email().optional(),
 
+    // Security
+    ENCRYPTION_KEY: z.string().length(64, "ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)").optional(),
+
     // System
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     VERCEL: z.string().optional(),
@@ -106,6 +109,9 @@ export const env = envSchema.parse({
 
     // Admin
     ADMIN_EMAIL: process.env.ADMIN_EMAIL,
+
+    // Security
+    ENCRYPTION_KEY: process.env.ENCRYPTION_KEY || undefined,
 
     // System
     NODE_ENV: process.env.NODE_ENV,

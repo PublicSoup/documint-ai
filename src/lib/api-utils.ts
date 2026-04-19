@@ -188,7 +188,7 @@ interface AuditConfig<TBody, TQuery, TResponse> {
 
 interface ApiHandlerOptions<TBody, TQuery, TResponse> {
     feature?: FeatureType;
-    rateLimit?: "free" | "pro" | "api" | "none";
+    rateLimit?: "chat" | "pro" | "api" | "none";
     bodySchema?: ZodSchema<TBody>;
     querySchema?: ZodSchema<TQuery>;
     audit?: AuditConfig<TBody, TQuery, TResponse>;

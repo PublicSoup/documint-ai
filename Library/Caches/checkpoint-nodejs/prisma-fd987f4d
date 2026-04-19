@@ -1,0 +1,55 @@
+{
+  "last_reminder": 0,
+  "cached_at": 1776556248273,
+  "version": "5.22.0",
+  "cli_path": "/Users/soup/Desktop/documint-ai-main/node_modules/.bin/prisma",
+  "output": {
+    "product": "prisma",
+    "previous_version": "5.22.0",
+    "checkpoint_version": 4,
+    "local_timestamp_without_timezone": "2026-04-18T18:50:47Z",
+    "current_version": "7.7.0",
+    "current_release_date": 1775577373,
+    "client_event_id": "8b4b4fe7-b863-4157-bdf4-454a01847c22",
+    "current_download_url": "https://github.com/prisma/prisma",
+    "package": "prisma",
+    "release_tag": "latest",
+    "install_command": "npm install --save-dev prisma",
+    "schema_providers": [
+      "postgresql"
+    ],
+    "schema_preview_features": [],
+    "schema_generators_providers": [
+      "prisma-client-js"
+    ],
+    "current_changelog_url": "https://github.com/prisma/prisma",
+    "outdated": true,
+    "project_website": "https://prisma.io",
+    "alerts": []
+  },
+  "product": "prisma",
+  "cli_install_type": "local",
+  "local_timestamp": "2026-04-15T17:29:27-05:00",
+  "project_hash": "d62077ac",
+  "cli_path_hash": "fd987f4d",
+  "endpoint": "https://checkpoint.prisma.io",
+  "arch": "arm64",
+  "os": "darwin",
+  "node_version": "v25.6.1",
+  "ci": true,
+  "ci_name": "Vercel",
+  "command": "generate",
+  "schema_providers": [
+    "postgresql"
+  ],
+  "schema_preview_features": [],
+  "schema_generators_providers": [
+    "prisma-client-js"
+  ],
+  "cache_file": "/Users/soup/Desktop/documint-ai-main/Library/Caches/checkpoint-nodejs/prisma-fd987f4d",
+  "cache_duration": 43200000,
+  "remind_duration": 172800000,
+  "timeout": 5000,
+  "unref": true,
+  "child_path": "/Users/soup/Desktop/documint-ai-main/node_modules/prisma/build/child"
+}

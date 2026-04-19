@@ -29,7 +29,7 @@ type AuditLogRow = {
     createdAt: Date;
     action: string;
     entity: string | null;
-    details: any;
+    details: Record<string, unknown> | null;
 };
 
 type DocContent = {

@@ -56,12 +56,12 @@ export async function GET(req: NextRequest) {
                                     user: {
                                         select: {
                                             name: true,
-                                            email: true,
                                             image: true,
                                         },
                                     },
                                 },
                                 orderBy: { joinedAt: "asc" },
+                                take: 5, // Only fetch first 5 members for preview
                             },
                             invites: {
                                 select: {
@@ -71,6 +71,7 @@ export async function GET(req: NextRequest) {
                                     createdAt: true,
                                 },
                                 orderBy: { createdAt: "desc" },
+                                take: 5, // Only fetch first 5 invites for preview
                             },
                         },
                     },

@@ -6,7 +6,6 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { getUserSubscription } from "@/lib/subscription";
 import { runAgent } from "@/lib/agent/engine";
 import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
-import { v4 as uuidv4 } from 'uuid'; // Import uuid
 
 const historyMessageSchema = z
     .object({
@@ -39,7 +38,7 @@ export async function POST(req: Request) {
 
         const { message, history, contextFileId, contextContent, additionalContext, stream } = await validateBody(req, chatRequestSchema);
 
-        const sessionId = uuidv4(); // Generate a unique session ID for this agent run
+        const sessionId = crypto.randomUUID(); // Generate a unique session ID for this agent run
 
         const fullMessage = additionalContext
             ? `${message}\n\nAdditional Context:\n${additionalContext}`

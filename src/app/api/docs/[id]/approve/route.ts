@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { sendNotification } from "@/lib/notifications";
@@ -55,7 +56,7 @@ export async function POST(
         }
 
         // 5. Update documentation status in a transaction
-        const updatedDoc = await db.$transaction(async (tx: any) => {
+        const updatedDoc = await db.$transaction(async (tx: Omit<Prisma.TransactionClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">) => {
             // Update the main doc record
             const updated = await tx.documentation.update({
                 where: { fileId },

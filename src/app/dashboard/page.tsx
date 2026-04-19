@@ -57,7 +57,24 @@ import { GlobalSearch } from "@/components/global-search";
 import { TrackedLink } from "@/components/marketing/tracked-link";
 import { getPriorityActions } from "./actions";
 import { Network, Sparkles, BrainCircuit, Fingerprint } from "lucide-react";
-import { File } from "@prisma/client";
+import { File, Prisma } from "@prisma/client";
+
+interface TeamMembership {
+    teamId: string;
+    role: string;
+    team: {
+        id: string;
+        name: string;
+        slug: string;
+        plan: string;
+        updatedAt: Date;
+    };
+}
+
+interface TeamConfig {
+    lockApproved?: boolean;
+    [key: string]: unknown;
+}
 
 type Hotspot = File & {
     riskScore: number;
@@ -100,8 +117,8 @@ export default async function DashboardPage(props: {
     }
 
     // Fetch user teams
-    let memberships: any[] = [];
-    let teams: any[] = [];
+    let memberships: TeamMembership[] = [];
+    let teams: TeamMembership["team"][] = [];
     try {
         memberships = await db.teamMember.findMany({
             where: { userId: session.user.id },
@@ -114,7 +131,7 @@ export default async function DashboardPage(props: {
 
     // Determine context (Personal vs Team)
     const teamId = searchParams?.teamId as string | undefined;
-    let whereClause: any = { userId: session.user.id, teamId: null };
+    let whereClause: Prisma.FileWhereInput = { userId: session.user.id, teamId: null };
     let userRole = "OWNER"; // Default for personal files
 
     if (teamId) {
@@ -128,7 +145,7 @@ export default async function DashboardPage(props: {
     // Fetch dashboard data in parallel to reduce TTFB.
     let totalFilesCount = 0;
     let verifiedDocsCount = 0;
-    let files: any[] = [];
+    let files: FileWithDocs[] = [];
 
     try {
         const [totalFiles, verifiedDocs, fetchedFiles] = await Promise.all([

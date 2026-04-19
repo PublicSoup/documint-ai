@@ -65,9 +65,13 @@ export async function GET(req: NextRequest) {
             take: 5000,
         });
 
+        type AuditLogWithDetails = import("@prisma/client").AuditLog & {
+            details?: Record<string, unknown>;
+        };
+
         if (format === "csv") {
             const headers = ["ID", "Action", "Entity", "EntityID", "Details", "IP", "User", "Timestamp"];
-            const rows = logs.map((log: any) => [
+            const rows = (logs as AuditLogWithDetails[]).map((log: AuditLogWithDetails) => [
                 log.id,
                 log.action,
                 log.entity,
@@ -80,7 +84,7 @@ export async function GET(req: NextRequest) {
 
             const csv = [
                 headers.join(","),
-                ...rows.map((row: any[]) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")),
+                ...rows.map((row: string[]) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")),
             ].join("\n");
 
             return new NextResponse(csv, {

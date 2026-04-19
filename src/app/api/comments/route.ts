@@ -16,6 +16,8 @@ const createCommentSchema = z.object({
 
 const getCommentsQuerySchema = z.object({
     fileId: z.string().trim().min(1).max(100),
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(50).default(20),
 }).strict();
 
 const updateCommentSchema = z.object({
@@ -110,7 +112,11 @@ export async function POST(req: NextRequest) {
                     include: { user: true },
                 });
 
-                const mentionedUsers = teamUsers.filter((member: any) => {
+                type TeamMemberWithUser = import("@prisma/client").TeamMember & {
+                    user: { id: string; name: string | null; image: string | null; email: string | null };
+                };
+
+                const mentionedUsers = (teamUsers as TeamMemberWithUser[]).filter((member: TeamMemberWithUser) => {
                     if (member.userId === userId) return false;
                     if (member.userId === file.userId) return false;
 
@@ -120,7 +126,7 @@ export async function POST(req: NextRequest) {
                 });
 
                 await Promise.all(
-                    mentionedUsers.map((member: any) =>
+                    mentionedUsers.map((member: TeamMemberWithUser) =>
                         sendNotification({
                             userId: member.userId,
                             type: "MENTION",
@@ -172,7 +178,7 @@ export async function GET(req: NextRequest) {
         await enforceRateLimit(userId, "api");
 
         // 2. Validate Query
-        const { fileId } = validateQuery(req.nextUrl.searchParams, getCommentsQuerySchema);
+        const { fileId, page, limit } = validateQuery(req.nextUrl.searchParams, getCommentsQuerySchema);
 
         // 3. Check permissions
         const hasPermission = await checkFilePermission(userId, fileId, "view");
@@ -180,27 +186,48 @@ export async function GET(req: NextRequest) {
             throw ApiErrors.forbidden("You do not have permission to view comments for this file.");
         }
 
-        // 4. Fetch Comments
-        const comments = await db.comment.findMany({
-            where: { fileId },
-            include: {
-                user: {
-                    select: { id: true, name: true, image: true },
-                },
-                replies: {
-                    include: {
-                        user: {
-                            select: { id: true, name: true, image: true },
-                        },
-                    },
-                    orderBy: { createdAt: "asc" },
-                },
-            },
-            orderBy: { createdAt: "desc" },
-        });
+        // 4. Fetch Comments with pagination
+        type CommentWithReplies = import("@prisma/client").Comment & {
+            user: { id: string; name: string | null; image: string | null };
+            replies: (import("@prisma/client").Comment & {
+                user: { id: string; name: string | null; image: string | null };
+            })[];
+        };
 
-        const topLevelComments = comments.filter((comment: any) => !comment.parentId);
-        return NextResponse.json({ comments: topLevelComments });
+        const skip = (page - 1) * limit;
+
+        const [comments, totalCount] = await Promise.all([
+            db.comment.findMany({
+                where: { fileId, parentId: null },
+                include: {
+                    user: {
+                        select: { id: true, name: true, image: true },
+                    },
+                    replies: {
+                        include: {
+                            user: {
+                                select: { id: true, name: true, image: true },
+                            },
+                        },
+                        orderBy: { createdAt: "asc" },
+                    },
+                },
+                orderBy: { createdAt: "desc" },
+                skip,
+                take: limit,
+            }) as Promise<CommentWithReplies[]>,
+            db.comment.count({ where: { fileId, parentId: null } }),
+        ]);
+
+        return NextResponse.json({
+            comments,
+            pagination: {
+                page,
+                limit,
+                totalCount,
+                totalPages: Math.ceil(totalCount / limit),
+            },
+        });
     } catch (error) {
         return errorResponse(error);
     }

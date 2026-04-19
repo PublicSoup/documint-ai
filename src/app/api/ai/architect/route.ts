@@ -115,11 +115,11 @@ export async function POST(req: NextRequest) {
                         take: 20, // Reduced from 40
                     });
 
-                     // Build graph safely
-                     const graphFiles = siblingFiles.map((file: any) => ({
-                         path: file.name,
-                         content: (file.content || "").slice(0, 5000) // Truncate content for graph build
-                     }));
+                    // Build graph safely
+                    const graphFiles = siblingFiles.map((file: SiblingFile) => ({
+                        path: file.name,
+                        content: (file.content || "").slice(0, 5000) // Truncate content for graph build
+                    }));
                     const graph = await buildProjectGraph(graphFiles);
 
                     const relatedFileNames = new Set<string>();

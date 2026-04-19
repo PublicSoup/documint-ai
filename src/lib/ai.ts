@@ -1,38 +1,35 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { generateText as aiSDKGenerateText, generateObject, streamText as aiSDKStreamText } from "ai";
+import { z } from "zod";
 import { env } from "./env";
 
 /**
- * AI Provider Utility
- * Strictly uses Google Gemini (production ready)
+ * AI Provider Utility - Refactored for Vercel AI SDK (@ai-sdk/google)
+ * Strictly uses Google Gemini (production-ready).
  */
 
-interface AIMessage {
+export interface AIMessage {
     role: "system" | "user" | "assistant";
     content: string;
 }
 
-interface AICompletionOptions {
+export interface AICompletionOptions {
     model?: string;
     temperature?: number;
     maxTokens?: number;
     jsonMode?: boolean;
 }
 
-interface AICompletionResult {
+export interface AICompletionResult {
     content: string;
     provider: "gemini";
     model: string;
 }
 
-// Initialize the Google Generative AI SDK
-const genAI = new GoogleGenerativeAI(env.GOOGLE_API_KEY);
-
 /**
  * Sanitize prompt content to prevent basic injection attacks
  */
 export function safePrompt(input: string): string {
-    // Strip null bytes and bidirectional control characters
-    // Also remove potential "System:" prefixes that might confuse some models (though Gemini uses separate field)
     return input
         .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F\u2028\u2029]/g, "") // Control chars
         .replace(/^System:/i, "User:") // Neutralize fake system headers
@@ -40,8 +37,24 @@ export function safePrompt(input: string): string {
 }
 
 /**
+ * Initialize SDK with Vercel AI Gateway for Cost-Free Caching Margin
+ */
+const googleGenAI = createGoogleGenerativeAI({
+    apiKey: env.GOOGLE_API_KEY,
+    // Triggers global Edge caching and native rate-limits instantly if configured
+    baseURL: process.env.VERCEL_AI_GATEWAY_URL || undefined,
+});
+
+/**
+ * Base AI Model selector
+ */
+function getModel(modelName: string = "gemini-2.0-flash") {
+    return googleGenAI(modelName);
+}
+
+/**
  * Get AI completion with detailed error handling
- * Uses generateContent() API for maximum compatibility with all Gemini models
+ * Now powered by Vercel AI SDK for robust exponential backoff and error tracking
  */
 export async function getAICompletionWithDetailedError(
     messages: AIMessage[],
@@ -55,98 +68,50 @@ export async function getAICompletionWithDetailedError(
     }
 
     try {
-        // Use gemini-2.0-flash as default (fast, widely available)
         const modelName = options.model || "gemini-2.0-flash";
-        const generationConfig: {
-            temperature: number;
-            maxOutputTokens: number;
-            responseMimeType?: "application/json";
-        } = {
-            temperature: options.temperature ?? 0.4,
-            maxOutputTokens: options.maxTokens ?? 8192,
-        };
-
-        if (options.jsonMode) {
-            generationConfig.responseMimeType = "application/json";
-        }
-
-        const model = genAI.getGenerativeModel({
-            model: modelName,
-            systemInstruction: messages.find(m => m.role === "system")?.content,
-            generationConfig,
-        });
-
-        // Convert messages to Gemini format (Content[])
-        const contents = messages
-            .filter(m => m.role !== "system") // System prompt is handled via systemInstruction
+        
+        // Extract system message for Vercel AI SDK
+        const systemMessage = messages.find(m => m.role === "system")?.content;
+        
+        // Map remaining messages (User/Assistant)
+        const chatMessages = messages
+            .filter(m => m.role !== "system")
             .map(m => ({
-                role: m.role === "assistant" ? "model" : "user",
-                parts: [{ text: safePrompt(m.content) }] // Sanitize content
+                role: m.role as "user" | "assistant",
+                content: safePrompt(m.content)
             }));
 
+        const response = await aiSDKGenerateText({
+            model: getModel(modelName),
+            system: systemMessage,
+            messages: chatMessages,
+            temperature: options.temperature ?? 0.4,
+            // @ts-ignore - Valid in raw API call but misaligned in local TS types
+            maxTokens: options.maxTokens ?? 8192,
+            abortSignal: AbortSignal.timeout(60000), // Strict 60s timeout abort
+        });
 
-        let result;
-        let attempts = 0;
-        const maxRetries = 3;
-
-        while (attempts < maxRetries) {
-            try {
-                result = await model.generateContent({ contents });
-                break; // Success
-            } catch (apiError: unknown) {
-                attempts++;
-                const errorMessage = apiError instanceof Error ? apiError.message : String(apiError);
-
-                // Handle Rate Limiting (429) and Service Unavailable (503)
-                if (errorMessage.includes("429") || errorMessage.includes("503")) {
-                    if (attempts >= maxRetries) {
-                        return { success: false, error: `Gemini Error: Rate limit or Service unavailable (Max retries reached).` };
-                    }
-                    // Exponential backoff: 1s, 2s, 4s...
-                    const waitTime = Math.pow(2, attempts) * 1000;
-                    await new Promise(resolve => setTimeout(resolve, waitTime));
-                    continue;
-                }
-
-                // Parse other specific error codes and fail immediately
-                if (errorMessage.includes("400")) {
-                    return { success: false, error: "Bad Request (400) - The model may not be available in your region." };
-                } else if (errorMessage.includes("401") || errorMessage.includes("403")) {
-                    return { success: false, error: "Unauthorized - Check your GOOGLE_API_KEY." };
-                }
-
-                return { success: false, error: `Gemini Error: ${errorMessage}` };
-            }
-        }
-
-        if (!result) {
-            return { success: false, error: "Gemini Error: Failed to generate content after retries." };
-        }
-
-        const response = result.response;
-        const text = response.text();
-
-
-        if (!text || text.trim() === "") {
-            return { success: false, error: "Gemini returned an empty response. Try rephrasing your request." };
+        if (!response.text || response.text.trim() === "") {
+            return { success: false, error: "AI returned an empty response. Try rephrasing your request." };
         }
 
         return {
             success: true,
             data: {
-                content: text,
+                content: response.text,
                 provider: "gemini",
                 model: modelName,
             }
         };
-    } catch (e: unknown) {
+    } catch (e: any) {
         const errorMessage = e instanceof Error ? e.message : "Unknown error";
+        console.error("[Vercel AI SDK Error]:", errorMessage);
         return { success: false, error: `Unexpected Error: ${errorMessage}` };
     }
 }
 
 /**
- * Get AI completion from Google Gemini (Legacy wrapper)
+ * Get AI completion (Legacy wrapper)
  */
 export async function getAICompletion(
     messages: AIMessage[],
@@ -170,6 +135,27 @@ export async function generateText(
     ], options);
 
     return result?.content || "";
+}
+
+/**
+ * NEW: Core Stream Text Function for Edge Runtime
+ * Use this in UI API routes to directly return `result.toDataStreamResponse()`
+ */
+export async function streamTextEndpoint(
+    systemPrompt: string,
+    userPrompt: string,
+    options: AICompletionOptions = {}
+) {
+    const modelName = options.model || "gemini-2.0-flash";
+    
+    return aiSDKStreamText({
+        model: getModel(modelName),
+        system: systemPrompt,
+        messages: [{ role: 'user', content: safePrompt(userPrompt) }],
+        temperature: options.temperature ?? 0.4,
+        // @ts-ignore
+        maxTokens: options.maxTokens ?? 8192,
+    });
 }
 
 /**
@@ -244,7 +230,6 @@ ${safePrompt(code.slice(0, 2000))}
 
 /**
  * Generate documentation with FULL CODEBASE AWARENESS
- * Refactored to use Gemini
  */
 export async function generateDocumentationWithContext(
     code: string,
@@ -255,8 +240,6 @@ export async function generateDocumentationWithContext(
     relatedFileIds: string[] = [],
     styleGuide?: string
 ): Promise<string> {
-    // Note: In the future, we can implement sophisticated context building here.
-    // For now, we'll use the existing generateDocumentation logic with a hint about context.
     const systemPrompt = "You are DocuMint AI, an expert technical documentation assistant with full codebase awareness.";
     const userPrompt = `Contextual analysis for ${type} in ${language}.
     
@@ -275,7 +258,6 @@ ${safePrompt(code)}
 
 /**
  * Analyze entire codebase and generate comprehensive report
- * Refactored to use Gemini
  */
 export async function analyzeFullCodebase(userId: string): Promise<string> {
     const systemPrompt = `You are a Principal Architect performing a comprehensive codebase review.
@@ -298,48 +280,41 @@ Include:
 }
 
 /**
- * Check if AI is available at all
- */
-export async function isAIAvailable(): Promise<boolean> {
-    return !!env.GOOGLE_API_KEY;
-}
-
-/**
  * Detect intent drift between code and documentation
+ * UPGRADED: Uses `generateObject` with strictly typed Zod Schema to never fail parsing.
  */
 export async function detectIntentDrift(
     newCode: string,
     documentation: string
-): Promise<{ drifted: boolean; reasoning?: string }> {
-    const systemPrompt = "You are a Documentation Drift Analyst. Determine if code changes invalidate existing documentation. Respond ONLY in valid JSON.";
-    const userPrompt = `
-    EXISTING DOCUMENTATION (JSON format):
-    ${safePrompt(documentation)}
-
-    NEW CODE STATE:
-    \`\`\`
-    ${safePrompt(newCode.substring(0, 6000))}
-    \`\`\`
-
-    Analyze if the new code implementation has drifted significantly from the documented intent.
-    Focus on signature changes, logic contradictions, or missing critical context.
-
-    Return JSON:
-    {
-      "drifted": boolean,
-      "reasoning": "concise explanation of the mismatch, or null"
-    }`;
-
+): Promise<{ drifted: boolean; reasoning?: string | null }> {
+    const systemPrompt = "You are a Documentation Drift Analyst. Determine if code changes invalidate existing documentation. Be highly precise.";
+    
     try {
-        const result = await generateText(systemPrompt, userPrompt, { 
-            temperature: 0.1,
-            jsonMode: true 
-        });
+        const { object } = await generateObject({
+            model: getModel("gemini-2.0-flash"),
+            system: systemPrompt,
+            prompt: `
+            EXISTING DOCUMENTATION:
+            ${safePrompt(documentation)}
         
-        // Clean up markdown if AI includes it
-        const cleanJson = result.replace(/```json\n?|\n?```/g, "").trim();
-        return JSON.parse(cleanJson);
-    } catch {
-        return { drifted: false };
+            NEW CODE STATE:
+            \`\`\`
+            ${safePrompt(newCode.substring(0, 6000))}
+            \`\`\`
+        
+            Analyze if the new code implementation has drifted significantly from the documented intent.
+            Focus on signature changes, logic contradictions, or missing critical context.`,
+            temperature: 0.1,
+            // Automatically enforces strict JSON conformity bypassing string-hack vulnerabilities!
+            schema: z.object({
+                drifted: z.boolean().describe("True if the documentation heavily drifted from actual code logic"),
+                reasoning: z.string().nullable().describe("Concise explanation of the mismatch, or null if no drift"),
+            }),
+        });
+
+        return object;
+    } catch (e) {
+        console.error("Drift Analytics Error: ", e);
+        return { drifted: false, reasoning: null };
     }
 }

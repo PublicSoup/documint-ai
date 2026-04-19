@@ -110,10 +110,11 @@ export async function POST(
         });
 
         const totalFiles = files.length;
-        const documentedFiles = files.filter((f: File & { documentation: Documentation | null }) => f.documentation).length;
+        type FileWithDoc = import("@prisma/client").File & { documentation: import("@prisma/client").Documentation | null };
+        const documentedFiles = (files as FileWithDoc[]).filter((f: FileWithDoc) => f.documentation).length;
         const coverage = totalFiles > 0 ? Math.round((documentedFiles / totalFiles) * 100) : 0;
 
-        const staleFiles = files.filter((f: File & { documentation: Documentation | null }) => {
+        const staleFiles = (files as FileWithDoc[]).filter((f: FileWithDoc) => {
             if (!f.documentation) return false;
             const fileUpdated = new Date(f.updatedAt).getTime();
             const docUpdated = new Date(f.documentation.updatedAt).getTime();
@@ -143,7 +144,7 @@ export async function POST(
             );
 
         const emailResults = await Promise.allSettled(emailPromises);
-        const successCount = emailResults.filter((r: PromiseSettledResult<any>) => r.status === "fulfilled").length;
+        const successCount = emailResults.filter((r: PromiseSettledResult<unknown>) => r.status === "fulfilled").length;
 
         try {
             const goalStatus =

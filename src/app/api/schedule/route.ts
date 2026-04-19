@@ -216,7 +216,7 @@ export async function POST(req: NextRequest) {
             )
         );
 
-        const succeeded = results.filter((r: PromiseSettledResult<any>) => r.status === "fulfilled").length;
+        const succeeded = results.filter((r: PromiseSettledResult<unknown>) => r.status === "fulfilled").length;
 
         // 4. Update status in settings
         await db.user.update({

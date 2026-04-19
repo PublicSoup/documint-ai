@@ -33,7 +33,7 @@ import { IDEStatusBar } from "./status-bar";
 import ReadmeGenerator from "../readme-generator";
 import { ContextualHeader } from "./contextual-header";
 import { getProjectGraphMermaid } from "@/app/dashboard/client-actions";
-import { CommandPalette } from "../command-palette";
+import { CommandPalette } from "./command-palette";
 import { SourceControlPanel } from "./source-control-panel";
 import { DiffModal } from "./diff-modal";
 import { useIDESettings } from "@/hooks/use-ide-settings";
@@ -1152,7 +1152,24 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                 }}
             />
 
-            <CommandPalette open={isCommandPaletteOpen} onOpenChange={setIsCommandPaletteOpen} />
+            <CommandPalette 
+                isOpen={isCommandPaletteOpen} 
+                onClose={() => setIsCommandPaletteOpen(false)} 
+                files={files}
+                onSelectFile={handleFileSelect}
+                onRunCommand={(cmdId) => {
+                    // Handle command execution
+                    switch(cmdId) {
+                        case 'toggle-terminal': setShowTerminal(!showTerminal); break;
+                        case 'toggle-sidebar': setShowSidebar(!showSidebar); break;
+                        case 'toggle-minimap': break;
+                        case 'format-document': break;
+                        case 'go-to-settings': setShowKeyboardShortcuts(true); break;
+                        case 'toggle-wordwrap': break;
+                        case 'keyboard-shortcuts': setShowKeyboardShortcuts(true); break;
+                    }
+                }}
+            />
             <KeyboardShortcuts isOpen={showKeyboardShortcuts} onClose={() => setShowKeyboardShortcuts(false)} />
             <SecretsManager
                 open={showSecretsManager}

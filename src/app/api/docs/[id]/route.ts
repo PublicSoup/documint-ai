@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { sendEmail, emailTemplates } from "@/lib/email";
@@ -206,7 +207,7 @@ export async function PUT(
         const transitioningToReview = newStatus === "REVIEW" && doc.status !== "REVIEW";
 
         // Update documentation and create version in a transaction
-        const updatedDoc = await db.$transaction(async (tx: any) => {
+        const updatedDoc = await db.$transaction(async (tx: Omit<Prisma.TransactionClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">) => {
             const updated = await tx.documentation.update({
                 where: { fileId: id },
                 data: {
@@ -239,10 +240,11 @@ export async function PUT(
             // Create review request record with deterministic reviewer assignment
             let assignedReviewerId: string | null = null;
             if (file.teamId && file.team) {
-                const potentialReviewers = file.team.members.filter((m: any) => m.userId !== session.user.id);
+                type MemberWithUser = import("@prisma/client").TeamMember & { user: { id: string; email: string | null; name: string | null } };
+                const potentialReviewers = (file.team.members as MemberWithUser[]).filter((m: MemberWithUser) => m.userId !== session.user.id);
                 if (potentialReviewers.length > 0) {
                     const loads = await Promise.all(
-                        potentialReviewers.map(async (m: any) => ({
+                        potentialReviewers.map(async (m: MemberWithUser) => ({
                             userId: m.userId,
                             pending: await db.reviewRequest.count({
                                 where: {
@@ -252,7 +254,7 @@ export async function PUT(
                             }),
                         }))
                     );
-                    loads.sort((a: { pending: number }, b: { pending: number }) => a.pending - b.pending);
+                    loads.sort((a, b) => a.pending - b.pending);
                     assignedReviewerId = loads[0].userId;
                 }
             }
@@ -268,13 +270,14 @@ export async function PUT(
 
             // Email Notifications
             if (file.teamId && file.team) {
+                type MemberWithUser = import("@prisma/client").TeamMember & { user: { id: string; email: string | null; name: string | null } };
                 const targetMembers = assignedReviewerId 
-                    ? file.team.members.filter((m: any) => m.userId === assignedReviewerId)
-                    : file.team.members.filter((m: any) => m.userId !== session.user.id);
+                    ? (file.team.members as MemberWithUser[]).filter((m: MemberWithUser) => m.userId === assignedReviewerId)
+                    : (file.team.members as MemberWithUser[]).filter((m: MemberWithUser) => m.userId !== session.user.id);
 
                 const emailPromises = targetMembers
-                    .filter((m: any) => m.user.email)
-                    .map((m: any) => sendEmail({
+                    .filter((m) => m.user.email)
+                    .map((m) => sendEmail({
                         to: m.user.email!,
                         subject: `Review Requested: ${file.name}`,
                         html: emailTemplates.reviewRequested(

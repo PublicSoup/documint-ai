@@ -62,7 +62,7 @@ export const authOptions: NextAuthOptions = {
                         details: {
                             reason: "Failed to parse Auth0 profile",
                             errors: parsedProfile.error.flatten(),
-                            profileData: profile,
+                            profileKeys: Object.keys(profile),
                         },
                     });
                     // Return a minimal profile to avoid breaking the authentication flow

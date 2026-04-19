@@ -1,4 +1,97 @@
 
+export type PlanType = "free" | "starter" | "pro" | "team";
+
+export interface PlanLimits {
+    filesPerMonth: number;
+    totalFiles: number;
+    teamMembers: number;
+    features: {
+        analytics: boolean;
+        changelog: boolean;
+        smartSuggestions: boolean;
+        auditLog: boolean;
+        customTemplates: boolean;
+        prioritySupport: boolean;
+        diagramGenerator: boolean;
+        rulesetGenerator: boolean;
+        aiArchitect: boolean;
+        codeExplain: boolean;
+    };
+}
+
+export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
+    free: {
+        filesPerMonth: 10,
+        totalFiles: 25,
+        teamMembers: 1,
+        features: {
+            analytics: false,
+            changelog: false,
+            smartSuggestions: false,
+            auditLog: false,
+            customTemplates: false,
+            prioritySupport: false,
+            diagramGenerator: false,
+            rulesetGenerator: false,
+            aiArchitect: false,
+            codeExplain: false,
+        },
+    },
+    starter: {
+        filesPerMonth: 100,
+        totalFiles: 250,
+        teamMembers: 3,
+        features: {
+            analytics: true,
+            changelog: true,
+            smartSuggestions: true,
+            auditLog: false,
+            customTemplates: false,
+            prioritySupport: false,
+            diagramGenerator: false,
+            rulesetGenerator: true,
+            aiArchitect: true,
+            codeExplain: true,
+        },
+    },
+    pro: {
+        filesPerMonth: 1000,
+        totalFiles: -1, // Unlimited
+        teamMembers: 10,
+        features: {
+            analytics: true,
+            changelog: true,
+            smartSuggestions: true,
+            auditLog: true,
+            customTemplates: true,
+            prioritySupport: true,
+            diagramGenerator: true,
+            rulesetGenerator: true,
+            aiArchitect: true,
+            codeExplain: true,
+        },
+    },
+    team: {
+        filesPerMonth: -1, // Unlimited
+        totalFiles: -1, // Unlimited
+        teamMembers: -1, // Unlimited
+        features: {
+            analytics: true,
+            changelog: true,
+            smartSuggestions: true,
+            auditLog: true,
+            customTemplates: true,
+            prioritySupport: true,
+            diagramGenerator: true,
+            rulesetGenerator: true,
+            aiArchitect: true,
+            codeExplain: true,
+        },
+    },
+};
+
+export const DEFAULT_PLAN = PLAN_LIMITS.free;
+
 export const PLANS = [
     {
         id: "starter",
@@ -37,21 +130,21 @@ export const PLANS_CONFIG = {
     free: {
         id: "free",
         name: "Free",
-        limit: 10
+        limit: PLAN_LIMITS.free.filesPerMonth
     },
     starter: {
         id: "starter",
         name: "Starter",
-        limit: 100
+        limit: PLAN_LIMITS.starter.filesPerMonth
     },
     pro: {
         id: "pro",
         name: "Pro",
-        limit: 1000
+        limit: PLAN_LIMITS.pro.filesPerMonth
     },
     team: {
         id: "team",
         name: "Team",
-        limit: 10000
+        limit: PLAN_LIMITS.team.filesPerMonth === -1 ? 10000 : PLAN_LIMITS.team.filesPerMonth
     }
 };

@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
             ),
         );
 
-        const notificationsSent = notificationResults.filter((result: PromiseSettledResult<any>) => result.status === "fulfilled").length;
+        const notificationsSent = notificationResults.filter((result: PromiseSettledResult<unknown>) => result.status === "fulfilled").length;
 
         try {
             const { logAudit } = await import("@/lib/audit-logger");

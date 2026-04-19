@@ -1,7 +1,6 @@
 import { db } from "./db";
 import { env } from "./env";
-
-export type PlanType = "free" | "starter" | "pro" | "team";
+import { PlanType, PlanLimits, PLAN_LIMITS, DEFAULT_PLAN } from "@/config/plans";
 
 export interface SubscriptionInfo {
     plan: PlanType;
@@ -14,95 +13,6 @@ export interface SubscriptionInfo {
     limits: PlanLimits;
     isDevMode?: boolean;
 }
-
-export interface PlanLimits {
-    filesPerMonth: number;
-    totalFiles: number;
-    teamMembers: number;
-    features: {
-        analytics: boolean;
-        changelog: boolean;
-        smartSuggestions: boolean;
-        auditLog: boolean;
-        customTemplates: boolean;
-        prioritySupport: boolean;
-        diagramGenerator: boolean;
-        rulesetGenerator: boolean;
-        aiArchitect: boolean;
-        codeExplain: boolean;
-    };
-}
-
-const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
-    free: {
-        filesPerMonth: 10,
-        totalFiles: 25,
-        teamMembers: 1,
-        features: {
-            analytics: false,
-            changelog: false,
-            smartSuggestions: false,
-            auditLog: false,
-            customTemplates: false,
-            prioritySupport: false,
-            diagramGenerator: false,
-            rulesetGenerator: false,
-            aiArchitect: false,
-            codeExplain: false,
-        },
-    },
-    starter: {
-        filesPerMonth: 100,
-        totalFiles: 250,
-        teamMembers: 3,
-        features: {
-            analytics: true,
-            changelog: true,
-            smartSuggestions: true,
-            auditLog: false,
-            customTemplates: false,
-            prioritySupport: false,
-            diagramGenerator: false,
-            rulesetGenerator: true,
-            aiArchitect: true,
-            codeExplain: true,
-        },
-    },
-    pro: {
-        filesPerMonth: 500,
-        totalFiles: -1, // Unlimited
-        teamMembers: 10,
-        features: {
-            analytics: true,
-            changelog: true,
-            smartSuggestions: true,
-            auditLog: true,
-            customTemplates: true,
-            prioritySupport: true,
-            diagramGenerator: true,
-            rulesetGenerator: true,
-            aiArchitect: true,
-            codeExplain: true,
-        },
-    },
-    team: {
-        filesPerMonth: -1, // Unlimited
-        totalFiles: -1, // Unlimited
-        teamMembers: -1, // Unlimited
-        features: {
-            analytics: true,
-            changelog: true,
-            smartSuggestions: true,
-            auditLog: true,
-            customTemplates: true,
-            prioritySupport: true,
-            diagramGenerator: true,
-            rulesetGenerator: true,
-            aiArchitect: true,
-            codeExplain: true,
-        },
-    },
-};
 
 export const DEFAULT_SUBSCRIPTION: SubscriptionInfo = {
     plan: "free",
@@ -123,8 +33,13 @@ export async function getUserSubscription(userId: string): Promise<SubscriptionI
         where: { userId },
     });
 
+    const isDev = process.env.NODE_ENV !== 'production' && env.NEXT_PUBLIC_DEV_PRO === 'true';
+
     if (!subscription) {
-        return DEFAULT_SUBSCRIPTION;
+        return {
+            ...DEFAULT_SUBSCRIPTION,
+            isDevMode: isDev
+        };
     }
 
     const plan = (subscription.plan as PlanType) || "free";
@@ -139,7 +54,7 @@ export async function getUserSubscription(userId: string): Promise<SubscriptionI
         currentPeriodEnd: subscription.currentPeriodEnd,
         cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
         limits: PLAN_LIMITS[plan] || PLAN_LIMITS.free,
-        isDevMode: env.NEXT_PUBLIC_DEV_PRO === 'true'
+        isDevMode: isDev
     };
 }
 

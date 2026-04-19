@@ -31,13 +31,6 @@ const limiters = {
         prefix: "rl:auth"
     }) : null,
 
-    // Free tier: 100 AI calls per minute
-    free: redis ? new Ratelimit({
-        redis,
-        limiter: Ratelimit.slidingWindow(15, "1 m"),
-        prefix: "rl:free"
-    }) : null,
-
     // Chat tier: 15 calls per minute
     chat: redis ? new Ratelimit({
         redis,
@@ -106,32 +99,23 @@ const limiters = {
         limiter: Ratelimit.slidingWindow(10, "1 h"),
         prefix: "rl:architect"
     }) : null,
-
-    // AI Generation: 10 calls per minute
-    ai_generation: redis ? new Ratelimit({
-        redis,
-        limiter: Ratelimit.slidingWindow(10, "1 m"),
-        prefix: "rl:ai_generation"
-    }) : null
 };
 
-type RateLimitTier = "auth" | "auth-ip" | "free" | "pro" | "api" | "upload" | "security" | "file_create" | "file_delete" | "file_rename" | "file_create_bulk" | "architect" | "ai_generation" | "chat";
+type RateLimitTier = "auth" | "auth-ip" | "pro" | "api" | "upload" | "security" | "file_create" | "file_delete" | "file_rename" | "file_create_bulk" | "architect" | "chat";
 
 const fallbackLimits: Record<RateLimitTier, { requests: number; windowMs: number }> = {
     auth: { requests: 5, windowMs: 15 * 60 * 1000 },
     "auth-ip": { requests: 10, windowMs: 5 * 60 * 1000 },
-    free: { requests: 15, windowMs: 60 * 1000 },
     chat: { requests: 15, windowMs: 60 * 1000 },
     pro: { requests: 500, windowMs: 60 * 1000 },
     security: { requests: 10, windowMs: 30 * 60 * 1000 },
     api: { requests: 300, windowMs: 60 * 1000 },
     upload: { requests: 10, windowMs: 60 * 1000 },
     file_create: { requests: 10, windowMs: 60 * 1000 },
-    file_delete: { requests: 10, windowMs: 5 * 60 * 1000 }, // 10 deletions per 5 minutes
-    file_rename: { requests: 10, windowMs: 5 * 60 * 1000 }, // 10 renames per 5 minutes
+    file_delete: { requests: 10, windowMs: 5 * 60 * 1000 },
+    file_rename: { requests: 10, windowMs: 5 * 60 * 1000 },
     file_create_bulk: { requests: 5, windowMs: 60 * 1000 },
     architect: { requests: 10, windowMs: 60 * 60 * 1000 },
-    ai_generation: { requests: 10, windowMs: 60 * 1000 }
 };
 
 const memoryFallbackStore = new Map<string, { count: number; windowStart: number }>();

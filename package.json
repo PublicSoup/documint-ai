@@ -16,6 +16,8 @@
     "ci:checks": "npm run typecheck && npm run check:api-authz && npm run check:api-no-any"
   },
   "dependencies": {
+    "@ai-sdk/google": "^3.0.64",
+    "@ai-sdk/react": "^3.0.170",
     "@auth/prisma-adapter": "^2.11.1",
     "@google/generative-ai": "^0.24.1",
     "@monaco-editor/react": "^4.7.0",
@@ -32,10 +34,12 @@
     "@vercel/analytics": "^1.6.1",
     "@vercel/og": "^0.8.6",
     "@vercel/sandbox": "^1.3.2",
+    "@vercel/speed-insights": "^2.0.0",
     "@webcontainer/api": "^1.6.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^6.0.0",
+    "ai": "^6.0.168",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -44,6 +48,7 @@
     "dotenv": "^17.2.3",
     "framer-motion": "^12.24.8",
     "html2pdf.js": "^0.14.0",
+    "inngest": "^4.2.4",
     "lucide-react": "^0.562.0",
     "mermaid": "^11.12.3",
     "next": "^16.1.6",
@@ -58,7 +63,7 @@
     "swr": "^2.4.1",
     "tailwind-merge": "^3.4.0",
     "tailwindcss-animate": "^1.0.7",
-    "zod": "^4.3.5"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@opennextjs/cloudflare": "^1.17.1",

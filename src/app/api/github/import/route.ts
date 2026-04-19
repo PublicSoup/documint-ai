@@ -1,19 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
 import { authOptions } from "../../../../lib/auth";
-import { db } from "../../../../lib/db";
 import { resolveUserId } from "../../../../lib/resolve-user";
-import { parseCode, CodeEntity } from "../../../../lib/parsing/tree-sitter";
-import { generateDocumentation } from "../../../../lib/ai";
-import { uploadFile } from "../../../../lib/supabase/storage";
 import { enforceRateLimit } from "../../../../lib/rate-limit";
 import { errorResponse, validateBody, ApiErrors } from "../../../../lib/api-utils";
+import { inngest } from "@/inngest/client";
 import { getUserSubscription } from "../../../../lib/subscription";
 import { decrypt } from "../../../../lib/security/encryption";
-
-const SUPPORTED_EXTENSIONS = ["py", "js", "ts", "tsx", "jsx", "go", "rs", "java", "cs", "cpp", "c", "rb", "php"];
+import { db } from "../../../../lib/db";
 
 const githubImportSchema = z.object({
     owner: z.string().trim().min(1).max(100),
@@ -23,44 +18,9 @@ const githubImportSchema = z.object({
     teamId: z.string().trim().min(1).max(100).optional(),
 }).strict();
 
-// Helper to create stream
-function iteratorToStream(iterator: AsyncGenerator<Uint8Array, void, unknown>) {
-    return new ReadableStream({
-        async pull(controller) {
-            const { value, done } = await iterator.next();
-            if (done) {
-                controller.close();
-            } else {
-                controller.enqueue(value);
-            }
-        },
-    });
-}
-
-const encoder = new TextEncoder();
-
-interface GitHubRepoContentItem {
-    type: "file" | "dir";
-    name: string;
-    path: string;
-    download_url: string | null;
-}
-
-function isSupportedCodeFile(
-    file: GitHubRepoContentItem,
-): file is GitHubRepoContentItem & { download_url: string } {
-    if (file.type !== "file" || !file.download_url) {
-        return false;
-    }
-
-    const ext = file.name.split(".").pop()?.toLowerCase();
-    return Boolean(ext && SUPPORTED_EXTENSIONS.includes(ext));
-}
-
 /**
  * POST /api/github/import
- * Imports multiple files from a GitHub repository, analyzes them, and stores results.
- * Returns a text/event-stream of progress updates.
+ * Triggers a multi-file GitHub repository import in the background using Inngest.
  */
 export async function POST(req: NextRequest) {
     try {
@@ -80,7 +40,7 @@ export async function POST(req: NextRequest) {
             throw ApiErrors.notFound("User");
         }
 
-        // Fetch GitHub Connection and decrypt token
+        // 2. Fetch GitHub Connection and decrypt token
         const connection = await db.gitHubConnection.findUnique({
             where: { userId }
         });
@@ -96,12 +56,7 @@ export async function POST(req: NextRequest) {
             throw ApiErrors.internalError("Failed to access GitHub credentials.");
         }
 
-        const headers: HeadersInit = {
-            Accept: "application/vnd.github.v3+json",
-            Authorization: `Bearer ${decryptedToken}`,
-        };
-
-        // 2. Verify Team Access if applicable
+        // 3. Verify Team Access if applicable
         if (teamId) {
             const { checkTeamPermission } = await import("@/lib/permissions");
             const hasPermission = await checkTeamPermission(userId, teamId, "edit");
@@ -113,163 +68,27 @@ export async function POST(req: NextRequest) {
         const subscription = await getUserSubscription(userId);
         const maxFiles = subscription.limits.filesPerMonth === -1 ? 100 : Math.min(subscription.limits.filesPerMonth, 100);
 
-        async function* makeIterator() {
-            try {
-                yield encoder.encode(JSON.stringify({ status: "initializing", message: "Connecting to GitHub..." }) + "\n");
-
-                // Get repository contents
-                const contentsUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
-                const contentsRes = await fetch(contentsUrl, { headers });
-
-                if (!contentsRes.ok) {
-                    const error = await contentsRes.json().catch(() => ({ message: "Failed to fetch repo contents" }));
-                    yield encoder.encode(JSON.stringify({ error: error.message || "Failed to fetch repo contents" }) + "\n");
-                    return;
-                }
-
-                const contents = (await contentsRes.json()) as GitHubRepoContentItem | GitHubRepoContentItem[];
-                const files = Array.isArray(contents) ? contents : [contents];
-
-                // Filter code files
-                const codeFiles = files.filter(isSupportedCodeFile);
-
-                yield encoder.encode(JSON.stringify({
-                    status: "found_files",
-                    total: codeFiles.length,
-                    max: maxFiles,
-                    message: `Found ${codeFiles.length} files. Importing up to ${maxFiles}...`
-                }) + "\n");
-
-                let successfulImports = 0;
-                const limit = Math.min(codeFiles.length, maxFiles);
-
-                for (let i = 0; i < limit; i++) {
-                    const file = codeFiles[i];
-                    yield encoder.encode(JSON.stringify({
-                        status: "processing",
-                        current: i + 1,
-                        total: limit,
-                        file: file.name
-                    }) + "\n");
-
-                    try {
-                        const fileRes = await fetch(file.download_url, { headers });
-                        const content = await fileRes.text();
-                        const extension = file.name.split(".").pop() || "";
-
-                        const storagePath = `${userId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-                        await uploadFile(storagePath, content);
-
-                        const dbFile = await db.file.create({
-                            data: {
-                                name: file.name,
-                                storagePath,
-                                language: extension,
-                                size: content.length,
-                                userId: userId,
-                                teamId: teamId || null,
-                            },
-                        });
-
-                        let entities: CodeEntity[] = [];
-                        try {
-                            entities = await parseCode(content, extension);
-                        } catch {
-                            // Keep import flow resilient if parsing fails.
-                        }
-
-                        let analysisResult = null;
-                        try {
-                            const { analyzeCodeQuality } = await import("../../../../lib/parsing/code-quality");
-                            analysisResult = analyzeCodeQuality(content, entities, extension);
-                        } catch {
-                            // Non-blocking analysis failure.
-                        }
-
-                        let styleGuide = "";
-                        if (teamId) {
-                            const teamConfig = await db.integration.findFirst({
-                                where: { teamId, type: "TEAM_CONFIG" }
-                            });
-                            styleGuide = (teamConfig?.config as { styleGuide?: string } | null)?.styleGuide || "";
-                        }
-
-                        const docPromises = entities.slice(0, 10).map((entity: CodeEntity) =>
-                            generateDocumentation(entity.code, extension, entity.type, styleGuide)
-                                .then((doc: string) => ({ ...entity, doc }))
-                        );
-                        const entityDocs = await Promise.all(docPromises);
-                        const fileSummary = await generateDocumentation(content.substring(0, 2000), extension, "file", styleGuide);
-
-                        await db.documentation.create({
-                            data: {
-                                fileId: dbFile.id,
-                                content: JSON.stringify({
-                                    summary: fileSummary,
-                                    entities: entityDocs,
-                                    metadata: {
-                                        source: "github",
-                                        repo: `${owner}/${repo}`,
-                                        path: file.path,
-                                    },
-                                    quality: analysisResult
-                                }),
-                                metadata: analysisResult
-                                    ? (analysisResult as unknown as Prisma.InputJsonValue)
-                                    : Prisma.JsonNull,
-                            },
-                        });
-
-                        successfulImports++;
-                        yield encoder.encode(JSON.stringify({
-                            status: "file_complete",
-                            file: file.name,
-                            imported: successfulImports
-                        }) + "\n");
-
-                    } catch {
-                        yield encoder.encode(JSON.stringify({ status: "file_error", file: file.name, error: "Failed to process" }) + "\n");
-                    }
-                }
-
-                // Audit Logging
-                try {
-                    const { logAudit } = await import("../../../../lib/audit-logger");
-                    await logAudit({
-                        userId: userId,
-                        action: "GITHUB_IMPORT",
-                        entity: "Repository",
-                        entityId: `${owner}/${repo}`,
-                        details: { 
-                            owner, 
-                            repo, 
-                            branch, 
-                            importedCount: successfulImports,
-                            totalRequested: limit,
-                            teamId: teamId || null
-                        }
-                    });
-                } catch {
-                    // Non-blocking
-                }
-
-                yield encoder.encode(JSON.stringify({ status: "complete", imported: successfulImports, total: limit }) + "\n");
-
-            } catch (e) {
-                console.error("GitHub Import Stream Error:", e);
-                yield encoder.encode(JSON.stringify({ error: "Internal server error during import" }) + "\n");
+        // 4. Dispatch the persistent Background Job
+        const { ids } = await inngest.send({
+            name: "github.repo.import",
+            data: {
+                owner,
+                repo,
+                branch,
+                path,
+                teamId: teamId || null,
+                userId,
+                token: decryptedToken,
+                maxFiles
             }
-        }
-
-        const stream = iteratorToStream(makeIterator());
-
-        return new NextResponse(stream, {
-            headers: {
-                "Content-Type": "text/event-stream",
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            },
         });
+
+        return NextResponse.json({
+            status: "processing",
+            jobId: ids[0],
+            message: "GitHub repository import has been queued and is processing securely in the background.",
+        }, { status: 202 });
+
     } catch (error) {
         return errorResponse(error);
     }

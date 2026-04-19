@@ -2,9 +2,6 @@
 
 Generated automatically to simulate IDE indexing.
 
-## `ACTIVITY_LOG.md`
-- (Data or descriptive file)
-
 ## `AGENTS.md`
 - (Data or descriptive file)
 
@@ -60,9 +57,6 @@ Generated automatically to simulate IDE indexing.
 - (Data or descriptive file)
 
 ## `STATUS_UPDATE.md`
-- (Data or descriptive file)
-
-## `STRIPE_KEYS.md`
 - (Data or descriptive file)
 
 ## `STRIPE_SETUP.md`
@@ -951,9 +945,6 @@ Generated automatically to simulate IDE indexing.
 - (Data or descriptive file)
 
 ## `docs/release-readiness-2026-02-27-1916.md`
-- (Data or descriptive file)
-
-## `logs/activity.md`
 - (Data or descriptive file)
 
 ## `memory/2026-02-19-2155.md`
