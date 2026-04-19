@@ -3,9 +3,7 @@ import { analyzeFullCodebase } from "@/lib/ai";
 import { logAudit } from "@/lib/audit-logger";
 
 export const analyzeCodebaseFunction = inngest.createFunction(
-    { id: "analyze-full-codebase" },
-    { event: "codebase.analyze.full" },
-    // @ts-ignore
+    { id: "analyze-full-codebase", triggers: [{ event: "codebase.analyze.full" }] },
     async ({ event, step }: any) => {
         const { userId } = event.data;
 

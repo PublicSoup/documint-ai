@@ -15,9 +15,7 @@ function isSupportedCodeFile(file: any): boolean {
 }
 
 export const githubImportFunction = inngest.createFunction(
-    { id: "github-repo-import", retries: 3 },
-    { event: "github.repo.import" },
-    // @ts-ignore
+    { id: "github-repo-import", retries: 3, triggers: [{ event: "github.repo.import" }] },
     async ({ event, step }: any) => {
         const { owner, repo, branch, path, teamId, userId, token, maxFiles } = event.data;
 
