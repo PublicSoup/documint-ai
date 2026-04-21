@@ -4,14 +4,7 @@ import { WebContainerManager } from '@/lib/web-container';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { File } from '@prisma/client';
 
-export type ExecutionMode = 'browser' | 'remote';
-
-export interface RemoteRunner {
-    id: string;
-    name: string;
-    endpoint: string;
-    status: 'online' | 'offline' | 'busy';
-}
+export type RunStatus = 'idle' | 'installing' | 'starting' | 'ready' | 'error';
 
 interface UseExecutionEngineProps {
     files: (File & { content?: string | null })[];
@@ -27,10 +20,8 @@ export function useExecutionEngine({
     terminalInstance
 }: UseExecutionEngineProps) {
     // State
-    const [executionMode, setExecutionMode] = useState<ExecutionMode>('browser');
-    const [remoteRunner, setRemoteRunner] = useState<RemoteRunner | null>(null);
+    const [runStatus, setRunStatus] = useState<RunStatus>('idle');
     const [webContainerBooted, setWebContainerBooted] = useState(false);
-    const [isInstalling, setIsInstalling] = useState(false);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
@@ -86,8 +77,6 @@ export function useExecutionEngine({
     // Boot WebContainer
     useEffect(() => {
         const boot = async () => {
-            if (executionMode !== 'browser') return;
-
             try {
                 const wc = await WebContainerManager.getInstance();
                 setWebContainerBooted(true);
@@ -98,21 +87,23 @@ export function useExecutionEngine({
                 // Server Ready Listener
                 wc.on('server-ready', (port, url) => {
                     setPreviewUrl(url);
+                    setRunStatus('ready');
                     setIsPreviewOpen(true);
                 });
 
             } catch (e) {
                 console.error("WebContainer Boot Error:", e);
+                setRunStatus('error');
             }
         };
 
         boot();
-    }, [executionMode, files, mountAll]);
+    }, [files, mountAll]);
 
     // Sync Files
     useEffect(() => {
         const syncFile = async () => {
-            if (executionMode === 'browser' && activeFileId && fileContents[activeFileId] && webContainerBooted) {
+            if (activeFileId && fileContents[activeFileId] && webContainerBooted) {
                 const file = files.find(f => f.id === activeFileId);
                 if (file) {
                     try {
@@ -125,87 +116,81 @@ export function useExecutionEngine({
         };
         const timeout = setTimeout(syncFile, 500);
         return () => clearTimeout(timeout);
-    }, [fileContents, activeFileId, webContainerBooted, executionMode, files]);
+    }, [fileContents, activeFileId, webContainerBooted, files]);
 
     // Run Command
     const run = useCallback(async () => {
         if (!terminalInstance) return;
 
-        if (executionMode === 'remote') {
-            if (!remoteRunner) {
-                terminalInstance.writeln('\r\n\x1b[31mError: No remote runner configured.\x1b[0m\r\n');
-                return;
-            }
-
-            setIsInstalling(true);
-
-            // Unify console output
-            const log = (msg: string) => terminalInstance.writeln(msg);
-
-            log(`\r\n\x1b[34m> [Dispatch] Targeting runner: ${remoteRunner.name} (${remoteRunner.endpoint})\x1b[0m`);
-            log(`> [Dispatch] Bundling source code...`);
-
-            await new Promise(r => setTimeout(r, 800));
-            log(`> [Dispatch] Uploading bundle (2.4MB)...`);
-
-            await new Promise(r => setTimeout(r, 1200));
-            log(`\r\n\x1b[32m> [Remote] Job received. Provisioning isolate...\x1b[0m`);
-
-            await new Promise(r => setTimeout(r, 1500));
-            log(`> [Remote] Installing dependencies (npm ci)...`);
-            log(`> [Remote] Cached: react, react-dom, next`);
-            log(`> [Remote] Added 142 packages in 1.2s`);
-
-            await new Promise(r => setTimeout(r, 1000));
-            log(`> [Remote] Starting development server...`);
-            log(`> [Remote] Ready in 450ms`);
-
-            log(`\r\n\x1b[32m> [Success] Application running at https://${remoteRunner.id}-dev.documint.cloud\x1b[0m\r\n`);
-
-            setPreviewUrl(`https://${remoteRunner.id}-dev.documint.cloud`);
-            setIsPreviewOpen(true);
-            setIsInstalling(false);
-            return;
-        }
-
-        // Browser Mode
         if (!webContainerBooted) {
             terminalInstance.writeln('\r\nWebContainer is still booting...\r\n');
             return;
         }
 
-        setIsInstalling(true);
+        setRunStatus('installing');
         try {
             const wc = await WebContainerManager.getInstance();
 
-            terminalInstance.writeln("\r\n> npm install\r\n");
-            const installProcess = await wc.spawn('npm', ['install']);
-            installProcess.output.pipeTo(new WritableStream({
-                write(data) { terminalInstance.write(data); }
-            }));
+            // Detect framework strategy
+            const packageJsonFile = files.find(f => f.name === 'package.json');
+            
+            if (packageJsonFile) {
+                // Node.js project
+                terminalInstance.writeln("\r\n> npm install\r\n");
+                const installProcess = await wc.spawn('npm', ['install']);
+                installProcess.output.pipeTo(new WritableStream({
+                    write(data) { terminalInstance.write(data); }
+                }));
 
-            if ((await installProcess.exit) !== 0) throw new Error("Installation failed");
+                if ((await installProcess.exit) !== 0) {
+                    setRunStatus('error');
+                    throw new Error("Installation failed");
+                }
 
-            terminalInstance.writeln("\r\n> npm run dev\r\n");
-            const devProcess = await wc.spawn('npm', ['run', 'dev']);
-            devProcess.output.pipeTo(new WritableStream({
-                write(data) { terminalInstance.write(data); }
-            }));
+                setRunStatus('starting');
+                
+                // Read processed package.json
+                const pkgJsonStr = packageJsonFile.content || "{}";
+                let hasDevScript = false;
+                let hasStartScript = false;
+                try {
+                    const parsed = JSON.parse(pkgJsonStr);
+                    hasDevScript = !!parsed?.scripts?.dev;
+                    hasStartScript = !!parsed?.scripts?.start;
+                } catch { }
 
-            setIsInstalling(false);
+                let runCmd = ['run', 'dev'];
+                if (!hasDevScript && hasStartScript) runCmd = ['start'];
+                else if (!hasDevScript && !hasStartScript) {
+                    terminalInstance.writeln("\r\n> No scripts.dev or scripts.start found. Attempting fallback: npx serve .\r\n");
+                    const serveProcess = await wc.spawn('npx', ['serve', '.']);
+                    serveProcess.output.pipeTo(new WritableStream({ write(data) { terminalInstance.write(data); } }));
+                    return; // Server ready will trigger
+                }
+
+                terminalInstance.writeln(`\r\n> npm ${runCmd.join(' ')}\r\n`);
+                const devProcess = await wc.spawn('npm', runCmd);
+                devProcess.output.pipeTo(new WritableStream({
+                    write(data) { terminalInstance.write(data); }
+                }));
+            } else {
+                // Static HTML fallback
+                setRunStatus('starting');
+                terminalInstance.writeln("\r\n> npx serve .\r\n");
+                const serveProcess = await wc.spawn('npx', ['serve', '.']);
+                serveProcess.output.pipeTo(new WritableStream({
+                    write(data) { terminalInstance.write(data); }
+                }));
+            }
         } catch (e) {
             terminalInstance.writeln(`\r\nError: ${e}\r\n`);
-            setIsInstalling(false);
+            setRunStatus('error');
         }
-    }, [executionMode, remoteRunner, webContainerBooted, terminalInstance]);
+    }, [webContainerBooted, terminalInstance, files]);
 
     return {
-        executionMode,
-        setExecutionMode,
-        remoteRunner,
-        setRemoteRunner,
+        runStatus,
         webContainerBooted,
-        isInstalling,
         previewUrl,
         setPreviewUrl,
         isPreviewOpen,

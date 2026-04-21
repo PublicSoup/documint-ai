@@ -7,6 +7,8 @@ import { getUserSubscription } from "@/lib/subscription";
 import { runAgent } from "@/lib/agent/engine";
 import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 
+export const maxDuration = 300;
+
 const historyMessageSchema = z
     .object({
         role: z.enum(["system", "user", "assistant"]),

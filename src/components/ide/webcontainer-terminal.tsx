@@ -27,6 +27,7 @@ export const WebContainerTerminal = ({
   const [currentProcess, setCurrentProcess] = useState<WebContainerProcess | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [healthStatus, setHealthStatus] = useState(WebContainerManager.getHealthSnapshot());
+  const lastHealthRef = useRef(healthStatus);
 
   useEffect(() => {
     if (!terminalRef.current || xtermRef.current) return;
@@ -74,10 +75,11 @@ export const WebContainerTerminal = ({
 
     const unsubscribe = WebContainerManager.subscribeToHealth((health) => {
         // Only log if a new recovery occurred and there's a specific reason
-        if (health.recoveryCount > healthStatus.recoveryCount && health.lastRecoveryReason) {
+        if (health.recoveryCount > lastHealthRef.current.recoveryCount && health.lastRecoveryReason) {
             term.writeln(`\r\n[System] WebContainer recovered due to: ${health.lastRecoveryReason}`);
             writePrompt(term);
         }
+        lastHealthRef.current = health;
         setHealthStatus(health);
     });
 
@@ -112,7 +114,7 @@ export const WebContainerTerminal = ({
       }
       term.dispose();
     };
-  }, [healthStatus]); // Added healthStatus to dependencies to re-run effect when it changes for comparison
+  }, []); // Run once on mount
 
   const writePrompt = (term: XTerm) => {
     term.write('\r\n$ ');
@@ -140,8 +142,19 @@ export const WebContainerTerminal = ({
     }
 
     try {
-      // Execute command in WebContainer
+      // Basic security filter
       const [cmd, ...args] = command.split(' ');
+      const lowerCmd = cmd.toLowerCase();
+      
+      const blocked = [
+        'rm', 'kill', 'halt', 'reboot', 'shutdown', 'poweroff', 'init',
+        'curl', 'wget', 'nc', 'telnet', 'ssh'
+      ];
+      if (blocked.includes(lowerCmd) || command.includes(':(){ :|:& };:')) {
+        term.writeln(`\r\n\x1b[31m[Security] Command blocked for safety: ${cmd}\x1b[0m`);
+        writePrompt(term);
+        return;
+      }
       
       term.writeln(`\r\nRunning: ${command}`);
       

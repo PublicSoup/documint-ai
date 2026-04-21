@@ -7,7 +7,7 @@ import {
     Share2,
     Settings2,
     Box,
-    Rocket,
+    Play,
     Globe
 } from "lucide-react";
 
@@ -58,8 +58,8 @@ export function ContextualHeader({
                 )}
                 {isDeploying && (
                     <div className="flex items-center gap-1.5 text-[10px] text-emerald-400 animate-pulse">
-                        <Rocket className="w-3 h-3" />
-                        <span>Deploying...</span>
+                        <Play className="w-3 h-3" />
+                        <span>Starting...</span>
                     </div>
                 )}
             </div>
@@ -74,10 +74,10 @@ export function ContextualHeader({
                             ? "bg-emerald-500/10 text-emerald-500/50 cursor-not-allowed"
                             : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300"
                     )}
-                    title="Deploy to Production"
+                    title="Run Project"
                 >
-                    <Rocket className="w-3.5 h-3.5" />
-                    <span>Deploy</span>
+                    <Play className="w-3.5 h-3.5" />
+                    <span>Run / Preview</span>
                 </button>
 
                 <div className="w-px h-4 bg-white/[0.06] mx-1" />

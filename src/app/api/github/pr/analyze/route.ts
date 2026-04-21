@@ -7,6 +7,8 @@ import { getAICompletion } from "@/lib/ai";
 import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
+export const maxDuration = 300;
+
 const pullRequestAnalyzeSchema = z
     .object({
         owner: z.string().trim().min(1).max(100),

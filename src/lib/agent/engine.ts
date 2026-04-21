@@ -67,24 +67,26 @@ export type AgentEvent =
 
 const MAX_TURNS = 20;
 
-// Safety checks for destructive commands
-const DESTRUCTIVE_COMMANDS = [
-    'rm -rf',
-    'rm -r',
-    'rm -f',
-    'shutdown',
-    'reboot',
-    'format',
-    'dd if=/dev/zero',
-    ':(){ :|:& };:' // Fork bomb
-];
+const ALLOWED_COMMANDS = new Set([
+  'ls', 'cat', 'head', 'tail', 'wc', 'find', 'grep', 'echo', 'pwd',
+  'mkdir', 'touch', 'tree',
+  'node', 'npx', 'npm', 'pnpm', 'yarn', 'tsc', 'eslint', 'prettier',
+  'git'
+]);
 
 const isDestructiveCommand = (cmd: string): boolean => {
-    const cmdLower = cmd.toLowerCase();
-    return DESTRUCTIVE_COMMANDS.some(destructive =>
-        cmdLower.includes(destructive) ||
-        (cmdLower.includes('delete') && cmdLower.includes('all'))
-    );
+    const cmdLower = cmd.trim().toLowerCase();
+    const firstToken = cmdLower.split(' ')[0];
+    
+    // Explicitly blocked patterns (defense in depth)
+    if (cmdLower.includes('rm ') || cmdLower.includes('curl') || cmdLower.includes('wget') || 
+        cmdLower.includes('python') || cmdLower.includes('nc') || cmdLower.includes('kill') || 
+        cmdLower.includes('>') || cmdLower.includes('|') || cmdLower.includes('&') || cmdLower.includes('`') ||
+        cmdLower.includes('$( )')) {
+        return true;
+    }
+
+    return !ALLOWED_COMMANDS.has(firstToken);
 };
 
 /**
@@ -407,17 +409,18 @@ ${activeCtx}
                         } else if (!currentRuntime.canExecuteCommands && !currentRuntime.canUseSandbox) {
                             toolResult = `[ERROR]: Command execution is disabled in the current runtime (${currentRuntime.runtimeName}). Use VFS or storage APIs instead.`;
                         } else {
-                            // Use Vercel Sandbox in production (if enabled), fall back to child_process in local dev
-                            if (currentRuntime.canUseSandbox && (process.env.VERCEL || process.env.NODE_ENV === 'production')) {
+                            // Use Vercel Sandbox where allowed or fallback to child_process
+                            if (currentRuntime.canUseSandbox) {
                                 try {
                                     const { runInSandbox } = await import("../sandbox");
                                     // Split command and args for sandbox
                                     const parts = cmd.split(' ');
                                     const sandboxRes = await runInSandbox(parts[0], parts.slice(1));
                                     if (sandboxRes.success) {
-                                        toolResult = `[SANDBOX_STDOUT]:\n${sandboxRes.stdout || "(no output)"}`;
+                                        const out = sandboxRes.stdout ? sandboxRes.stdout.substring(0, 50000) : "(no output)";
+                                        toolResult = `[SANDBOX_STDOUT]:\n${out}`;
                                         if (sandboxRes.stderr) {
-                                            toolResult += `\n[SANDBOX_STDERR]:\n${sandboxRes.stderr}`;
+                                            toolResult += `\n[SANDBOX_STDERR]:\n${sandboxRes.stderr.substring(0, 50000)}`;
                                         }
                                     } else {
                                         toolResult = `[SANDBOX_ERROR]:\n${sandboxRes.error}`;
@@ -431,8 +434,8 @@ ${activeCtx}
                                     toolResult = `[ERROR]: Command execution unavailable in this runtime.`;
                                 } else {
                                     const parts = cmd.split(' ');
-                                    const { stdout, stderr } = await execFn(parts[0], parts.slice(1), { cwd, timeout: 30000 });
-                                    toolResult = `[STDOUT]:\n${stdout}\n[STDERR]:\n${stderr}`;
+                                    const { stdout, stderr } = await execFn(parts[0], parts.slice(1), { cwd, timeout: 10000 });
+                                    toolResult = `[STDOUT]:\n${stdout.substring(0, 50000)}\n[STDERR]:\n${stderr.substring(0, 50000)}`;
                                 }
                             } else {
                                 toolResult = `[ERROR]: Execution path blocked.`;

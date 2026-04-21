@@ -110,8 +110,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
     // Unify WebContainer logic via hook
     const {
+        runStatus,
         webContainerBooted,
-        isInstalling,
         previewUrl,
         isPreviewOpen,
         setIsPreviewOpen,
@@ -151,9 +151,6 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     const showLocalTopology = settings.showLocalTopology;
     const setShowLocalTopology = (val: boolean) => updateSetting("showLocalTopology", val);
 
-    const [isDeploying, setIsDeploying] = useState(false);
-    const [activeDeploymentId, setActiveDeploymentId] = useState<string | null>(null);
-    const [lastLogLength, setLastLogLength] = useState(0);
     const [localMermaid, setLocalMermaid] = useState<string>("");
     const editorRef = useRef<SimpleEnhancedEditorRef>(null);
     const [clickTimeout, setClickTimeout] = useState<NodeJS.Timeout | null>(null);
@@ -309,80 +306,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
     
 
-    const handleDeploy = async () => {
-        if (files.length === 0) {
-            toast("No files to deploy", "error");
-            return;
-        }
 
-        setIsDeploying(true);
-        try {
-            const res = await fetch("/api/deploy", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    name: "Generated Project",
-                    files: files.map(f => ({ name: f.name, content: fileContents[f.id] || f.content || "" }))
-                })
-            });
-
-            const data = await res.json();
-            if (data.success && data.deployment) {
-                setActiveDeploymentId(data.deployment.id);
-                setLastLogLength(0);
-                setShowTerminal(true);
-                toast("Deployment initiated! Tracking build logs...", "success");
-            } else {
-                throw new Error(data.error || "Deployment failed");
-            }
-        } catch (e) {
-            console.error("Deployment failed:", e);
-            toast(e instanceof Error ? e.message : "Failed to deploy site", "error");
-            setIsDeploying(false);
-        }
-    };
-
-    // Poll deployment status
-    useEffect(() => {
-        if (!activeDeploymentId) return;
-
-        let interval = setInterval(async () => {
-            try {
-                const resp = await fetch(`/api/deploy/${activeDeploymentId}`);
-                const data = await resp.json();
-
-                if (data.success) {
-                    const { status, logs, url } = data.deployment;
-
-                    // Stream logs to terminal
-                    if (logs && logs.length > lastLogLength) {
-                        const newLogs = logs.substring(lastLogLength);
-                        if (terminalInstance) {
-                            terminalInstance.write(newLogs.replace(/\n/g, '\r\n'));
-                        }
-                        setLastLogLength(logs.length);
-                    }
-
-                    if (status === "DEPLOYED") {
-                        clearInterval(interval);
-                        setIsDeploying(false);
-                        setActiveDeploymentId(null);
-                        toast("Deployment successful!", "success");
-                        window.open(url, "_blank");
-                    } else if (status === "FAILED") {
-                        clearInterval(interval);
-                        setIsDeploying(false);
-                        setActiveDeploymentId(null);
-                        toast("Deployment failed. Check logs.", "error");
-                    }
-                }
-            } catch (e) {
-                console.error("Failed to poll deployment status:", e);
-            }
-        }, 2000);
-
-        return () => clearInterval(interval);
-    }, [activeDeploymentId, lastLogLength, terminalInstance]);
 
     const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
@@ -599,8 +523,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                 <ContextualHeader
                     filePath={activeFile?.name || "No file selected"}
                     isSaving={isSaving}
-                    isDeploying={isDeploying}
-                    onDeploy={handleDeploy}
+                    isDeploying={runStatus === 'installing' || runStatus === 'starting'}
+                    onDeploy={handleRunProject}
                     onShare={async () => {
                         if (activeFile) {
                             await navigator.clipboard.writeText(window.location.href + '?file=' + activeFile.id);
@@ -799,9 +723,9 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                             onClick={handleRunProject}
                             className="p-1.5 rounded hover:bg-emerald-500/15 text-emerald-400/70 hover:text-emerald-400 disabled:opacity-30 transition-all"
                             title="Run (Preview)"
-                            disabled={isInstalling || !webContainerBooted}
+                            disabled={runStatus === 'installing' || runStatus === 'starting' || !webContainerBooted}
                         >
-                            {isInstalling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                            {runStatus === 'installing' || runStatus === 'starting' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
                         </button>
                     </div>
                 </div>
@@ -1058,7 +982,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                 <div className="w-[400px] flex-none h-full min-h-0 z-40">
                     <LivePreview
                         url={previewUrl || undefined}
-                        isLoading={isInstalling}
+                        runStatus={runStatus}
                         onClose={() => setIsPreviewOpen(false)}
                         onRun={handleRunProject}
                     />

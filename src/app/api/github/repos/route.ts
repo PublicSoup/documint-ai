@@ -54,6 +54,7 @@ export async function GET(req: NextRequest) {
                 Authorization: `Bearer ${decryptedToken}`,
                 Accept: "application/vnd.github.v3+json",
             },
+            next: { revalidate: 60 },
         });
 
         if (!res.ok) {

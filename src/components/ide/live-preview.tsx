@@ -4,9 +4,11 @@ import React, { useState, useEffect, useRef } from "react";
 import { Loader2, ExternalLink, RefreshCw, X, Smartphone, Monitor, Tablet } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+import { RunStatus } from "@/hooks/use-execution-engine";
+
 interface LivePreviewProps {
     url?: string;
-    isLoading?: boolean;
+    runStatus?: RunStatus;
     onClose?: () => void;
     onRun?: () => void;
 }
@@ -19,7 +21,7 @@ const VIEWPORT_SIZES: Record<ViewportSize, { width: string; label: string; icon:
     mobile: { width: "375px", label: "Mobile", icon: <Smartphone className="w-3.5 h-3.5" /> },
 };
 
-export function LivePreview({ url, isLoading = false, onClose, onRun }: LivePreviewProps) {
+export function LivePreview({ url, runStatus = 'idle', onClose, onRun }: LivePreviewProps) {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [viewport, setViewport] = useState<ViewportSize>("desktop");
     const [iframeKey, setIframeKey] = useState(0);
@@ -98,15 +100,36 @@ export function LivePreview({ url, isLoading = false, onClose, onRun }: LivePrev
 
             {/* Preview area */}
             <div className="flex-1 flex items-center justify-center bg-[#0a0a0f] overflow-hidden">
-                {isLoading || !url ? (
+                {(runStatus !== 'ready' && runStatus !== 'idle') || !url ? (
                     <div className="flex flex-col items-center gap-4 text-muted-foreground">
-                        {isLoading ? (
+                        {runStatus === 'installing' || runStatus === 'starting' ? (
                             <>
                                 <Loader2 className="w-8 h-8 animate-spin text-purple-400/50" />
                                 <div className="text-center">
-                                    <p className="text-sm text-white/40">Starting dev server...</p>
-                                    <p className="text-[10px] text-white/20 mt-1">Installing dependencies & booting</p>
+                                    <p className="text-sm text-white/40">
+                                        {runStatus === 'installing' ? 'Installing dependencies...' : 'Starting dev server...'}
+                                    </p>
+                                    <p className="text-[10px] text-white/20 mt-1">Please wait</p>
                                 </div>
+                            </>
+                        ) : runStatus === 'error' ? (
+                            <>
+                                <div className="w-16 h-16 rounded-2xl bg-red-600/10 flex items-center justify-center border border-red-500/10">
+                                    <X className="w-7 h-7 text-red-400/30" />
+                                </div>
+                                <div className="text-center">
+                                    <p className="text-sm text-red-400/80">Failed to start project</p>
+                                    <p className="text-[10px] text-white/40 mt-1">Check terminal for details</p>
+                                </div>
+                                {onRun && (
+                                    <button
+                                        onClick={onRun}
+                                        className="mt-2 flex items-center gap-2 px-5 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white text-xs font-medium transition-colors"
+                                    >
+                                        <RefreshCw className="w-3.5 h-3.5" />
+                                        Retry
+                                    </button>
+                                )}
                             </>
                         ) : (
                             <>
