@@ -6,7 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { checkTeamPermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { ApiErrors, errorResponse } from "@/lib/api-utils";
+import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 import { logAudit } from "@/lib/audit-logger";
 
 const createSchema = z.object({
@@ -14,6 +14,7 @@ const createSchema = z.object({
   type: z.enum(["file", "folder"]),
   parentId: z.string().optional(), // ID of the parent folder in the tree, e.g., "Project/src"
   teamId: z.string().optional(),
+  content: z.string().max(1024 * 1024 * 5).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -25,19 +26,17 @@ export async function POST(request: NextRequest) {
 
     await enforceRateLimit(session.user.id, "file_create");
 
-    const body = await request.json();
-    const parsedBody = createSchema.safeParse(body);
-
-    if (!parsedBody.success) {
-      throw ApiErrors.badRequest("Invalid request body.", parsedBody.error.flatten());
-    }
-
-    const { name, type, parentId, teamId } = parsedBody.data;
+    const { name, type, parentId, teamId, content } = await validateBody(request, createSchema);
 
     let finalName = name;
     if (parentId && parentId !== "Project") {
         finalName = `${parentId.replace('Project/', '')}/${name}`;
     }
+
+    const normalizedContent = type === "folder" ? "" : (content ?? "");
+    const normalizedLanguage = type === "folder"
+      ? "folder"
+      : (name.split('.').pop()?.toLowerCase() || 'plaintext');
 
     // Authorization Check
     if (teamId) {
@@ -54,8 +53,9 @@ export async function POST(request: NextRequest) {
         name: type === "folder" ? `${finalName}/` : finalName,
         userId: teamId ? null : session.user.id,
         teamId: teamId,
-        content: "", // Empty content for new files/folders
-        language: type === "folder" ? "folder" : name.split('.').pop() || 'plaintext',
+        content: normalizedContent,
+        language: normalizedLanguage,
+        size: normalizedContent.length,
       },
     });
 
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
       action: "CREATE_FILE_OR_FOLDER",
       entity: "File",
       entityId: newFile.id,
-      details: { ...parsedBody.data, finalName },
+        details: { name, type, parentId, teamId, finalName },
     });
 
     return NextResponse.json(newFile, { status: 201 });

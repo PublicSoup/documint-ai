@@ -65,6 +65,14 @@ export default function LoginPage() {
         [intent, plan, source],
     );
 
+    const handleGoogleSignIn = () => {
+        void signIn("google", { callbackUrl: dashboardHref });
+    };
+
+    const handleGitHubSignIn = () => {
+        void signIn("github", { callbackUrl: dashboardHref });
+    };
+
     /* ... handlers ... */
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -185,9 +193,7 @@ export default function LoginPage() {
                     <div className="grid grid-cols-2 gap-4">
                         <Button
                             variant="outline"
-                            onClick={() => {
-                                void signIn("auth0", { callbackUrl: dashboardHref }, { connection: "google-oauth2" });
-                            }}
+                            onClick={handleGoogleSignIn}
                             className="h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
                         >
                             <svg className="w-4 h-4" viewBox="0 0 24 24">
@@ -201,9 +207,7 @@ export default function LoginPage() {
 
                         <Button
                             variant="outline"
-                            onClick={() => {
-                                void signIn("auth0", { callbackUrl: dashboardHref }, { connection: "github" });
-                            }}
+                            onClick={handleGitHubSignIn}
                             className="h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
                         >
                             <Github className="w-4 h-4" />
@@ -211,18 +215,6 @@ export default function LoginPage() {
                         </Button>
                     </div>
 
-                    <div className="mt-4">
-                        <Button
-                            variant="ghost"
-                            onClick={() => {
-                                void signIn("auth0", { callbackUrl: dashboardHref });
-                            }}
-                            className="w-full h-10 border border-white/5 bg-white/5 hover:bg-white/10 text-white/60 text-xs rounded-xl gap-2 font-medium"
-                        >
-                            <Mail className="w-4 h-4 mr-2" />
-                            Sign in with Email Link
-                        </Button>
-                    </div>
                 </div>
 
                 <p className="mt-8 text-center text-sm text-white/40">

@@ -53,6 +53,25 @@ export default function RegisterPage() {
         }
     }, []);
 
+    const callbackUrl = (() => {
+        const callbackQuery = new URLSearchParams();
+        if (intent === "trial") callbackQuery.set("intent", intent);
+        if (plan) callbackQuery.set("plan", plan);
+        if (source) callbackQuery.set("source", source);
+
+        return callbackQuery.toString().length > 0
+            ? `/dashboard?${callbackQuery.toString()}`
+            : "/dashboard";
+    })();
+
+    const handleGoogleSignUp = () => {
+        void signIn("google", { callbackUrl });
+    };
+
+    const handleGitHubSignUp = () => {
+        void signIn("github", { callbackUrl });
+    };
+
     /* ... handlers ... */
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -202,18 +221,7 @@ export default function RegisterPage() {
                     <div className="space-y-3">
                         <Button
                             variant="outline"
-                            onClick={() => {
-                                const callbackQuery = new URLSearchParams();
-                                if (intent === "trial") callbackQuery.set("intent", intent);
-                                if (plan) callbackQuery.set("plan", plan);
-                                if (source) callbackQuery.set("source", source);
-
-                                const callbackUrl = callbackQuery.toString().length > 0
-                                    ? `/dashboard?${callbackQuery.toString()}`
-                                    : "/dashboard";
-
-                                void signIn("auth0", { callbackUrl }, { connection: "google-oauth2" });
-                            }}
+                            onClick={handleGoogleSignUp}
                             className="w-full h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
                         >
                             <svg className="w-4 h-4" viewBox="0 0 24 24">
@@ -227,18 +235,7 @@ export default function RegisterPage() {
 
                         <Button
                             variant="outline"
-                            onClick={() => {
-                                const callbackQuery = new URLSearchParams();
-                                if (intent === "trial") callbackQuery.set("intent", intent);
-                                if (plan) callbackQuery.set("plan", plan);
-                                if (source) callbackQuery.set("source", source);
-
-                                const callbackUrl = callbackQuery.toString().length > 0
-                                    ? `/dashboard?${callbackQuery.toString()}`
-                                    : "/dashboard";
-
-                                void signIn("auth0", { callbackUrl }, { connection: "github" });
-                            }}
+                            onClick={handleGitHubSignUp}
                             className="w-full h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
                         >
                             <Github className="w-4 h-4" />

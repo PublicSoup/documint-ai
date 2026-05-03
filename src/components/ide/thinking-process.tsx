@@ -3,13 +3,7 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, Terminal, CheckCircle2, AlertCircle, BrainCircuit } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export interface ThoughtStep {
-    id: string;
-    type: 'thought' | 'tool_call' | 'tool_result' | 'error';
-    content: string;
-    toolName?: string;
-    timestamp: number;
-}
+import { ThoughtStep } from "./chat/types";
 
 interface ThinkingProcessProps {
     steps: ThoughtStep[];

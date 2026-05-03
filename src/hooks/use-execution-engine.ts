@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { WebContainerManager } from '@/lib/web-container';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { File } from '@prisma/client';
@@ -24,6 +24,18 @@ export function useExecutionEngine({
     const [webContainerBooted, setWebContainerBooted] = useState(false);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
+    // Refs to break closure for async execution
+    const termRef = useRef<XTerm | null>(terminalInstance);
+    const bootedRef = useRef<boolean>(webContainerBooted);
+
+    useEffect(() => {
+        termRef.current = terminalInstance;
+    }, [terminalInstance]);
+
+    useEffect(() => {
+        bootedRef.current = webContainerBooted;
+    }, [webContainerBooted]);
 
     const mountAll = useCallback(async (fileList: (File & { content?: string | null })[]) => {
         const fileMounts: Record<string, any> = {};
@@ -120,10 +132,39 @@ export function useExecutionEngine({
 
     // Run Command
     const run = useCallback(async () => {
-        if (!terminalInstance) return;
+        // Await terminal initialization (solves UI optimism race condition)
+        let term = termRef.current;
+        if (!term) {
+            for (let i = 0; i < 20; i++) { // wait up to 2 seconds
+                await new Promise(r => setTimeout(r, 100));
+                if (termRef.current) {
+                    term = termRef.current;
+                    break;
+                }
+            }
+        }
+        
+        if (!term) {
+            console.error("Terminal instance never materialized");
+            return;
+        }
 
-        if (!webContainerBooted) {
-            terminalInstance.writeln('\r\nWebContainer is still booting...\r\n');
+        // Await WebContainer boot
+        let isBooted = bootedRef.current;
+        if (!isBooted) {
+            term.writeln('\r\nWaiting for WebContainer to boot...\r\n');
+            for (let i = 0; i < 50; i++) { // wait up to 10 seconds
+                await new Promise(r => setTimeout(r, 200));
+                if (bootedRef.current) {
+                    isBooted = true;
+                    break;
+                }
+            }
+        }
+
+        if (!isBooted) {
+            term.writeln('\r\nError: WebContainer failed to boot in time.\r\n');
+            setRunStatus('error');
             return;
         }
 
@@ -136,10 +177,10 @@ export function useExecutionEngine({
             
             if (packageJsonFile) {
                 // Node.js project
-                terminalInstance.writeln("\r\n> npm install\r\n");
+                term.writeln("\r\n> npm install\r\n");
                 const installProcess = await wc.spawn('npm', ['install']);
                 installProcess.output.pipeTo(new WritableStream({
-                    write(data) { terminalInstance.write(data); }
+                    write(data) { term.write(data); }
                 }));
 
                 if ((await installProcess.exit) !== 0) {
@@ -162,31 +203,33 @@ export function useExecutionEngine({
                 let runCmd = ['run', 'dev'];
                 if (!hasDevScript && hasStartScript) runCmd = ['start'];
                 else if (!hasDevScript && !hasStartScript) {
-                    terminalInstance.writeln("\r\n> No scripts.dev or scripts.start found. Attempting fallback: npx serve .\r\n");
+                    term.writeln("\r\n> No scripts.dev or scripts.start found. Attempting fallback: npx serve .\r\n");
                     const serveProcess = await wc.spawn('npx', ['serve', '.']);
-                    serveProcess.output.pipeTo(new WritableStream({ write(data) { terminalInstance.write(data); } }));
+                    serveProcess.output.pipeTo(new WritableStream({ write(data) { term.write(data); } }));
                     return; // Server ready will trigger
                 }
 
-                terminalInstance.writeln(`\r\n> npm ${runCmd.join(' ')}\r\n`);
+                term.writeln(`\r\n> npm ${runCmd.join(' ')}\r\n`);
                 const devProcess = await wc.spawn('npm', runCmd);
                 devProcess.output.pipeTo(new WritableStream({
-                    write(data) { terminalInstance.write(data); }
+                    write(data) { term.write(data); }
                 }));
             } else {
                 // Static HTML fallback
                 setRunStatus('starting');
-                terminalInstance.writeln("\r\n> npx serve .\r\n");
+                term.writeln("\r\n> npx serve .\r\n");
                 const serveProcess = await wc.spawn('npx', ['serve', '.']);
                 serveProcess.output.pipeTo(new WritableStream({
-                    write(data) { terminalInstance.write(data); }
+                    write(data) { term.write(data); }
                 }));
             }
         } catch (e) {
-            terminalInstance.writeln(`\r\nError: ${e}\r\n`);
+            if (termRef.current) {
+                termRef.current.writeln(`\r\nError: ${e}\r\n`);
+            }
             setRunStatus('error');
         }
-    }, [webContainerBooted, terminalInstance, files]);
+    }, [files]);
 
     return {
         runStatus,

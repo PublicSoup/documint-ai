@@ -13,7 +13,6 @@ export const metadata: Metadata = {
 
 // Triggering production build for Cloud IDE access fix
 export default async function CodePage() {
-    console.log("Rendering /code page...");
     const session = await getServerSession(authOptions);
 
     if (!session) {
@@ -22,18 +21,8 @@ export default async function CodePage() {
 
     const subscription = await getUserSubscription(session.user.id);
 
-    console.log("IDE Access Check:", {
-        userId: session.user.id,
-        plan: subscription.plan,
-        status: subscription.status,
-        isPro: subscription.isPro,
-        isTeam: subscription.isTeam,
-        isDevMode: subscription.isDevMode
-    });
-
     // Gate Access: Pro or Team only
     if (!subscription.isPro && !subscription.isTeam) {
-        console.log("Redirecting to billing - Not Pro/Team");
         redirect("/dashboard/billing");
     }
 

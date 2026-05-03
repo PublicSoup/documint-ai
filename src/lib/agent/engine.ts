@@ -1,14 +1,14 @@
 
 import { db } from "../db";
-import { AgentState } from "@prisma/client";
+import { AgentState, Prisma } from "@prisma/client";
 
 interface AgentInternalState {
-    history: any[];
+    history: AIMessage[];
     toolAttempts: { [key: string]: number };
     // Add other internal state variables as needed
 }
 
-import { getAICompletion, getAICompletionWithDetailedError } from "../ai";
+import { getAICompletion, getAICompletionWithDetailedError, AIMessage } from "../ai";
 // import * as fs from "fs/promises"; // Removed for Cloudflare compatibility
 import * as path from "path";
 import * as vfs from "./vm-fs";
@@ -21,7 +21,7 @@ type DbFile = {
 };
 
 // Dynamic import of child_process to avoid CF Workers import failures
-let execFile: any = null;
+let execFile: ((file: string, args?: ReadonlyArray<string> | null, options?: import("child_process").ExecFileOptions) => Promise<{ stdout: string, stderr: string }>) | null = null;
 async function getExecFile() {
     if (execFile) return execFile;
     if (!currentRuntime.canExecuteCommands) return null;
@@ -100,7 +100,8 @@ export async function* runAgent(
     contextFileId: string | undefined,
     activeFileContent: string | undefined,
     onStateChange?: (state: string, tool?: string) => void,
-    initialHistory: any[] = []
+    initialHistory: AIMessage[] = [],
+    modelName?: string
 ): AsyncGenerator<AgentEvent, void, unknown> {
 
     // Use process.cwd() as the base directory (read-only in serverless, writable via Supabase VFS overlay)
@@ -182,7 +183,7 @@ ${graphSummary}
 ${activeCtx}
 `;
 
-    let messages: any[] = [];
+    let messages: AIMessage[] = [];
     let toolAttempts = new Map<string, number>();
 
     // Load existing agent state
@@ -260,7 +261,11 @@ ${activeCtx}
         turns++;
         yield { type: "thought", content: "Thinking..." };
 
-        const result = await getAICompletionWithDetailedError(messages, { temperature: 0.1 });
+        const result = await getAICompletionWithDetailedError(messages, { 
+            temperature: 0.2,
+            maxTokens: 8192,
+            model: modelName,
+        });
         if (!result.success || !result.data || !result.data.content) {
             const errorReason = result.error || "Unknown connection error";
             const errorMsg = `⚠️ I encountered an error connecting to the AI provider: ${errorReason}`;
@@ -425,8 +430,8 @@ ${activeCtx}
                                     } else {
                                         toolResult = `[SANDBOX_ERROR]:\n${sandboxRes.error}`;
                                     }
-                                } catch (e: any) {
-                                    toolResult = `[SANDBOX_EXCEPTION]: ${e.message}`;
+                                } catch (e: unknown) {
+                                    toolResult = `[SANDBOX_EXCEPTION]: ${e instanceof Error ? e.message : String(e)}`;
                                 }
                             } else if (currentRuntime.canExecuteCommands) {
                                 const execFn = await getExecFile();
@@ -459,7 +464,7 @@ ${activeCtx}
                             const res = await execFn("find", [".", "-type", "f", "-name", `*${pattern}*`, "-not", "-path", "*/node_modules/*", "-not", "-path", "*/.git/*"], { cwd, timeout: 15000 });
                             const lines = (res.stdout || "").split("\n").slice(0, 25).join("\n");
                             toolResult = `[RESULTS]:\n${lines || "None found."}`;
-                        } catch (e: any) {
+                        } catch (e: unknown) {
                             toolResult = `[RESULTS]:\nNone found.`;
                         }
                         break;
@@ -480,7 +485,7 @@ ${activeCtx}
                             const res = await execFn("grep", ["-r", query, ".", "--exclude-dir=node_modules", "--exclude-dir=.git"], { cwd, timeout: 15000 });
                             const lines = (res.stdout || "").split("\n").slice(0, 25).join("\n");
                             toolResult = `[RESULTS]:\n${lines || "None found."}`;
-                        } catch (e: any) {
+                        } catch (e: unknown) {
                             toolResult = `[RESULTS]:\nNone found.`;
                         }
                         break;
@@ -489,8 +494,8 @@ ${activeCtx}
                     default:
                         toolResult = `[ERROR]: Tool '${toolName}' not found.`;
                 }
-            } catch (e: any) {
-                toolResult = `[EXCEPTION]: ${e.message}`;
+            } catch (e: unknown) {
+                toolResult = `[EXCEPTION]: ${e instanceof Error ? e.message : String(e)}`;
             }
 
             // Only show result if it's important
@@ -517,11 +522,11 @@ async function saveAgentState(
     try {
         await db.agentState.upsert({
             where: { sessionId: sessionId },
-            update: { stateJson: currentState as any }, // Prisma needs `any` for Json type updates
+            update: { stateJson: currentState as unknown as Prisma.InputJsonValue },
             create: {
                 userId: userId,
                 sessionId: sessionId,
-                stateJson: currentState as any,
+                stateJson: currentState as unknown as Prisma.InputJsonValue,
             },
         });
         // console.log(`Agent state saved for session ${sessionId}.`);

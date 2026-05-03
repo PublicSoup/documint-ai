@@ -2,6 +2,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateText as aiSDKGenerateText, generateObject, streamText as aiSDKStreamText } from "ai";
 import { z } from "zod";
 import { env } from "./env";
+import { createGateway } from "@ai-sdk/gateway";
 
 /**
  * AI Provider Utility - Refactored for Vercel AI SDK (@ai-sdk/google)
@@ -22,9 +23,20 @@ export interface AICompletionOptions {
 
 export interface AICompletionResult {
     content: string;
-    provider: "gemini";
+    provider: string;
     model: string;
 }
+
+export const AVAILABLE_MODELS = [
+    { id: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "Google", tier: "pro" },
+    { id: "google/gemini-2.0-flash", label: "Gemini 2.0 Flash", provider: "Google", tier: "free" },
+    { id: "anthropic/claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet", provider: "Anthropic", tier: "pro" },
+    { id: "openai/gpt-4o", label: "GPT-4o", provider: "OpenAI", tier: "pro" },
+    { id: "openai/gpt-4o-mini", label: "GPT-4o Mini", provider: "OpenAI", tier: "free" },
+    { id: "openai/o3-mini", label: "o3-mini", provider: "OpenAI", tier: "pro" },
+    { id: "deepseek/deepseek-r1", label: "DeepSeek R1", provider: "DeepSeek", tier: "pro" },
+    { id: "xai/grok-2-latest", label: "Grok 2", provider: "xAI", tier: "pro" },
+] as const;
 
 /**
  * Sanitize prompt content to prevent basic injection attacks
@@ -37,19 +49,27 @@ export function safePrompt(input: string): string {
 }
 
 /**
- * Initialize SDK with Vercel AI Gateway for Cost-Free Caching Margin
+ * Initialize SDKs
  */
 const googleGenAI = createGoogleGenerativeAI({
     apiKey: env.GOOGLE_API_KEY,
-    // Triggers global Edge caching and native rate-limits instantly if configured
-    baseURL: process.env.VERCEL_AI_GATEWAY_URL || undefined,
 });
+
+const gatewayProvider = env.AI_GATEWAY_API_KEY 
+    ? createGateway({ apiKey: env.AI_GATEWAY_API_KEY })
+    : null;
 
 /**
  * Base AI Model selector
  */
-function getModel(modelName: string = "gemini-2.0-flash") {
-    return googleGenAI(modelName);
+function getModel(modelName: string = "google/gemini-2.0-flash") {
+    if (gatewayProvider) {
+        return gatewayProvider(modelName);
+    }
+    
+    // Fallback: strip 'google/' prefix if using direct Google API
+    const directModelName = modelName.replace(/^google\//, "");
+    return googleGenAI(directModelName);
 }
 
 /**
@@ -68,7 +88,7 @@ export async function getAICompletionWithDetailedError(
     }
 
     try {
-        const modelName = options.model || "gemini-2.0-flash";
+        const modelName = options.model || "google/gemini-2.0-flash";
         
         // Extract system message for Vercel AI SDK
         const systemMessage = messages.find(m => m.role === "system")?.content;
@@ -86,8 +106,7 @@ export async function getAICompletionWithDetailedError(
             system: systemMessage,
             messages: chatMessages,
             temperature: options.temperature ?? 0.4,
-            // @ts-ignore - Valid in raw API call but misaligned in local TS types
-            maxTokens: options.maxTokens ?? 8192,
+            maxOutputTokens: options.maxTokens ?? 8192,
             abortSignal: AbortSignal.timeout(60000), // Strict 60s timeout abort
         });
 
@@ -99,7 +118,7 @@ export async function getAICompletionWithDetailedError(
             success: true,
             data: {
                 content: response.text,
-                provider: "gemini",
+                provider: modelName.split("/")[0] || "unknown",
                 model: modelName,
             }
         };
@@ -146,15 +165,14 @@ export async function streamTextEndpoint(
     userPrompt: string,
     options: AICompletionOptions = {}
 ) {
-    const modelName = options.model || "gemini-2.0-flash";
+    const modelName = options.model || "google/gemini-2.0-flash";
     
     return aiSDKStreamText({
         model: getModel(modelName),
         system: systemPrompt,
         messages: [{ role: 'user', content: safePrompt(userPrompt) }],
         temperature: options.temperature ?? 0.4,
-        // @ts-ignore
-        maxTokens: options.maxTokens ?? 8192,
+        maxOutputTokens: options.maxTokens ?? 8192,
     });
 }
 
@@ -291,7 +309,7 @@ export async function detectIntentDrift(
     
     try {
         const { object } = await generateObject({
-            model: getModel("gemini-2.0-flash"),
+            model: getModel("google/gemini-2.0-flash"),
             system: systemPrompt,
             prompt: `
             EXISTING DOCUMENTATION:

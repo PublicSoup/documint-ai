@@ -40,41 +40,18 @@ import { applyPatch } from "@/lib/code-patcher";
 import { useToast } from "../toast";
 import { useAgentLoop } from "@/hooks/use-agent-loop";
 import { ToolVisualizer } from "./tool-visualizer";
-import { ThinkingProcess, ThoughtStep } from "./thinking-process";
+import { ThinkingProcess } from "./thinking-process";
+import { AVAILABLE_MODELS } from "@/lib/ai";
 
 // ============================================================================
 // Types & Interfaces
 // ============================================================================
 
-interface CodeBlock {
-    id: string;
-    language: string;
-    code: string;
-    fileName?: string; // Extracted from "// FILE: path/to/file.ts"
-    applied: boolean;
-    timestamp: number;
-    startIndex?: number;
-    endIndex?: number;
-}
-
-interface Message {
-    id: string;
-    role: "user" | "assistant";
-    content: string;
-    codeBlocks: CodeBlock[];
-    thoughtSteps?: ThoughtStep[];
-    timestamp: number;
-}
-
-interface PendingChange {
-    id: string;
-    fileId: string;
-    originalContent: string;
-    newContent: string;
-    applied: boolean;
-    canUndo: boolean;
-    timestamp: number;
-}
+import { CodeBlock, Message, PendingChange, ThoughtStep } from "./chat/types";
+import { CodeBlockRenderer } from "./chat/code-block-renderer";
+import { SlashCommandMenu } from "./chat/slash-command-menu";
+import { FileMentionMenu } from "./chat/file-mention-menu";
+import { applyCodeBlock } from "@/lib/code-applicator";
 
 interface AIChatPanelProps {
     activeFileId: string | undefined;
@@ -108,349 +85,7 @@ const copyToClipboard = async (text: string): Promise<boolean> => {
     }
 };
 
-/**
- * Smart code application: Tries to apply only the relevant code block instead of replacing entire file
- * This is Cline-like behavior - intelligent patching instead of full replacement
- */
-const applyCodeBlock = (originalContent: string, newCode: string): string => {
-    if (!originalContent || originalContent.trim() === "") {
-        // Empty file, just use the new code
-        return newCode;
-    }
-
-    const originalLines = originalContent.split('\n');
-    const newLines = newCode.split('\n');
-    const originalSize = originalContent.length;
-    const newSize = newCode.length;
-
-    // If new code is very similar in size to original (>90% match), it's likely a full replacement
-    const sizeRatio = Math.min(originalSize, newSize) / Math.max(originalSize, newSize);
-    if (sizeRatio > 0.9 && newSize > originalSize * 0.8) {
-        return newCode;
-    }
-
-    // Strategy 1: Try to find and replace specific function/class by name
-    const functionMatch = newCode.match(/(?:function|const|let|var|export\s+(?:const|function|default))\s+(\w+)\s*[=\(]/);
-    const classMatch = newCode.match(/class\s+(\w+)/);
-    const exportClassMatch = newCode.match(/export\s+class\s+(\w+)/);
-
-    const targetName = functionMatch?.[1] || classMatch?.[1] || exportClassMatch?.[1];
-
-    if (targetName) {
-        // Try to find the function/class in the original file and replace just that block
-        const originalLines = originalContent.split('\n');
-        let startIdx = -1;
-        let endIdx = -1;
-        let braceCount = 0;
-        let inTarget = false;
-
-        for (let i = 0; i < originalLines.length; i++) {
-            const line = originalLines[i];
-
-            // Check if this line starts the target function/class
-            if ((line.includes(`function ${targetName}`) ||
-                line.includes(`const ${targetName}`) ||
-                line.includes(`let ${targetName}`) ||
-                line.includes(`var ${targetName}`) ||
-                line.includes(`class ${targetName}`) ||
-                line.includes(`export class ${targetName}`) ||
-                line.includes(`export function ${targetName}`) ||
-                line.includes(`export const ${targetName}`)) && startIdx === -1) {
-                startIdx = i;
-                inTarget = true;
-            }
-
-            if (inTarget) {
-                braceCount += (line.match(/\{/g) || []).length;
-                braceCount -= (line.match(/\}/g) || []).length;
-
-                // If we've closed all braces and we're past the start, we found the end
-                if (braceCount === 0 && startIdx !== -1 && i > startIdx) {
-                    endIdx = i + 1;
-                    break;
-                }
-            }
-        }
-
-        if (startIdx !== -1 && endIdx !== -1) {
-            // Found the target block, replace it
-            const before = originalLines.slice(0, startIdx).join('\n');
-            const after = originalLines.slice(endIdx).join('\n');
-            const result = (before + '\n' + newCode.trim() + '\n' + after).trim();
-            return result;
-        }
-    }
-
-    // Strategy 2: If new code is much smaller, try to find matching context
-    if (newLines.length < originalLines.length * 0.4) {
-        // Look for lines that match the beginning of the new code
-        const newCodeStart = newLines[0]?.trim().substring(0, 30) || '';
-
-        for (let i = 0; i < originalLines.length; i++) {
-            const line = originalLines[i];
-            if (line.trim().substring(0, 30) === newCodeStart ||
-                (newCodeStart.length > 10 && line.includes(newCodeStart))) {
-                // Found a match, try to replace from here
-                let endIdx = i + 1;
-                let braceCount = 0;
-                let foundStart = false;
-
-                for (let j = i; j < originalLines.length; j++) {
-                    const currentLine = originalLines[j];
-                    braceCount += (currentLine.match(/\{/g) || []).length;
-                    braceCount -= (currentLine.match(/\}/g) || []).length;
-
-                    if (braceCount > 0) foundStart = true;
-                    if (foundStart && braceCount === 0 && j > i) {
-                        endIdx = j + 1;
-                        break;
-                    }
-                }
-
-                // Replace the identified block
-                const before = originalLines.slice(0, i).join('\n');
-                const after = originalLines.slice(endIdx).join('\n');
-                return (before + '\n' + newCode.trim() + '\n' + after).trim();
-            }
-        }
-    }
-
-    // Strategy 3: Check if new code looks like a complete file (has imports/exports at top)
-    const hasTopLevelImports = /^(import|export|from|require)/m.test(newCode.trim());
-    const functionCount = (newCode.match(/(?:function|const|let|var)\s+\w+\s*[=\(]/g) || []).length;
-    const classCount = (newCode.match(/class\s+\w+/g) || []).length;
-
-    // If it has imports at top AND multiple functions/classes, it's likely a full file
-    if (hasTopLevelImports && (functionCount > 1 || classCount > 0)) {
-        return newCode;
-    }
-
-    // Strategy 4: If new code is very small (< 10% of original), append it
-    if (newSize < originalSize * 0.1 && newLines.length < 10) {
-        return originalContent + '\n\n' + newCode;
-    }
-
-    // Default: If we can't intelligently patch, replace the entire file
-    // This is safer than guessing wrong
-    return newCode;
-};
-
-// ============================================================================
-// Sub-Components
-// ============================================================================
-
-interface CodeBlockRendererProps {
-    block: CodeBlock;
-    onApply: (code: string) => void;
-    onInsertAtCursor: (code: string) => void;
-    onReplace: (code: string) => void;
-    onCreate?: () => void;
-    isApplied: boolean;
-    canUndo: boolean;
-    onUndo?: () => void;
-    activeFileName?: string;
-    currentFileSize?: number;
-    isNewFile?: boolean;
-    originalContent?: string;
-    onReviewDiff?: (code: string) => void;
-}
-
-function CodeBlockRenderer({
-    block,
-    onApply,
-    onInsertAtCursor,
-    onReplace,
-    onCreate,
-    isApplied,
-    canUndo,
-    onUndo,
-    activeFileName,
-    currentFileSize = 0,
-    isNewFile = false,
-    originalContent,
-    onReviewDiff
-}: CodeBlockRendererProps) {
-    const [isExpanded, setIsExpanded] = useState(true);
-    const [isCopied, setIsCopied] = useState(false);
-    const [showConfirm, setShowConfirm] = useState(false);
-    const [warningMessage, setWarningMessage] = useState<string>("");
-    const lineCount = block.code.split('\n').length;
-
-    const handleCopy = async () => {
-        const success = await copyToClipboard(block.code);
-        if (success) {
-            setIsCopied(true);
-            setTimeout(() => setIsCopied(false), 2000);
-        }
-    };
-
-    const handleApplyClick = () => {
-        if (isNewFile && onCreate) {
-            onCreate();
-            return;
-        }
-
-        // Cline-like behavior: Apply directly, only warn for extreme cases
-        // Only warn if code is extremely small (< 10% of original) - almost certainly accidental deletion
-        const codeSize = block.code.length;
-        const isExtremelySuspicious = currentFileSize > 1000 && codeSize < currentFileSize * 0.1 && (currentFileSize - codeSize) > 2000;
-
-        if (isExtremelySuspicious) {
-            setWarningMessage("Warning: This code is extremely short compared to your file (>90% reduction). This might be accidental. Apply anyway?");
-            setShowConfirm(true);
-        } else {
-            // Apply directly like Cline - no confirmation needed for normal operations
-            onApply(block.code);
-        }
-    };
-
-    const confirmApply = () => {
-        onApply(block.code);
-        setShowConfirm(false);
-    };
-
-    return (
-        <div className="mt-3 mb-4 rounded-lg overflow-hidden border border-white/10 bg-black/20">
-            {/* ... rest of rendering ... */}
-            <div className="flex items-center justify-between bg-gradient-to-r from-slate-800/50 to-slate-900/50 px-3 py-2 border-b border-white/5">
-                <div className="flex items-center gap-2">
-                    <Code2 className="w-3.5 h-3.5 text-blue-400" />
-                    <span className="text-xs font-medium text-white/70">{block.language}</span>
-                    {block.fileName && (
-                        <span className="text-xs text-amber-400/70 flex items-center gap-1">
-                            <FileCode className="w-3 h-3" />
-                            {block.fileName}
-                        </span>
-                    )}
-                    <span className="text-[10px] text-white/30">({lineCount} lines)</span>
-                </div>
-                {/* ... collapse/copy buttons ... */}
-                <div className="flex items-center gap-1">
-                    <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 w-6 p-0 text-white/40 hover:text-white/70"
-                        onClick={() => setIsExpanded(!isExpanded)}
-                    >
-                        {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    </Button>
-                    <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 w-6 p-0 text-white/40 hover:text-white/70"
-                        onClick={handleCopy}
-                        title="Copy code"
-                    >
-                        {isCopied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    </Button>
-                </div>
-            </div>
-
-            {/* Code Content */}
-            {isExpanded && (
-                <div className="relative overflow-hidden w-full">
-                    <pre className="bg-[#04001a] p-3 text-[10px] md:text-xs overflow-x-auto custom-scrollbar max-h-[250px] overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
-                        <code className="font-mono text-gray-300 whitespace-pre">{block.code}</code>
-                    </pre>
-                    <div className="absolute left-0 top-0 bottom-0 w-4 bg-gradient-to-r from-[#04001a] to-transparent pointer-events-none" />
-                </div>
-            )}
-
-            {/* Action Buttons */}
-            <div className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-slate-900/50 to-slate-800/50 border-t border-white/5">
-                {isApplied ? (
-                    <div className="flex items-center gap-2 flex-1">
-                        <CheckCircle2 className="w-4 h-4 text-green-400" />
-                        <span className="text-xs text-green-400 font-medium">Applied successfully</span>
-                        {canUndo && onUndo && (
-                            <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 px-2 text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 ml-auto"
-                                onClick={onUndo}
-                            >
-                                <Undo2 className="w-3.5 h-3.5 mr-1" />
-                                Undo
-                            </Button>
-                        )}
-                    </div>
-                ) : showConfirm ? (
-                    <div className="flex items-center gap-2 flex-1">
-                        <AlertCircle className="w-4 h-4 text-amber-400" />
-                        <span className="text-xs text-amber-400 truncate max-w-[180px]" title={warningMessage}>{warningMessage}</span>
-                        <div className="flex gap-1 ml-auto">
-                            <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 px-3 text-xs bg-green-500/20 text-green-400 hover:bg-green-500/30"
-                                onClick={confirmApply}
-                            >
-                                <Check className="w-3.5 h-3.5 mr-1" />
-                                Confirm
-                            </Button>
-                            <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 px-3 text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30"
-                                onClick={() => setShowConfirm(false)}
-                            >
-                                <X className="w-3.5 h-3.5 mr-1" />
-                            </Button>
-                        </div>
-                    </div>
-                ) : (
-                    <>
-                        {/* Primary Action: Apply/Replace */}
-                        {isNewFile ? (
-                            <Button
-                                size="sm"
-                                className="h-7 px-3 text-xs bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-0 shadow-lg shadow-blue-500/20"
-                                onClick={handleApplyClick}
-                            >
-                                <Plus className="w-3.5 h-3.5 mr-1.5" />
-                                Create File
-                            </Button>
-                        ) : (
-                            <Button
-                                size="sm"
-                                className="h-7 px-3 text-xs bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white border-0 shadow-lg shadow-green-500/20"
-                                onClick={handleApplyClick}
-                            >
-                                <Check className="w-3.5 h-3.5 mr-1.5" />
-                                Apply
-                            </Button>
-                        )}
-
-                        {/* Secondary: Insert at Cursor */}
-                        {/* Secondary: Insert at Cursor */}
-                        <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 px-3 text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
-                            onClick={() => onInsertAtCursor(block.code)}
-                        >
-                            <Plus className="w-3.5 h-3.5 mr-1" />
-                            Insert
-                        </Button>
-
-                        {/* Review Diff Action */}
-                        {!isNewFile && onReviewDiff && (
-                            <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 px-3 text-xs text-purple-400 hover:text-purple-300 hover:bg-purple-500/10"
-                                onClick={() => onReviewDiff(block.code)}
-                            >
-                                <Diff className="w-3.5 h-3.5 mr-1" />
-                                Review
-                            </Button>
-                        )}
-                    </>
-                )}
-            </div>
-        </div>
-    );
-}
+// Sub-components extracted to ./chat/
 
 // ============================================================================
 // Main Component
@@ -485,6 +120,18 @@ export function AIChatPanel({
     ]);
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
+    const [selectedModel, setSelectedModel] = useState<string>("google/gemini-2.0-flash");
+
+    useEffect(() => {
+        const stored = localStorage.getItem("documint_model");
+        if (stored) setSelectedModel(stored);
+    }, []);
+
+    const handleModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const val = e.target.value;
+        setSelectedModel(val);
+        localStorage.setItem("documint_model", val);
+    };
     const [appliedBlocks, setAppliedBlocks] = useState<Set<string>>(new Set());
     const [undoStack, setUndoStack] = useState<PendingChange[]>([]);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -904,7 +551,8 @@ export function AIChatPanel({
                     })),
                     contextFileId: activeFileId,
                     contextContent: activeFileContent,
-                    additionalContext: additionalContext.substring(0, 5000)
+                    additionalContext: additionalContext.substring(0, 5000),
+                    model: selectedModel
                 }),
                 signal: abortController.current.signal
             });
@@ -1096,69 +744,20 @@ export function AIChatPanel({
             <div className="p-4 bg-black/20 backdrop-blur-xl border-t border-white/5 relative z-20">
                 {/* Slash Command Menu */}
                 {showSlashMenu && (
-                    <div className="absolute bottom-full left-4 mb-2 w-64 bg-[#1e1e1e] border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-2 z-50">
-                        <div className="p-2 border-b border-white/5 text-[10px] font-medium text-white/40 bg-white/5">
-                            COMMANDS
-                        </div>
-                        <div className="p-1">
-                            {SLASH_COMMANDS.map((cmd, i) => (
-                                <button
-                                    key={cmd.label}
-                                    onClick={() => selectSlashCommand(cmd)}
-                                    className={cn(
-                                        "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors",
-                                        i === slashMenuIndex ? "bg-indigo-500/20 text-indigo-300" : "text-white/70 hover:bg-white/5"
-                                    )}
-                                >
-                                    <div className={cn(
-                                        "w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold",
-                                        i === slashMenuIndex ? "bg-indigo-500 text-white" : "bg-white/10 text-white/50"
-                                    )}>
-                                        /
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="text-xs font-medium">{cmd.label}</div>
-                                        <div className="text-[10px] text-white/30 truncate">{cmd.desc}</div>
-                                    </div>
-                                    {i === slashMenuIndex && <Check className="w-3 h-3" />}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+                    <SlashCommandMenu
+                        commands={SLASH_COMMANDS}
+                        selectedIndex={slashMenuIndex}
+                        onSelect={selectSlashCommand}
+                    />
                 )}
 
                 {/* File Mention Menu */}
                 {showFileMenu && filteredFiles.length > 0 && (
-                    <div className="absolute bottom-full left-4 mb-2 w-64 bg-[#1e1e1e] border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-2 z-50">
-                        <div className="p-2 border-b border-white/5 text-[10px] font-medium text-white/40 bg-white/5 flex justify-between items-center">
-                            <span>FILES</span>
-                            <span className="text-[9px] bg-white/10 px-1 rounded">{filteredFiles.length} result{filteredFiles.length !== 1 ? 's' : ''}</span>
-                        </div>
-                        <div className="p-1 max-h-48 overflow-y-auto custom-scrollbar">
-                            {filteredFiles.map((file, i) => (
-                                <button
-                                    key={file.id}
-                                    onClick={() => selectFileMention(file.name)}
-                                    className={cn(
-                                        "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors",
-                                        i === fileMenuIndex ? "bg-emerald-500/20 text-emerald-300" : "text-white/70 hover:bg-white/5"
-                                    )}
-                                >
-                                    <div className={cn(
-                                        "w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold",
-                                        i === fileMenuIndex ? "bg-emerald-500 text-white" : "bg-white/10 text-white/50"
-                                    )}>
-                                        <FileCode className="w-3 h-3" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="text-xs font-medium truncate">{file.name}</div>
-                                        <div className="text-[10px] text-white/30 truncate">{file.language}</div>
-                                    </div>
-                                    {i === fileMenuIndex && <Check className="w-3 h-3" />}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+                    <FileMentionMenu
+                        files={filteredFiles}
+                        selectedIndex={fileMenuIndex}
+                        onSelect={selectFileMention}
+                    />
                 )}
 
                 <div className="relative group">
@@ -1170,6 +769,21 @@ export function AIChatPanel({
                         placeholder="Ask AI or type '/' for commands..."
                         className="w-full pl-4 pr-12 py-3 bg-[#0a0a0a] border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 resize-none h-[180px] md:h-[100px] custom-scrollbar placeholder:text-white/20 transition-all font-light"
                     />
+
+                    <div className="absolute bottom-3 left-3 flex items-center">
+                        <select
+                            value={selectedModel}
+                            onChange={handleModelChange}
+                            className="bg-black/50 border border-white/10 text-white/70 text-[10px] rounded px-2 py-1 outline-none focus:border-indigo-500/50 appearance-none cursor-pointer hover:bg-black/80 hover:text-white transition-colors custom-scrollbar"
+                            style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff40%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .5rem top 50%', backgroundSize: '.65rem auto', paddingRight: '1.5rem' }}
+                        >
+                            {AVAILABLE_MODELS.map(model => (
+                                <option key={model.id} value={model.id}>
+                                    {model.label} {model.tier === "pro" ? "✨" : ""}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
 
                     <div className="absolute bottom-3 right-3 flex items-center gap-2">
                         <span className="text-[10px] text-white/20 font-mono hidden md:inline-block">RETURN to send</span>

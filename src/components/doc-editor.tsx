@@ -14,6 +14,11 @@ import DocSuggestions from "./doc-suggestions";
 import { VerifiedBadge } from "./verified-badge";
 import { VersionHistory } from "./version-history";
 import { FileText, Edit2, Play, Users, Sparkles, Download, GitBranch, Github, Shovel, Loader2, Workflow, Globe, Save, X, RefreshCw, Headphones, ShieldCheck, Lock, Activity, Check, Trash2, History, Zap } from "lucide-react";
+import { useDocActions } from "@/hooks/use-doc-actions";
+import { GithubModal } from "./doc-editor/github-modal";
+import { DiagramModal } from "./doc-editor/diagram-modal";
+import { CodeView } from "./doc-editor/code-view";
+import { downloadMarkdown, copyDocToClipboard, exportAsciiDoc, exportRST, exportHTML } from "@/lib/doc-exporters";
 
 const DiagramViewer = dynamic(() => import("./diagram-viewer").then(mod => mod.DiagramViewer), {
     ssr: false,
@@ -25,7 +30,7 @@ const DiagramViewer = dynamic(() => import("./diagram-viewer").then(mod => mod.D
     )
 });
 
-interface DocEntity {
+export interface DocEntity {
     type: string;
     name: string;
     code: string;
@@ -34,7 +39,7 @@ interface DocEntity {
     endLine: number;
 }
 
-interface DocContent {
+export interface DocContent {
     summary: string;
     entities: DocEntity[];
     qualityScore?: number;
@@ -67,21 +72,18 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
     const router = useRouter();
     const { toast } = useToast();
     const [isEditing, setIsEditing] = useState(false);
-    const [isSaving, setIsSaving] = useState(false);
-    const [isRegenerating, setIsRegenerating] = useState(false);
-    const [regeneratingEntity, setRegeneratingEntity] = useState<number | null>(null);
     const [content, setContent] = useState<DocContent>(initialContent);
-    const [verifying, setVerifying] = useState(false);
-    const [isApproving, setIsApproving] = useState(false);
     const [isPublic, setIsPublic] = useState(initialPublicState);
-    const [sharing, setSharing] = useState(false);
-    const [isDeleting, setIsDeleting] = useState(false);
+
+    const {
+        isSaving, isRegenerating, regeneratingEntity, verifying, isApproving, sharing, isDeleting, translating, personaLoading,
+        handleSaveDoc, handleRegenerateFull, handleRegenerateEntity, handleVerify, handleShareToggle, handleApprove, handleRequestReview, handleDeleteDoc, handleTranslate, handlePersonaExplain
+    } = useDocActions(fileId, currentUser);
 
     const isLocked = lockApproved && content.status === "APPROVED" && currentUser?.role !== "OWNER" && currentUser?.role !== "ADMIN";
 
     // Persona states
     const [showPersonaModal, setShowPersonaModal] = useState(false);
-    const [personaLoading, setPersonaLoading] = useState(false);
     const [personaExplanation, setPersonaExplanation] = useState<{ persona: string; text: string } | null>(null);
 
     // View Mode
@@ -100,7 +102,6 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
     const [generatingDiagram, setGeneratingDiagram] = useState(false);
 
     // Translation State
-    const [translating, setTranslating] = useState(false);
     const [currentLang, setCurrentLang] = useState("English");
     const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
 
@@ -232,302 +233,18 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
         setIsEditing(false);
     };
 
-    const handleSave = async () => {
-        setIsSaving(true);
-        try {
-            const res = await fetch(`/api/docs/${fileId}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ content }),
-            });
-
-            if (!res.ok) {
-                const data = await res.json();
-                throw new Error(data.message || "Failed to save");
-            }
-
-            setIsEditing(false);
-            router.refresh();
-        } catch (error: any) {
-            console.error("Save error:", error);
-            toast(error.message || "Failed to save changes", "error");
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
-    // Regenerate entire documentation with AI
-    const handleRegenerate = async () => {
-        setIsRegenerating(true);
-        try {
-            const res = await fetch(`/api/regenerate/${fileId}`, {
-                method: "POST",
-            });
-
-            if (!res.ok) throw new Error("Failed to regenerate");
-
-            const data = await res.json();
-            if (data.content) {
-                setContent(data.content);
-            }
-            router.refresh();
-        } catch (error) {
-            console.error("Regenerate error:", error);
-            toast("Failed to regenerate documentation. AI service error.", "error");
-        } finally {
-            setIsRegenerating(false);
-        }
-    };
-
-    // Regenerate single entity documentation
-    const handleRegenerateEntity = async (index: number) => {
-        setRegeneratingEntity(index);
-        try {
-            const entity = content.entities[index];
-            const res = await fetch(`/api/regenerate-entity`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    code: entity.code,
-                    language: fileLanguage,
-                    type: entity.type,
-                    name: entity.name,
-                    fileId // Added fileId for style guide context
-                }),
-            });
-
-            if (!res.ok) throw new Error("Failed to regenerate entity");
-
-            const data = await res.json();
-            if (data.doc) {
-                const newEntities = [...content.entities];
-                newEntities[index] = { ...newEntities[index], doc: data.doc };
-                setContent({ ...content, entities: newEntities });
-            }
-        } catch (error) {
-            console.error("Regenerate entity error:", error);
-            toast("Failed to regenerate. AI service error.", "error");
-        } finally {
-            setRegeneratingEntity(null);
-        }
-    };
-
-    const handleDownload = () => {
-        let md = `# ${fileName}\n\n`;
-        md += `**Language:** ${fileLanguage}\n`;
-        md += `**Generated By:** DocuMint AI (Gemini 2.0 Flash)\n\n`;
-        md += `## Summary\n\n${content.summary}\n\n`;
-        md += `## Detailed Analysis\n\n`;
-
-        if (content.entities) {
-            content.entities.forEach(entity => {
-                md += `### ${entity.name} (${entity.type})\n\n`;
-                md += `${entity.doc}\n\n`;
-                md += "```" + fileLanguage + "\n";
-                md += entity.code + "\n";
-                md += "```\n\n";
-            });
-        }
-
-        const blob = new Blob([md], { type: 'text/markdown' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${fileName}-docs.md`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    };
-
-    const handleCopyToClipboard = async () => {
-        let text = `${fileName}\n${"=".repeat(fileName.length)}\n\n`;
-        text += `Language: ${fileLanguage}\n`;
-        text += `Generated by DocuMint AI\n\n`;
-        text += `Summary\n-------\n${content.summary}\n\n`;
-
-        if (content.entities) {
-            content.entities.forEach(entity => {
-                text += `${entity.name} (${entity.type})\n`;
-                text += `-`.repeat(entity.name.length + entity.type.length + 3) + "\n";
-                text += `${entity.doc}\n\n`;
-            });
-        }
-
-        try {
-            await navigator.clipboard.writeText(text);
-            toast("Documentation copied to clipboard!", "success");
-        } catch {
-            toast("Failed to copy to clipboard", "error");
-        }
-    };
-
-    const handleExportAdoc = () => {
-        try {
-            let adoc = `= ${fileName}\n`;
-            adoc += `:toc:\n:source-highlighter: highlight.js\n\n`;
-
-            adoc += `*Language:* ${fileLanguage} +\n`;
-            adoc += `*Generated By:* DocuMint AI (Gemini 2.0 Flash)\n\n`;
-
-            adoc += `== Summary\n\n${content.summary || "No summary available."}\n\n`;
-            adoc += `== Detailed Analysis\n\n`;
-
-            if (content.entities && Array.isArray(content.entities)) {
-                content.entities.forEach(entity => {
-                    adoc += `=== ${entity.name} (${entity.type})\n\n`;
-                    adoc += `${entity.doc || "No documentation."}\n\n`;
-                    adoc += `[source,${fileLanguage.toLowerCase()}]\n----\n`;
-                    adoc += (entity.code || "") + "\n";
-                    adoc += `----\n\n`;
-                });
-            }
-
-            const blob = new Blob([adoc], { type: 'text/asciidoc' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${fileName}-docs.adoc`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        } catch (e) {
-            console.error("Export failed:", e);
-            toast("Failed to export AsciiDoc file.", "error");
-        }
-    };
-
-    const handleExportRST = () => {
-        try {
-            const title = fileName;
-            let rst = `${title}\n${"=".repeat(title.length)}\n\n`;
-
-            rst += `**Language:** ${fileLanguage}\n\n`;
-            rst += `**Generated By:** DocuMint AI (Gemini 2.0 Flash)\n\n`;
-
-            rst += `Summary\n-------\n\n${content.summary || "No summary available."}\n\n`;
-            rst += `Detailed Analysis\n-----------------\n\n`;
-
-            if (content.entities && Array.isArray(content.entities)) {
-                content.entities.forEach(entity => {
-                    const entityTitle = `${entity.name} (${entity.type})`;
-                    rst += `${entityTitle}\n${"^".repeat(entityTitle.length)}\n\n`;
-                    rst += `${entity.doc || "No documentation."}\n\n`;
-                    rst += `.. code-block:: ${fileLanguage.toLowerCase()}\n\n`;
-
-                    // Indent code for RST
-                    const indentedCode = (entity.code || "").split('\n').map(line => '    ' + line).join('\n');
-                    rst += `${indentedCode}\n\n`;
-                });
-            }
-
-            const blob = new Blob([rst], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${fileName}-docs.rst`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        } catch (e) {
-            console.error("Export failed:", e);
-            toast("Failed to export reStructuredText file.", "error");
-        }
-    };
-
-    const handleExportHTML = () => {
-        let html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${fileName} - Documentation</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; color: #333; }
-        h1 { color: #1a1a1a; border-bottom: 2px solid #3b82f6; padding-bottom: 10px; }
-        h2 { color: #374151; margin-top: 40px; }
-        h3 { color: #3b82f6; }
-        .meta { color: #6b7280; font-size: 14px; margin-bottom: 30px; }
-        .entity { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0; }
-        .entity-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        .entity-name { font-family: monospace; font-weight: bold; color: #3b82f6; }
-        .entity-type { background: #e5e7eb; padding: 2px 8px; border-radius: 4px; font-size: 12px; text-transform: uppercase; }
-        pre { background: #1f2937; color: #e5e7eb; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
-        .summary { background: #eff6ff; border-left: 4px solid #3b82f6; padding: 15px 20px; margin: 20px 0; }
-    </style>
-</head>
-<body>
-    <h1>${fileName}</h1>
-    <div class="meta">
-        <strong>Language:</strong> ${fileLanguage} | 
-        <strong>Generated by:</strong> DocuMint AI (Gemini 2.0 Flash)
-    </div>
-    
-    <h2>Summary</h2>
-    <div class="summary">${content.summary}</div>
-    
-    <h2>Detailed Analysis</h2>`;
-
-        if (content.entities) {
-            content.entities.forEach(entity => {
-                html += `
-    <div class="entity">
-        <div class="entity-header">
-            <span class="entity-name">${entity.name}</span>
-            <span class="entity-type">${entity.type.replace('_', ' ')}</span>
-        </div>
-        <p>${entity.doc}</p>
-        <pre><code>${entity.code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>
-    </div>`;
-            });
-        }
-
-        html += `
-</body>
-</html>`;
-
-        const blob = new Blob([html], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${fileName}-docs.html`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    };
-
     const updateEntityDoc = (index: number, newDoc: string) => {
         const newEntities = [...content.entities];
         newEntities[index] = { ...newEntities[index], doc: newDoc };
         setContent({ ...content, entities: newEntities });
     };
 
-    const handlePersonaExplain = async (persona: string) => {
-        setPersonaLoading(true);
+    const onPersonaExplain = (persona: string) => {
         setShowPersonaModal(true);
         setPersonaExplanation(null); // Reset previous explanation
-
-        try {
-            const res = await fetch("/api/explain", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ fileId, persona }),
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-                setPersonaExplanation({ persona, text: data.explanation });
-            } else {
-                setPersonaExplanation({ persona, text: "Failed to generate explanation." });
-            }
-        } catch {
-            setPersonaExplanation({ persona, text: "Error generating explanation." });
-        } finally {
-            setPersonaLoading(false);
-        }
+        handlePersonaExplain(persona, (text: string) => {
+            setPersonaExplanation({ persona, text });
+        });
     };
 
     const handleOpenGithubModal = async () => {
@@ -611,190 +328,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
         }
     };
 
-    const handleTranslate = async (targetLang: string) => {
-        if (targetLang === currentLang) return;
-        setTranslating(true);
-        try {
-            const summaryRes = await fetch("/api/translate", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: content.summary || "", targetLang })
-            });
 
-            if (!summaryRes.ok) {
-                toast("Translation failed", "error");
-                return;
-            }
-
-            const summaryData = await summaryRes.json();
-
-            const translatedEntities = await Promise.all(
-                (content.entities || []).map(async (entity) => {
-                    if (!entity.doc) return entity;
-                    try {
-                        const entityRes = await fetch("/api/translate", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ text: entity.doc, targetLang })
-                        });
-                        if (!entityRes.ok) return entity;
-                        const entityData = await entityRes.json();
-                        return { ...entity, doc: entityData.translatedText || entity.doc };
-                    } catch {
-                        return entity;
-                    }
-                })
-            );
-
-            setContent(prev => ({
-                ...prev,
-                summary: summaryData.translatedText || prev.summary,
-                entities: translatedEntities
-            }));
-            setIsEditing(true);
-            setCurrentLang(targetLang);
-        } catch (e) {
-            console.error(e);
-            toast("Error translating", "error");
-        } finally {
-            setTranslating(false);
-        }
-    };
-
-    const handleVerify = async () => {
-        setVerifying(true);
-        try {
-            const res = await fetch(`/api/docs/${fileId}/verify`, { method: "POST" });
-            const data = await res.json();
-
-            if (res.ok) {
-                setContent(prev => ({
-                    ...prev,
-                    verifiedAt: data.verified ? data.verifiedAt : null,
-                    verifiedById: data.verified ? data.verifiedById : null
-                }));
-                toast(data.verified ? "Documentation verified!" : "Verification removed", "success");
-            } else {
-                toast("Verification failed", "error");
-            }
-        } catch (error) {
-            console.error(error);
-            toast("Error verifying document", "error");
-        } finally {
-            setVerifying(false);
-        }
-    };
-
-    const handleShareToggle = async () => {
-        setSharing(true);
-        try {
-            const newState = !isPublic;
-            const res = await fetch(`/api/docs/${fileId}/share`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ isPublic: newState }),
-            });
-            const data = await res.json();
-
-            if (res.ok) {
-                setIsPublic(data.isPublic);
-                if (data.isPublic) {
-                    navigator.clipboard.writeText(data.url);
-                    toast("Link copied to clipboard! Document is now public.", "success");
-                } else {
-                    toast("Document is now private.", "success");
-                }
-            } else {
-                toast(data.message || data.error || "Failed to update share settings", "error");
-            }
-        } catch (error) {
-            console.error(error);
-            toast("Error updating share settings", "error");
-        } finally {
-            setSharing(false);
-        }
-    };
-
-    const handleApprove = async () => {
-        setIsApproving(true);
-        try {
-            const res = await fetch(`/api/docs/${fileId}/approve`, { method: "POST" });
-            const data = await res.json();
-
-            if (res.ok) {
-                setContent(prev => ({
-                    ...prev,
-                    status: "APPROVED",
-                    verifiedAt: data.verifiedAt,
-                    verifiedById: currentUser?.id
-                }));
-                toast("Documentation approved!", "success");
-                router.refresh();
-            } else {
-                toast(data.error || "Approval failed", "error");
-            }
-        } catch (error) {
-            console.error(error);
-            toast("Error approving document", "error");
-        } finally {
-            setIsApproving(false);
-        }
-    };
-
-    const handleRequestReview = async () => {
-        setIsSaving(true);
-        try {
-            const res = await fetch(`/api/docs/${fileId}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ content, status: "REVIEW" }),
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-                setContent(prev => ({ ...prev, status: data.status }));
-                toast("Review requested!", "success");
-                router.refresh();
-            } else {
-                toast("Failed to request review", "error");
-            }
-        } catch (error) {
-            console.error(error);
-            toast("Error requesting review", "error");
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
-    const handleDeleteDoc = async () => {
-        if (!confirm("Are you sure you want to delete this documentation? The source code will remain, but all AI-generated content and history for this file will be permanently removed.")) {
-            return;
-        }
-
-        setIsDeleting(true);
-        try {
-            const res = await fetch(`/api/docs/${fileId}`, {
-                method: "DELETE"
-            });
-
-            if (res.ok) {
-                toast("Documentation deleted", "success");
-                // Remove the docId from the URL to return to empty state
-                const url = new URL(window.location.href);
-                url.searchParams.delete("docId");
-                router.push(url.toString());
-                router.refresh();
-            } else {
-                const data = await res.json();
-                toast(data.message || "Failed to delete documentation", "error");
-            }
-        } catch (error) {
-            console.error("Delete error:", error);
-            toast("An unexpected error occurred", "error");
-        } finally {
-            setIsDeleting(false);
-        }
-    };
 
     return (
         <div className="glass-card p-6 min-h-[500px]">
@@ -881,7 +415,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                     {!isEditing && (
                         <>
                             <button
-                                onClick={handleRegenerate}
+                                onClick={() => handleRegenerateFull((data) => { if (data.content) setContent(data.content); router.refresh(); })}
                                 disabled={isRegenerating}
                                 className="px-3 py-2 text-sm font-medium text-purple-300 bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 rounded-lg flex items-center gap-2 disabled:opacity-50"
                             >
@@ -926,7 +460,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                             </button>
 
                             <button
-                                onClick={handleVerify}
+                                onClick={() => handleVerify((verified, verifiedAt, verifiedById) => setContent(prev => ({ ...prev, verifiedAt: verified ? verifiedAt : null, verifiedById: verified ? verifiedById : null })))}
                                 disabled={verifying}
                                 className={`px-3 py-2 text-sm font-medium border rounded-lg flex items-center gap-2 disabled:opacity-50 transition-colors ${content.verifiedAt
                                     ? "bg-green-500/20 text-green-300 border-green-500/30 hover:bg-green-500/30"
@@ -951,7 +485,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                     {["English", "Spanish", "French", "German", "Japanese", "Chinese"].map(lang => (
                                         <button
                                             key={lang}
-                                            onClick={() => handleTranslate(lang)}
+                                            onClick={() => handleTranslate(content, currentLang, lang, (newContent, newLang) => { setContent(newContent); setIsEditing(true); setCurrentLang(newLang); })}
                                             className="w-full text-left px-4 py-2 text-sm hover:bg-white/5 border-white/10/10 text-white/80"
                                         >
                                             {lang}
@@ -962,7 +496,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
 
                             {content.status === "DRAFT" && (
                                 <button
-                                    onClick={handleRequestReview}
+                                    onClick={() => handleRequestReview(content, (status) => setContent(prev => ({ ...prev, status: status as "DRAFT" | "REVIEW" | "APPROVED" })))}
                                     disabled={isSaving}
                                     className="px-3 py-2 text-sm font-medium text-amber-300 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 rounded-lg flex items-center gap-2 disabled:opacity-50"
                                 >
@@ -973,7 +507,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
 
                             {content.status === "REVIEW" && (currentUser?.role === "OWNER" || currentUser?.role === "ADMIN") && (
                                 <button
-                                    onClick={handleApprove}
+                                    onClick={() => handleApprove((verifiedAt, verifiedById) => setContent(prev => ({ ...prev, status: "APPROVED", verifiedAt, verifiedById })))}
                                     disabled={isApproving}
                                     className="px-3 py-2 text-sm font-medium text-emerald-300 bg-emerald-500/20 border border-emerald-500/30 hover:bg-emerald-500/30 rounded-lg flex items-center gap-2 disabled:opacity-50 shadow-[0_0_15px_-3px_rgba(16,185,129,0.3)] animate-pulse"
                                 >
@@ -983,7 +517,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                             )}
 
                             <button
-                                onClick={handleShareToggle}
+                                onClick={() => handleShareToggle(isPublic, setIsPublic)}
                                 disabled={sharing}
                                 className={`px-3 py-2 text-sm font-medium border rounded-lg flex items-center gap-2 disabled:opacity-50 transition-colors ${isPublic
                                     ? "bg-blue-500/20 text-blue-300 border-blue-500/30 hover:bg-blue-500/100/30"
@@ -997,7 +531,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
 
                             {(currentUser?.role === "OWNER" || currentUser?.role === "ADMIN") && (
                                 <button
-                                    onClick={handleDeleteDoc}
+                                    onClick={() => handleDeleteDoc(() => { const url = new URL(window.location.href); url.searchParams.delete("docId"); router.push(url.toString()); router.refresh(); })}
                                     disabled={isDeleting}
                                     className="px-3 py-2 text-sm font-medium text-rose-300 bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500/20 rounded-lg flex items-center gap-2 disabled:opacity-50 transition-colors"
                                     title="Permanently delete documentation"
@@ -1015,33 +549,33 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                 </button>
                                 <div className="absolute right-0 top-full mt-1 glass-card bg-[#0A0A0B]/95 border border-white/10 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-20 min-w-[160px]">
                                     <button
-                                        onClick={handleDownload}
+                                        onClick={() => { downloadMarkdown(fileName, fileLanguage, content); }}
                                         className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/5 border-white/10/10 flex items-center gap-2"
                                     >
                                         📝 Markdown (.md)
                                     </button>
                                     <button
-                                        onClick={handleExportHTML}
+                                        onClick={() => { exportHTML(fileName, fileLanguage, content); }}
                                         className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/5 border-white/10/10 flex items-center gap-2"
                                     >
                                         🌐 HTML (.html)
                                     </button>
                                     <button
-                                        onClick={handleExportAdoc}
+                                        onClick={() => { exportAsciiDoc(fileName, fileLanguage, content); }}
                                         className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/5 border-white/10/10 flex items-center gap-2"
                                     >
                                         <span className="text-amber-500 text-xs font-bold border border-amber-500/30 bg-amber-500/10 px-1 rounded">PRO</span>
                                         📄 AsciiDoc (.adoc)
                                     </button>
                                     <button
-                                        onClick={handleExportRST}
+                                        onClick={() => { exportRST(fileName, fileLanguage, content); }}
                                         className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/5 border-white/10/10 flex items-center gap-2"
                                     >
                                         <span className="text-amber-500 text-xs font-bold border border-amber-500/30 bg-amber-500/10 px-1 rounded">PRO</span>
                                         📄 reStructuredText (.rst)
                                     </button>
                                     <button
-                                        onClick={handleCopyToClipboard}
+                                        onClick={async () => { const s = await copyDocToClipboard(fileName, fileLanguage, content); if (s) toast("Copied to clipboard!", "success"); }}
                                         className="w-full text-left px-4 py-2 text-sm text-white/80 hover:bg-white/5 border-white/10/10 flex items-center gap-2"
                                     >
                                         📋 Copy to Clipboard
@@ -1060,14 +594,14 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                     {isEditing ? (
                         <>
                             <button
-                                onClick={handleCancel}
+                                onClick={() => { setContent(initialContent); setIsEditing(false); }}
                                 disabled={isSaving}
                                 className="px-3 py-2 text-sm font-medium text-white/70 bg-white/5 border-white/10/10 hover:bg-white/5 border-white/10/20 rounded-lg flex items-center gap-2"
                             >
                                 <X className="w-4 h-4" /> Cancel
                             </button>
                             <button
-                                onClick={handleSave}
+                                onClick={() => handleSaveDoc(content, () => { setIsEditing(false); router.refresh(); })}
                                 disabled={isSaving}
                                 className="px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center gap-2"
                             >
@@ -1447,7 +981,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                                 </div>
                                                 {!isEditing && (
                                                     <button
-                                                        onClick={() => handleRegenerateEntity(i)}
+                                                        onClick={() => handleRegenerateEntity(i, entity, fileLanguage, (doc) => updateEntityDoc(i, doc))}
                                                         disabled={regeneratingEntity === i}
                                                         className="text-xs px-2 py-1 text-purple-600 hover:bg-purple-100 rounded flex items-center gap-1 disabled:opacity-50"
                                                         title="Regenerate this documentation"
@@ -1686,6 +1220,24 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                     <CommentsSection fileId={fileId} />
                 )
             }
+
+            <GithubModal
+                isOpen={showGithubModal}
+                onClose={() => setShowGithubModal(false)}
+                repos={githubRepos}
+                pushingToGithub={pushingToGithub}
+                onPush={handlePushToGithub}
+            />
+
+            <DiagramModal
+                isOpen={showDiagramModal}
+                onClose={() => setShowDiagramModal(false)}
+                diagramType={diagramType}
+                setDiagramType={setDiagramType}
+                generatingDiagram={generatingDiagram}
+                onGenerate={handleGenerateDiagram}
+                diagramCode={diagramCode}
+            />
         </div >
     );
 }

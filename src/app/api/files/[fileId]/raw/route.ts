@@ -129,6 +129,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ file
         const updatedFile = await db.file.update({
             where: { id: fileId },
             data: {
+                content,
                 size: content.length,
                 updatedAt: new Date(),
             },

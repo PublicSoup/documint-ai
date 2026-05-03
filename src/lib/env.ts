@@ -12,8 +12,9 @@ const envSchema = z.object({
     UPSTASH_REDIS_REST_URL: z.string().url().optional(),
     UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
 
-    // AI Backend - Google Gemini
+    // AI Backend - Vercel Gateway & Google Gemini
     GOOGLE_API_KEY: z.string().default(""),
+    AI_GATEWAY_API_KEY: z.string().optional(),
 
     // Stripe Billing
     STRIPE_SECRET_KEY: z.string().min(1, "STRIPE_SECRET_KEY is required"),
@@ -72,6 +73,7 @@ export const env = envSchema.parse({
 
     // AI
     GOOGLE_API_KEY: process.env.GOOGLE_API_KEY || undefined,
+    AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY || undefined,
 
     // Stripe
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY || undefined,

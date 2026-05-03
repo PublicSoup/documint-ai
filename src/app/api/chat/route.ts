@@ -23,6 +23,7 @@ const chatRequestSchema = z
         contextFileId: z.string().min(1).max(255).optional(),
         contextContent: z.string().max(50_000).optional(),
         additionalContext: z.string().max(5_000).optional(),
+        model: z.string().optional(),
         stream: z.boolean().default(true),
     })
     .strict();
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
         const rateLimitTier = (subscription.isPro || subscription.isTeam) ? "pro" : "chat";
         await enforceRateLimit(session.user.id, rateLimitTier);
 
-        const { message, history, contextFileId, contextContent, additionalContext, stream } = await validateBody(req, chatRequestSchema);
+        const { message, history, contextFileId, contextContent, additionalContext, stream, model } = await validateBody(req, chatRequestSchema);
 
         const sessionId = crypto.randomUUID(); // Generate a unique session ID for this agent run
 
@@ -58,6 +59,7 @@ export async function POST(req: Request) {
                 contextContent,
                 undefined,
                 history,
+                model
             );
 
             for await (const event of generator) {
@@ -101,6 +103,7 @@ export async function POST(req: Request) {
                         contextContent,
                         sendStateChange,
                         history,
+                        model
                     );
 
                     for await (const event of generator) {

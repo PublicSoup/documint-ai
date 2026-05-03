@@ -38,12 +38,10 @@ import { SourceControlPanel } from "./source-control-panel";
 import { DiffModal } from "./diff-modal";
 import { useIDESettings } from "@/hooks/use-ide-settings";
 import { loadTypesFromWebContainer } from "@/lib/monaco-type-loader";
-
-
-
-
-
-
+import { useIDEFileManager } from "@/hooks/use-ide-file-manager";
+import { useIDEHotkeys } from "@/hooks/use-ide-hotkeys";
+import { IDEToolbar } from "./ide-toolbar";
+import { TerminalPanel } from "./terminal-panel";
 // Auto-detect Monaco language from file name
 function getLanguageFromFileName(fileName: string): string {
     const ext = fileName.split('.').pop()?.toLowerCase();
@@ -100,12 +98,23 @@ interface EnhancedIDELayoutProps {
 export default function EnhancedIDELayout({ files: initialFiles, user, subscription }: EnhancedIDELayoutProps) {
     const { toast } = useToast();
     const searchParams = useSearchParams();
-    const [files, setFiles] = useState(initialFiles);
-    const [activeFileId, setActiveFileId] = useState<string | undefined>(initialFiles[0]?.id);
-    const [openFiles, setOpenFiles] = useState<string[]>(initialFiles.length > 0 ? [initialFiles[0].id] : []);
-    const [fileContents, setFileContents] = useState<Record<string, string>>({});
-    const [unsavedChanges, setUnsavedChanges] = useState<Record<string, boolean>>({});
-    const [isSaving, setIsSaving] = useState(false);
+    const {
+        files,
+        activeFileId,
+        openFiles,
+        fileContents,
+        unsavedChanges,
+        isSaving,
+        upsertFile,
+        renameFile,
+        removeFile,
+        replaceFileContent,
+        setFileUnsavedState,
+        handleFileSelect,
+        handleCloseFile,
+        handleContentChange,
+        handleSave
+    } = useIDEFileManager(initialFiles);
     const [terminalInstance, setTerminalInstance] = useState<any>(null);
 
     // Unify WebContainer logic via hook
@@ -205,50 +214,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
         setDiffModalOpen(true);
     }, [activeFileId, files]);
 
-    const handleFileSelect = async (fileId: string) => {
-        if (!openFiles.includes(fileId)) {
-            setOpenFiles([...openFiles, fileId]);
-        }
-        setActiveFileId(fileId);
 
-        // If content not loaded, fetch it
-        if (!fileContents[fileId]) {
-            try {
-                const res = await fetch(`/api/files/${fileId}/raw`);
-                const data = await res.json();
-                if (data.content !== undefined) {
-                    setFileContents(prev => ({ ...prev, [fileId]: data.content }));
-                } else {
-                    // New/empty file — set empty string so editor shows blank
-                    try {
-                        setFileContents(prev => ({ ...prev, [fileId]: "" }));
-                    } catch (e) {
-                        toast("Failed to set initial file content", "error");
-                        console.error("Failed to set initial file content:", e);
-                    }
-                }
-            } catch (e) {
-                toast("Failed to load file content", "error");
-                console.error("Failed to load file content:", e);
-            }
-        }
-    };
-
-    const handleCloseFile = (e: React.MouseEvent, fileId: string) => {
-        e.stopPropagation();
-        const newOpen = openFiles.filter(id => id !== fileId);
-        setOpenFiles(newOpen);
-        if (activeFileId === fileId) {
-            setActiveFileId(newOpen[newOpen.length - 1]);
-        }
-    };
-
-    const handleContentChange = (val: string | undefined) => {
-        if (activeFileId && val !== undefined) {
-            setFileContents(prev => ({ ...prev, [activeFileId]: val }));
-            setUnsavedChanges(prev => ({ ...prev, [activeFileId]: true }));
-        }
-    };
 
     const handleRunProject = async () => {
         if (!webContainerBooted) {
@@ -280,29 +246,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
         }
     };
 
-    const handleSave = async () => {
-        if (!activeFileId || !unsavedChanges[activeFileId]) return;
 
-        setIsSaving(true);
-        try {
-            const res = await fetch(`/api/files/${activeFileId}/raw`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ content: fileContents[activeFileId] })
-            });
-
-            if (res.ok) {
-                setUnsavedChanges(prev => ({ ...prev, [activeFileId]: false }));
-                toast("File saved successfully", "success");
-            } else {
-                throw new Error("Save failed");
-            }
-        } catch (e) {
-            toast("Failed to save changes", "error");
-        } finally {
-            setIsSaving(false);
-        }
-    };
 
     
 
@@ -311,54 +255,12 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
     // Hotkeys
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            const isCmd = e.ctrlKey || e.metaKey;
-
-            // Don't intercept if user is typing in an input or textarea
-            const target = e.target as HTMLElement;
-            const isEditing = target.tagName === 'INPUT' ||
-                target.tagName === 'TEXTAREA' ||
-                target.isContentEditable ||
-                target.closest('.monaco-editor');
-
-            if (isCmd && !isEditing) {
-                switch (e.key.toLowerCase()) {
-                    case 's':
-                        e.preventDefault();
-                        handleSave();
-                        break;
-                    case 'b':
-                        e.preventDefault();
-                        setShowSidebar(!showSidebar); // Toggle
-                        break;
-                    case 'k':
-                        e.preventDefault();
-                        setIsCommandPaletteOpen(true);
-                        break;
-                    case 'i':
-                        e.preventDefault();
-                        setShowAIChat(!showAIChat); // Toggle
-                        break;
-                    case '`':
-                        e.preventDefault();
-                        setShowTerminal(!showTerminal);
-                        break;
-                }
-            } else if (isCmd && isEditing) {
-                // Allow Cmd+S and Cmd+K even when in editor
-                if (e.key.toLowerCase() === 's') {
-                    e.preventDefault();
-                    handleSave();
-                } else if (e.key.toLowerCase() === 'k') {
-                    e.preventDefault();
-                    setIsCommandPaletteOpen(true);
-                }
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
+    useIDEHotkeys({
+        onSave: handleSave,
+        onToggleSidebar: () => setShowSidebar(!showSidebar),
+        onCommandPalette: () => setIsCommandPaletteOpen(true),
+        onToggleAIChat: () => setShowAIChat(!showAIChat),
+        onToggleTerminal: () => setShowTerminal(!showTerminal)
     }, [activeFileId, fileContents, unsavedChanges, showSidebar, showAIChat, showTerminal]);
 
     const activeFile = files.find(f => f.id === activeFileId);
@@ -475,21 +377,17 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 activeFileId={activeFileId}
                                 onSelect={handleFileSelect}
                                 onFileCreated={(newFile) => {
-                                    setFiles(prev => [...prev, newFile]);
-                                    setFileContents(prev => ({ ...prev, [newFile.id]: newFile.content || "" }));
-                                    setOpenFiles(prev => [...prev, newFile.id]);
-                                    setActiveFileId(newFile.id);
+                                    upsertFile(newFile, {
+                                        open: true,
+                                        makeActive: true,
+                                        initialContent: newFile.content || "",
+                                    });
                                 }}
                                 onFileRenamed={(fileId, newName) => {
-                                    setFiles(prev => prev.map(f => f.id === fileId ? { ...f, name: newName, language: getLanguageFromFileName(newName) } : f));
+                                    renameFile(fileId, newName);
                                 }}
                                 onFileDeleted={(fileId) => {
-                                    setFiles(prev => prev.filter(f => f.id !== fileId));
-                                    const newOpenFiles = openFiles.filter(id => id !== fileId);
-                                    setOpenFiles(newOpenFiles);
-                                    if (activeFileId === fileId) {
-                                        setActiveFileId(newOpenFiles[newOpenFiles.length - 1]);
-                                    }
+                                    removeFile(fileId);
                                 }}
                             />
                         )}
@@ -551,7 +449,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                             return (
                                 <div
                                     key={fileId}
-                                    onClick={() => setActiveFileId(fileId)}
+                                    onClick={() => handleFileSelect(fileId)}
                                     className={cn(
                                         "h-full px-3 flex items-center gap-2 text-xs border-r border-white/[0.04] cursor-pointer transition-all duration-200 min-w-[100px] max-w-[200px] group relative",
                                         isActive ? "bg-[#030014] text-white" : "bg-[#020010] text-white/40 hover:bg-[#030014]/80 hover:text-white/60"
@@ -571,163 +469,20 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         })}
                     </div>
 
-                    <div className="flex items-center gap-1 px-2 h-full bg-[#030014]">
-                        <button onClick={(e) => {
-                            e.stopPropagation();
-                            if (clickTimeout) return;
-                            const timeout = setTimeout(() => setClickTimeout(null), 300);
-                            setClickTimeout(timeout);
-                            setShowSidebar(!showSidebar);
-                        }} className="p-1.5 rounded hover:bg-white/[0.06] text-white/30 hover:text-white/50 transition-all" title="Toggle Sidebar (⌘B)">
-                            <Columns className="w-4 h-4" />
-                        </button>
-                        <button onClick={(e) => {
-                            e.stopPropagation();
-                            if (clickTimeout) return;
-                            const timeout = setTimeout(() => setClickTimeout(null), 300);
-                            setClickTimeout(timeout);
-                            setShowAIChat(!showAIChat);
-                        }} className="p-1.5 rounded hover:bg-white/[0.06] text-white/30 hover:text-white/50 transition-all" title="Toggle AI Chat (⌘I)">
-                            <Bot className="w-4 h-4" />
-                        </button>
-                        <button onClick={(e) => {
-                            e.stopPropagation();
-                            if (clickTimeout) return;
-                            const timeout = setTimeout(() => setClickTimeout(null), 300);
-                            setClickTimeout(timeout);
-                            setShowTerminal(!showTerminal);
-                        }} className="p-1.5 rounded hover:bg-white/[0.06] text-white/30 hover:text-white/50 transition-all" title="Toggle Terminal (⌘`)">
-                            <TerminalIcon className="w-4 h-4" />
-                        </button>
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                if (clickTimeout) return;
-                                const timeout = setTimeout(() => setClickTimeout(null), 300);
-                                setClickTimeout(timeout);
-                                setShowAIEditor(!showAIEditor);
-                            }}
-                            className={cn("p-1.5 rounded transition-all", showAIEditor ? "bg-purple-500/15 text-purple-400" : "text-purple-400/40 hover:bg-purple-500/10 hover:text-purple-400")}
-                            title="Toggle AI Editor"
-                        >
-                            <Bot className="w-4 h-4" />
-                        </button>
-
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                if (clickTimeout) return;
-                                const timeout = setTimeout(() => setClickTimeout(null), 300);
-                                setClickTimeout(timeout);
-                                setShowDocPreview(!showDocPreview);
-                            }}
-                            className={cn("p-1.5 rounded transition-all", showDocPreview ? "bg-blue-500/15 text-blue-400" : "text-blue-400/40 hover:bg-blue-500/10 hover:text-blue-400")}
-                            title="Toggle Doc Preview"
-                        >
-                            <FileText className="w-4 h-4" />
-                        </button>
-
-                        <button
-                            onClick={() => setShowLocalTopology(!showLocalTopology)}
-                            className={cn("p-1.5 rounded transition-all", showLocalTopology ? "bg-emerald-500/15 text-emerald-400" : "text-emerald-400/40 hover:bg-emerald-500/10 hover:text-emerald-400")}
-                            title="Toggle Local Topology"
-                        >
-                            <LayoutIcon className="w-4 h-4" />
-                        </button>
-
-                        {/* AI Agent Button - Code Editor Mode */}
-                        {showAIEditor && (
-                            <button
-                                onClick={async () => {
-                                    // AI agent functionality - this will connect to /api/chat
-                                    const currentContent = activeFileId ? fileContents[activeFileId] : "";
-                                    if (currentContent && activeFileId) {
-                                        try {
-                                            toast("AI is thinking...", "success");
-                                            // Send current code to AI for analysis/editing
-                                            const res = await fetch("/api/chat", {
-                                                method: "POST",
-                                                headers: { "Content-Type": "application/json" },
-                                                body: JSON.stringify({
-                                                    message: `Please optimize and improve this code. Return only the improved code block:\n\n${currentContent}`,
-                                                    contextFileId: activeFileId,
-                                                    contextContent: currentContent,
-                                                    stream: false
-                                                })
-                                            });
-
-                                            const data = await res.json();
-                                            if (!res.ok) {
-                                                throw new Error(data.error || "Failed to get AI improvement");
-                                            }
-
-                                            if (data.reply) {
-                                                // Extract code from reply if it's wrapped in markdown
-                                                let improvedCode = data.reply;
-                                                const codeBlockMatch = improvedCode.match(/```(?:[\w]*)\n([\s\S]*?)```/);
-                                                if (codeBlockMatch) {
-                                                    improvedCode = codeBlockMatch[1];
-                                                }
-
-                                                // Update editor content with AI suggestions
-                                                setFileContents(prev => ({ ...prev, [activeFileId]: improvedCode }));
-                                                setUnsavedChanges(prev => ({ ...prev, [activeFileId]: true }));
-                                                toast("AI improvements applied", "success");
-                                            }
-                                        } catch (e) {
-                                            toast("AI analysis failed", "error");
-                                        }
-                                    }
-                                }}
-                                className="p-1.5 rounded hover:bg-amber-500/20 text-amber-500 hover:text-amber-400"
-                                title="AI Code Assistant"
-                            >
-                                <Sparkles className="w-4 h-4" />
-                            </button>
-                        )}
-                        <div className="w-px h-4 bg-white/[0.06] mx-1" />
-                        <button
-                            onClick={() => {
-                                if (activeFile && fileContents[activeFile.id]) {
-                                    const blob = new Blob([fileContents[activeFile.id]], { type: 'text/plain' });
-                                    const url = URL.createObjectURL(blob);
-                                    const a = document.createElement('a');
-                                    a.href = url;
-                                    a.download = activeFile.name.split('/').pop() || 'file.txt';
-                                    a.click();
-                                    URL.revokeObjectURL(url);
-                                    toast('File downloaded', 'success');
-                                }
-                            }}
-                            disabled={!activeFileId}
-                            className="p-1.5 rounded transition-all text-white/20 hover:text-white/50 hover:bg-white/[0.06] disabled:opacity-30"
-                            title="Download File"
-                        >
-                            <Download className="w-4 h-4" />
-                        </button>
-                        <button
-                            onClick={() => setShowSecretsManager(true)}
-                            className="p-1.5 rounded transition-all text-amber-500/30 hover:text-amber-400 hover:bg-amber-500/10"
-                            title="Environment Secrets"
-                        >
-                            <Lock className="w-4 h-4" />
-                        </button>
-                        <button
-                            onClick={handleSave}
-                            disabled={!activeFileId || !unsavedChanges[activeFileId]}
-                            className={cn("p-1.5 rounded transition-all flex items-center gap-1.5 text-xs font-medium", unsavedChanges[activeFileId || ""] ? "text-emerald-400 hover:bg-emerald-500/10" : "text-white/20 opacity-50")}
-                        >
-                            <Save className="w-4 h-4" />
-                        </button>
-                        <button
-                            onClick={handleRunProject}
-                            className="p-1.5 rounded hover:bg-emerald-500/15 text-emerald-400/70 hover:text-emerald-400 disabled:opacity-30 transition-all"
-                            title="Run (Preview)"
-                            disabled={runStatus === 'installing' || runStatus === 'starting' || !webContainerBooted}
-                        >
-                            {runStatus === 'installing' || runStatus === 'starting' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                        </button>
-                    </div>
+                    <IDEToolbar
+                        showSidebar={showSidebar} setShowSidebar={setShowSidebar}
+                        showAIChat={showAIChat} setShowAIChat={setShowAIChat}
+                        showTerminal={showTerminal} setShowTerminal={setShowTerminal}
+                        showAIEditor={showAIEditor} setShowAIEditor={setShowAIEditor}
+                        showDocPreview={showDocPreview} setShowDocPreview={setShowDocPreview}
+                        showLocalTopology={showLocalTopology} setShowLocalTopology={setShowLocalTopology}
+                        activeFileId={activeFileId} activeFile={activeFile}
+                        fileContents={fileContents} replaceFileContent={replaceFileContent}
+                        unsavedChanges={unsavedChanges}
+                        handleSave={handleSave} handleRunProject={handleRunProject}
+                        runStatus={runStatus} webContainerBooted={webContainerBooted}
+                        setShowSecretsManager={setShowSecretsManager}
+                    />
                 </div>
 
                 {/* Editor Area */}
@@ -783,19 +538,19 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                             const createdFiles = data.files;
 
                                             // Update state with all new files
-                                            setFiles(prev => [...prev, ...createdFiles]);
-
-                                            // Update file contents and open files
-                                            const newContents: Record<string, string> = { ...fileContents };
-                                            createdFiles.forEach((f: any) => {
-                                                newContents[f.id] = f.content || "";
+                                            createdFiles.forEach((createdFile: File & { content?: string | null }) => {
+                                                upsertFile(createdFile, {
+                                                    initialContent: createdFile.content || "",
+                                                });
                                             });
-                                            setFileContents(newContents);
 
                                             // Auto-open the first file if available
                                             if (createdFiles.length > 0) {
-                                                setOpenFiles(prev => [...prev, createdFiles[0].id]);
-                                                setActiveFileId(createdFiles[0].id);
+                                                upsertFile(createdFiles[0], {
+                                                    open: true,
+                                                    makeActive: true,
+                                                    initialContent: createdFiles[0].content || "",
+                                                });
                                             }
 
                                             toast(`Created ${createdFiles.length} files from template`, "success");
@@ -908,72 +663,12 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
                 {/* Terminal Panel (Enterprise) */}
                 {showTerminal && (
-                    <div className={cn("flex-none border-t border-white/[0.06] bg-[#020010] flex flex-col shadow-[0_-4px_30px_rgba(0,0,0,0.5)] z-20", terminalMaximized ? "h-[60vh]" : "h-32")}>
-                        {/* Terminal Header */}
-                        <div className="flex-none h-8 flex items-center justify-between px-3 border-b border-white/[0.04] select-none bg-[#030014]">
-                            <div className="flex items-center gap-4 h-full">
-                                <button className="h-full text-[11px] font-medium text-white/80 flex items-center gap-1.5 px-2 relative">
-                                    WebContainerTerminal
-                                    <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-purple-500 to-violet-400" />
-                                </button>
-                                <button className="h-full text-[11px] font-medium text-white/25 hover:text-white/50 flex items-center gap-1.5 px-2 transition-colors">
-                                    Output
-                                </button>
-                                <button className="h-full text-[11px] font-medium text-white/25 hover:text-white/50 flex items-center gap-1.5 px-2 transition-colors">
-                                    Problems
-                                    <span className="bg-purple-500/15 text-purple-300/60 px-1 rounded-full text-[9px] font-bold">0</span>
-                                </button>
-                                <button className="h-full text-[11px] font-medium text-white/25 hover:text-white/50 flex items-center gap-1.5 px-2 transition-colors">
-                                    Debug Console
-                                </button>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                                <button className="p-1 rounded hover:bg-white/[0.06] text-white/25 hover:text-white/60 transition-colors" title="Split">
-                                    <SplitSquareHorizontal className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        toast('Terminal clear not available in interactive mode', "warning");
-                                    }}
-                                    className="p-1 rounded hover:bg-white/[0.06] text-white/25 hover:text-white/60 transition-colors"
-                                    title="Clear Terminal"
-                                >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                                <div className="w-px h-3 bg-white/[0.06] mx-1" />
-                                <button
-                                    onClick={() => setTerminalMaximized(!terminalMaximized)}
-                                    className="p-1 rounded hover:bg-white/[0.06] text-white/25 hover:text-white/60 transition-colors"
-                                    title={terminalMaximized ? 'Restore' : 'Maximize'}
-                                >
-                                    {terminalMaximized ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-                                </button>
-                                <button
-                                    onClick={() => setShowTerminal(false)}
-                                    className="p-1 rounded hover:bg-red-500/10 text-white/25 hover:text-red-400 transition-colors"
-                                    title="Close"
-                                >
-                                    <X className="w-3.5 h-3.5" />
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Terminal Content */}
-                        <div className="flex-1 min-h-0 bg-[#020010] p-1 pl-3 overflow-hidden">
-                            <Terminal
-                                onProcessStart={(process) => {
-                                    setTerminalInstance(null); // Clear old instance
-                                    toast("Command started in terminal", "success");
-                                }}
-                                onProcessExit={(code) => {
-                                    toast(`Command exited with code ${code}`, code === 0 ? "success" : "error");
-                                }}
-                                onError={(error) => {
-                                    toast(`Terminal error: ${error.message}`, "error");
-                                }}
-                            />
-                        </div>
-                    </div>
+                    <TerminalPanel
+                        terminalMaximized={terminalMaximized}
+                        setTerminalMaximized={setTerminalMaximized}
+                        setShowTerminal={setShowTerminal}
+                        setTerminalInstance={setTerminalInstance}
+                    />
                 )}
             </div>
 
@@ -1000,8 +695,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         allFileContents={fileContents}
                         onInsertCode={(code) => {
                             if (activeFileId) {
-                                setFileContents(prev => ({ ...prev, [activeFileId]: code }));
-                                setUnsavedChanges(prev => ({ ...prev, [activeFileId]: true }));
+                                replaceFileContent(activeFileId, code, true);
                                 toast("Code applied to file", "success");
                             }
                         }}
@@ -1009,7 +703,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                             if (editorRef.current) {
                                 editorRef.current.insertCodeAtCursor(code);
                                 if (activeFileId) {
-                                    setUnsavedChanges(prev => ({ ...prev, [activeFileId]: true }));
+                                    setFileUnsavedState(activeFileId, true);
                                 }
                                 toast("Code inserted at cursor", "success");
                             }
@@ -1020,16 +714,13 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 editorRef.current.replaceContent(code);
 
                                 // State update will happen via onChange callback from editor
-                                if (markUnsaved) {
-                                    setUnsavedChanges(prev => ({ ...prev, [activeFileId]: true }));
+                                if (!markUnsaved) {
+                                    setFileUnsavedState(activeFileId, false);
                                 }
                                 toast("Code applied successfully", "success");
                             } else if (activeFileId) {
                                 // Fallback if editor ref not available (e.g. not focused)
-                                setFileContents(prev => ({ ...prev, [activeFileId]: code }));
-                                if (markUnsaved) {
-                                    setUnsavedChanges(prev => ({ ...prev, [activeFileId]: true }));
-                                }
+                                replaceFileContent(activeFileId, code, markUnsaved);
                                 toast("Code applied (undo stack reset)");
                             }
                         }}
@@ -1038,7 +729,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 const res = await fetch("/api/files/create", {
                                     method: "POST",
                                     headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ name, content })
+                                    body: JSON.stringify({ name, content, type: "file" })
                                 });
 
                                 if (res.ok) {
@@ -1046,10 +737,11 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                     toast(`File ${name} created`, "success");
 
                                     // Dynamic state update without reload
-                                    setFiles(prev => [...prev, newFile]);
-                                    setFileContents(prev => ({ ...prev, [newFile.id]: content || "" }));
-                                    setOpenFiles(prev => [...prev, newFile.id]);
-                                    setActiveFileId(newFile.id);
+                                    upsertFile(newFile, {
+                                        open: true,
+                                        makeActive: true,
+                                        initialContent: content || "",
+                                    });
                                 } else {
                                     toast("Failed to create file", "error");
                                 }
@@ -1057,7 +749,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 toast("Error creating file", "error");
                             }
                         }}
-                        onSelectFile={setActiveFileId}
+                        onSelectFile={handleFileSelect}
                         onReviewDiff={handleReviewDiff}
                     />
                 </div>
