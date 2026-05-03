@@ -2,6 +2,19 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 
+const publicPaths = [
+    "/auth/login",
+    "/auth/register",
+    "/api/auth",
+    "/api/v1/analyze",
+    "/api/webhooks",
+    "/api/health",
+    "/_next",
+    "/favicon.ico",
+    "/public",
+    "/og-image.png",
+];
+
 /**
  * Lightweight edge middleware:
  * - Applies security headers
@@ -11,14 +24,37 @@ import { getToken } from "next-auth/jwt";
  * and reduce request latency.
  */
 export async function proxy(request: NextRequest) {
+    const { pathname } = request.nextUrl;
     const response = NextResponse.next();
-    const ip =
-        request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-        request.headers.get("x-real-ip") ??
-        "127.0.0.1";
 
-    if (request.nextUrl.pathname.startsWith("/admin")) {
-        const token = await getToken({ req: request });
+    if (publicPaths.some(path => pathname.startsWith(path)) || pathname === "/") {
+        return response;
+    }
+
+    const isAdmin = pathname.startsWith("/admin");
+    const isDashboard = pathname.startsWith("/dashboard");
+    const isCode = pathname.startsWith("/code");
+    const isProtectedApi = pathname.startsWith("/api/") && !publicPaths.some(path => pathname.startsWith(path));
+
+    if (isAdmin || isDashboard || isCode || isProtectedApi) {
+        const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+
+        if (!token) {
+            if (isProtectedApi) {
+                return NextResponse.json(
+                    { success: false, error: "Authentication required" },
+                    { status: 401 }
+                );
+            }
+
+            const url = new URL("/auth/login", request.url);
+            url.searchParams.set("callbackUrl", encodeURI(request.url));
+            return NextResponse.redirect(url);
+        }
+    }
+
+    if (isAdmin) {
+        const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
         const adminEmail = process.env.ADMIN_EMAIL || "admin@documintai.dev";
 
         const isEnvAdmin = token?.email === adminEmail;
