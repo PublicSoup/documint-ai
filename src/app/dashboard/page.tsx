@@ -194,9 +194,15 @@ export default async function DashboardPage(props: {
     const typedFiles = files as unknown as FileWithDocs[];
 
     // Fetch Priority Actions and Hotspots (cached for 60s in server action)
-    const priorityData = await getPriorityActions(teamId);
-    const priorityActions = priorityData.actions;
-    const hotspots = priorityData.hotspots;
+    let priorityActions: Awaited<ReturnType<typeof getPriorityActions>>["actions"] = [];
+    let hotspots: Awaited<ReturnType<typeof getPriorityActions>>["hotspots"] = [];
+    try {
+        const priorityData = await getPriorityActions(session.user.id, teamId);
+        priorityActions = priorityData.actions;
+        hotspots = priorityData.hotspots;
+    } catch (e) {
+        console.error("Failed to fetch priority actions:", e);
+    }
 
     const selectedDocId = searchParams?.docId;
     let selectedFile = null;

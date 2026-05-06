@@ -10,10 +10,10 @@ import { File, Prisma } from "@prisma/client";
 
 // Reconstructed based on usage in src/app/dashboard/page.tsx
 export const getPriorityActions = cache(
-  async (teamId?: string) => {
+  async (userId: string, teamId?: string) => {
     console.log(`[Cache] Fetching priority actions for teamId: ${teamId || 'personal'}`);
     // This is a placeholder implementation. The actual logic would involve complex analysis.
-    const whereClause = teamId ? { teamId } : { userId: (await getServerSession(authOptions))?.user?.id, teamId: null };
+    const whereClause = teamId ? { teamId } : { userId, teamId: null };
 
     // Placeholder data - in a real scenario, this would query for code quality issues, etc.
     const hotspots = await db.file.findMany({
