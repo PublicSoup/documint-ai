@@ -16,7 +16,7 @@ import { ProjectTemplates } from "./project-templates";
 import NotificationsBell from "../notifications-bell";
 import { X, Save, Play, Bot, Layout, Maximize2, Columns, Terminal as TerminalIcon, Settings, Sparkles, GitBranch, Files, Search as SearchIcon, Globe, Loader2, Lock, FileText, Share2, Wand2, Zap, Layout as LayoutIcon, SplitSquareVertical, ChevronUp, ChevronDown, Trash2, SplitSquareHorizontal, Download, Keyboard } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { File } from "@prisma/client";
+import type { File } from "@prisma/client";
 import { cn } from "@/lib/utils";
 import { useToast } from "../toast";
 import { Button } from "../ui/button";

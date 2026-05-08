@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Search as SearchIcon, X, Loader2, FileCode, CornerDownLeft } from "lucide-react";
 import { EnhancedFileTree } from "./enhanced-file-tree";
 import { Button } from "../ui/button";
-import { File } from "@prisma/client";
+import type { File } from "@prisma/client";
 import { cn } from "@/lib/utils";
 import FileCodeIcon from "../file-code-icon";
 

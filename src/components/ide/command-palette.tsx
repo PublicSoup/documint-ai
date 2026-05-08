@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { Search, File as FileIcon, CornerDownLeft, Terminal, Keyboard, Settings, Columns, Map, Eye, Sparkles } from "lucide-react";
-import { File } from "@prisma/client";
+import type { File } from "@prisma/client";
 import { cn } from "@/lib/utils";
 
 interface CommandPaletteProps {

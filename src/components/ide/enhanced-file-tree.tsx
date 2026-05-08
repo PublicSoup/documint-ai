@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { FileCode, Folder, ChevronRight, ChevronDown, Plus, Search, MoreHorizontal, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { File } from "@prisma/client";
+import type { File } from "@prisma/client";
 import { ContextMenu, ContextMenuItem } from "./context-menu";
 import { Copy, Trash2, Pencil, Sparkles, Download, FileText, FolderPlus, RefreshCw } from "lucide-react";
 

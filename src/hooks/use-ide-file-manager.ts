@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { File } from "@prisma/client";
+import type { File } from "@prisma/client";
 import { useToast } from "@/components/toast";
 
 export type IDEFile = File & { content?: string | null };

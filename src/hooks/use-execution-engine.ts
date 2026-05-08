@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { WebContainerManager } from '@/lib/web-container';
 import { Terminal as XTerm } from '@xterm/xterm';
-import { File } from '@prisma/client';
+import type { File } from '@prisma/client';
 
 export type RunStatus = 'idle' | 'installing' | 'starting' | 'ready' | 'error';
 

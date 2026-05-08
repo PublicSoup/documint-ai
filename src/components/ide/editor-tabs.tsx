@@ -2,7 +2,7 @@
 import React from "react";
 import { X, Save, Columns, Bot, Terminal as TerminalIcon, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { File } from "@prisma/client";
+import type { File } from "@prisma/client";
 
 interface EditorTabsProps {
     openFiles: string[];

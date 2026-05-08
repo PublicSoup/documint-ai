@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { File } from "@prisma/client";
+import type { File } from "@prisma/client";
 import { EnhancedFileTree } from "./enhanced-file-tree";
 import { Loader2 } from "lucide-react";
 import { useToast } from "../toast";

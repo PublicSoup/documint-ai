@@ -15,7 +15,7 @@ import {
     Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { File } from "@prisma/client";
+import type { File } from "@prisma/client";
 
 interface IDEToolbarProps {
     showSidebar: boolean;
