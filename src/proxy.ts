@@ -72,19 +72,23 @@ export async function proxy(request: NextRequest) {
     response.headers.set("X-Content-Type-Options", "nosniff");
     response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
     response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
-    response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
-    response.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
-    response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
+    if (!isCode) {
+        response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
+        response.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+    }
+    if (!isCode) {
+        response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
+    }
     response.headers.set("Origin-Agent-Cluster", "?1");
 
     const csp = `
     default-src 'self';
-    script-src 'self' 'unsafe-eval' 'unsafe-inline' https://va.vercel-scripts.com https://js.stripe.com https://cdn.jsdelivr.net;
+    script-src 'self' 'unsafe-eval' 'unsafe-inline' blob: https://va.vercel-scripts.com https://js.stripe.com https://cdn.jsdelivr.net;
     style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net;
     img-src 'self' blob: data: https:;
     font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net;
-    connect-src 'self' https://generativelanguage.googleapis.com https://api.openai.com https://api.anthropic.com https://*.auth0.com https://api.stripe.com https://checkout.stripe.com https://vitals.vercel-insights.com;
-    frame-src 'self' https://*.auth0.com https://checkout.stripe.com https://js.stripe.com https://stackblitz.com;
+    connect-src 'self' blob: ws: wss: https://generativelanguage.googleapis.com https://api.openai.com https://api.anthropic.com https://*.auth0.com https://api.stripe.com https://checkout.stripe.com https://vitals.vercel-insights.com;
+    frame-src 'self' blob: https://*.auth0.com https://checkout.stripe.com https://js.stripe.com https://stackblitz.com;
     worker-src 'self' blob:;
     frame-ancestors 'self';
   `
