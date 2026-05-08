@@ -86,30 +86,27 @@ export function useExecutionEngine({
         await WebContainerManager.mountFiles(fileMounts);
     }, []);
 
-    // Boot WebContainer
-    useEffect(() => {
-        const boot = async () => {
-            try {
-                const wc = await WebContainerManager.getInstance();
-                setWebContainerBooted(true);
+    const bootRuntime = useCallback(async () => {
+        if (bootedRef.current) {
+            return true;
+        }
 
-                // Mount initial files
-                await mountAll(files);
-
-                // Server Ready Listener
-                wc.on('server-ready', (port, url) => {
-                    setPreviewUrl(url);
-                    setRunStatus('ready');
-                    setIsPreviewOpen(true);
-                });
-
-            } catch (e) {
-                console.error("WebContainer Boot Error:", e);
-                setRunStatus('error');
-            }
-        };
-
-        boot();
+        try {
+            const wc = await WebContainerManager.getInstance();
+            setWebContainerBooted(true);
+            bootedRef.current = true;
+            await mountAll(files);
+            wc.on('server-ready', (port, url) => {
+                setPreviewUrl(url);
+                setRunStatus('ready');
+                setIsPreviewOpen(true);
+            });
+            return true;
+        } catch (e) {
+            console.error("WebContainer Boot Error:", e);
+            setRunStatus('error');
+            return false;
+        }
     }, [files, mountAll]);
 
     // Sync Files
@@ -153,15 +150,8 @@ export function useExecutionEngine({
         let isBooted = bootedRef.current;
         if (!isBooted) {
             term.writeln('\r\nWaiting for WebContainer to boot...\r\n');
-            for (let i = 0; i < 50; i++) { // wait up to 10 seconds
-                await new Promise(r => setTimeout(r, 200));
-                if (bootedRef.current) {
-                    isBooted = true;
-                    break;
-                }
-            }
+            isBooted = await bootRuntime();
         }
-
         if (!isBooted) {
             term.writeln('\r\nError: WebContainer failed to boot in time.\r\n');
             setRunStatus('error');
@@ -229,7 +219,7 @@ export function useExecutionEngine({
             }
             setRunStatus('error');
         }
-    }, [files]);
+    }, [bootRuntime, files]);
 
     return {
         runStatus,
@@ -239,6 +229,7 @@ export function useExecutionEngine({
         isPreviewOpen,
         setIsPreviewOpen,
         run,
-        mountAll
+        mountAll,
+        bootRuntime
     };
 }

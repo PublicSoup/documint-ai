@@ -3,9 +3,9 @@ import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getUserSubscription } from "@/lib/subscription";
-import IDELayout from "@/components/ide/enhanced-ide-layout";
 import { Metadata } from "next";
 import { Suspense } from "react";
+import CodeClient from "./code-client";
 
 export const metadata: Metadata = {
     title: "Web IDE | DocuMint AI",
@@ -43,7 +43,7 @@ export default async function CodePage() {
         <div className="fixed inset-0 h-screen w-screen overflow-hidden bg-[#1e1e1e] overscroll-none z-[9999]">
             {/* IDE takes over full screen, no dashboard layout wrapper */}
             <Suspense fallback={<div className="flex items-center justify-center h-full text-white/50">Loading IDE...</div>}>
-                <IDELayout files={files} user={session.user} subscription={subscription} />
+                <CodeClient files={files} user={session.user} subscription={subscription} />
             </Suspense>
         </div>
     );
