@@ -195,7 +195,8 @@ export function IDEStatusBar({
                 <button
                     type="button"
                     onClick={() => void handleGitSync()}
-                    className="flex items-center gap-1.5 hover:bg-white/[0.04] px-2 h-full transition-colors cursor-pointer rounded"
+                    disabled={syncingGit}
+                    className="flex items-center gap-1.5 hover:bg-white/[0.04] px-2 h-full transition-colors cursor-pointer rounded disabled:opacity-60 disabled:cursor-wait"
                     title={syncingGit ? "Syncing git..." : "Sync repository"}
                 >
                     {syncingGit ? (
@@ -208,6 +209,7 @@ export function IDEStatusBar({
 
                 {(isFileLimitNear || isTokenLimitNear || plan.toLowerCase() === "free") && (
                     <button
+                        type="button"
                         onClick={() => {
                             window.location.href = "/checkout";
                         }}

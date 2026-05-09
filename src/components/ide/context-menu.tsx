@@ -33,18 +33,19 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
             }
         };
         const handleScroll = () => onClose();
+        const handleContextMenu = (e: MouseEvent) => {
+            e.preventDefault();
+            onClose();
+        };
 
         window.addEventListener("click", handleClick);
         window.addEventListener("scroll", handleScroll, true);
-        window.addEventListener("contextmenu", (e) => {
-            e.preventDefault();
-            onClose();
-        });
+        window.addEventListener("contextmenu", handleContextMenu);
 
         return () => {
             window.removeEventListener("click", handleClick);
             window.removeEventListener("scroll", handleScroll, true);
-            window.removeEventListener("contextmenu", onClose);
+            window.removeEventListener("contextmenu", handleContextMenu);
         };
     }, [onClose]);
 

@@ -42,9 +42,10 @@ interface EnhancedFileTreeProps {
     onSelect: (fileId: string) => void;
     onAction?: (action: "ai" | "delete" | "rename" | "new_file" | "new_folder", fileId?: string) => void;
     onRefresh?: () => void;
+    isRefreshing?: boolean;
 }
 
-export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRefresh }: EnhancedFileTreeProps) {
+export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRefresh, isRefreshing = false }: EnhancedFileTreeProps) {
     const [search, setSearch] = useState("");
     const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(["Project"]));
     const [menu, setMenu] = useState<{ x: number; y: number; nodeId: string; nodeType: "file" | "folder" } | null>(null);
@@ -85,10 +86,11 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
         // Create root folder
         const rootFolder = getOrCreateFolder("Project");
 
-        // Process each file
         files.forEach(file => {
-            // Parse file path if it contains slashes
-            const pathParts = file.name.split('/');
+            const normalizedName = file.name.endsWith('/') ? file.name.slice(0, -1) : file.name;
+            const pathParts = normalizedName.split('/').filter(Boolean);
+            if (pathParts.length === 0) return;
+
             const fileName = pathParts[pathParts.length - 1];
             const folderParts = pathParts.slice(0, -1);
 
@@ -110,7 +112,11 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
                 }
             });
 
-            // Add file to current folder
+            if (file.language === "folder" || file.name.endsWith('/')) {
+                getOrCreateFolder(fileName, currentPath);
+                return;
+            }
+
             const fileNode: TreeNode = {
                 id: file.id,
                 name: fileName,
@@ -142,6 +148,12 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
 
     const handleContextMenu = (e: React.MouseEvent, nodeId: string, nodeType: "file" | "folder") => {
         e.preventDefault();
+        setMenu({ x: e.clientX, y: e.clientY, nodeId, nodeType });
+    };
+
+    const handleMenuButtonClick = (e: React.MouseEvent<HTMLButtonElement>, nodeId: string, nodeType: "file" | "folder") => {
+        e.preventDefault();
+        e.stopPropagation();
         setMenu({ x: e.clientX, y: e.clientY, nodeId, nodeType });
     };
 
@@ -232,7 +244,14 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
                             <Folder className={cn("w-3 h-3 shrink-0 transition-colors", isExpanded ? "text-purple-400/70" : "text-purple-400/40 group-hover:text-purple-400/60")} />
                             <span className="font-semibold truncate text-[11px]">{node.name}</span>
                         </div>
-                        <MoreHorizontal className="w-3 h-3 text-white/15 opacity-0 group-hover:opacity-100 shrink-0 ml-1" />
+                        <button
+                            type="button"
+                            onClick={(e) => handleMenuButtonClick(e, node.id, "folder")}
+                            className="p-0.5 rounded text-white/15 opacity-0 group-hover:opacity-100 shrink-0 ml-1 hover:text-white/60 hover:bg-white/[0.06] focus:opacity-100"
+                            title={`Actions for ${node.name}`}
+                        >
+                            <MoreHorizontal className="w-3 h-3" />
+                        </button>
                     </div>
                     {isExpanded && node.children && (
                         <div className="border-l border-white/[0.04] ml-3">
@@ -268,7 +287,14 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
                             <Lock className="w-3 h-3 text-amber-500/50 shrink-0 ml-auto" />
                         )}
                     </div>
-                    <MoreHorizontal className="w-3 h-3 text-white/15 opacity-0 group-hover:opacity-100 shrink-0 ml-1" />
+                    <button
+                        type="button"
+                        onClick={(e) => node.file && handleMenuButtonClick(e, node.file.id, "file")}
+                        className="p-0.5 rounded text-white/15 opacity-0 group-hover:opacity-100 shrink-0 ml-1 hover:text-white/60 hover:bg-white/[0.06] focus:opacity-100"
+                        title={`Actions for ${node.name}`}
+                    >
+                        <MoreHorizontal className="w-3 h-3" />
+                    </button>
                 </div>
             );
         }
@@ -311,13 +337,16 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
                     <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">Explorer</span>
                     <div className="flex gap-1">
                         <button
+                            type="button"
                             onClick={() => onRefresh?.()}
-                            className="text-white/25 hover:text-white/50 transition-colors p-1 rounded hover:bg-white/[0.04]"
+                            disabled={isRefreshing}
+                            className="text-white/25 hover:text-white/50 transition-colors p-1 rounded hover:bg-white/[0.04] disabled:opacity-40 disabled:cursor-wait"
                             title="Refresh"
                         >
-                            <RefreshCw className="w-3.5 h-3.5" />
+                            <RefreshCw className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin")} />
                         </button>
                         <button
+                            type="button"
                             onClick={() => onAction?.("new_file", "Project")}
                             className="text-white/25 hover:text-white/50 transition-colors p-1 rounded hover:bg-white/[0.04]"
                             title="New File"

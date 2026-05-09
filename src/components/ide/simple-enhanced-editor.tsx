@@ -23,6 +23,9 @@ export interface SimpleEnhancedEditorRef {
     getContent: () => string;
     focus: () => void;
     setCursorToEnd: () => void;
+    formatDocument: () => void;
+    toggleMinimap: () => boolean;
+    toggleWordWrap: () => boolean;
 }
 
 const SimpleEnhancedEditorComponent = ({
@@ -39,6 +42,8 @@ const SimpleEnhancedEditorComponent = ({
 }: SimpleEnhancedEditorProps, ref: React.Ref<SimpleEnhancedEditorRef>) => {
     const editorRef = useRef<any>(null);
     const monacoRef = useRef<Monaco | null>(null);
+    const minimapEnabledRef = useRef(true);
+    const wordWrapEnabledRef = useRef(true);
 
     // Expose methods to parent components
     useImperativeHandle(ref, () => ({
@@ -107,6 +112,28 @@ const SimpleEnhancedEditorComponent = ({
                     editorRef.current.focus();
                 }
             }
+        },
+        formatDocument: () => {
+            const editor = editorRef.current;
+            if (editor) {
+                const action = editor.getAction("editor.action.formatDocument");
+                action?.run();
+                editor.focus();
+            }
+        },
+        toggleMinimap: () => {
+            minimapEnabledRef.current = !minimapEnabledRef.current;
+            editorRef.current?.updateOptions({
+                minimap: { enabled: minimapEnabledRef.current, scale: 1, showSlider: "mouseover" }
+            });
+            return minimapEnabledRef.current;
+        },
+        toggleWordWrap: () => {
+            wordWrapEnabledRef.current = !wordWrapEnabledRef.current;
+            editorRef.current?.updateOptions({
+                wordWrap: wordWrapEnabledRef.current ? "on" : "off"
+            });
+            return wordWrapEnabledRef.current;
         }
     }));
 

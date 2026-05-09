@@ -6,7 +6,7 @@ import ErrorBoundary from "@/components/error-boundary";
 import { SimpleEnhancedEditor, SimpleEnhancedEditorRef } from "./simple-enhanced-editor";
 import DynamicDiagramViewer from "../dynamic-diagram-viewer";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 import type { Monaco } from "@monaco-editor/react";
 import { Breadcrumbs } from "./breadcrumbs";
@@ -168,8 +168,10 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
     const [terminalMaximized, setTerminalMaximized] = useState(false);
     const [typesLoaded, setTypesLoaded] = useState(false);
+    const [sidebarSearchQuery, setSidebarSearchQuery] = useState("");
 
     const monacoInstanceRef = useRef<Monaco | null>(null);
+    const runRequestInFlightRef = useRef(false);
     const [showSecretsManager, setShowSecretsManager] = useState(false);
     const [envSecrets, setEnvSecrets] = useState<{ key: string; value: string }[]>([]);
 
@@ -217,6 +219,9 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
 
     const handleRunProject = async () => {
+        if (runRequestInFlightRef.current || runStatus === 'installing' || runStatus === 'starting') return;
+
+        runRequestInFlightRef.current = true;
         setShowTerminal(true);
         setIsPreviewOpen(true);
 
@@ -238,6 +243,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
             }
         } catch (e) {
             toast(`Failed to run: ${e}`, "error");
+        } finally {
+            runRequestInFlightRef.current = false;
         }
     };
 
@@ -259,6 +266,17 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     }, [activeFileId, fileContents, unsavedChanges, showSidebar, showAIChat, showTerminal]);
 
     const activeFile = files.find(f => f.id === activeFileId);
+    const sidebarSearchResults = useMemo(() => {
+        const query = sidebarSearchQuery.trim().toLowerCase();
+        if (query.length < 2) return [];
+
+        return files
+            .filter(file => {
+                const content = fileContents[file.id] ?? file.content ?? "";
+                return file.name.toLowerCase().includes(query) || content.toLowerCase().includes(query);
+            })
+            .slice(0, 50);
+    }, [files, fileContents, sidebarSearchQuery]);
 
     return (
         <div className="flex h-screen w-screen overflow-hidden bg-[#030014] text-white fixed inset-0 z-[100] selection:bg-purple-500/30">
@@ -335,6 +353,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
                 <div className="flex flex-col gap-1">
                     <button
+                        type="button"
                         onClick={(e) => {
                             e.stopPropagation();
                             setShowTerminal(!showTerminal);
@@ -349,6 +368,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         <TerminalIcon className="w-5 h-5" />
                     </button>
                     <button
+                        type="button"
                         onClick={() => setShowKeyboardShortcuts(true)}
                         className="p-2 text-white/25 hover:text-white/50 hover:bg-white/[0.04] rounded-lg transition-all duration-200"
                         title="Keyboard Shortcuts"
@@ -393,13 +413,41 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                     <div className="relative">
                                         <SearchIcon className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
                                         <input
+                                            value={sidebarSearchQuery}
+                                            onChange={(event) => setSidebarSearchQuery(event.target.value)}
                                             placeholder="Search in project..."
                                             className="w-full bg-black/20 border border-white/[0.06] rounded-md pl-9 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-purple-500/50 focus:bg-black/30 transition-all"
+                                            autoFocus
                                         />
                                     </div>
                                 </div>
-                                <div className="flex-1 flex items-center justify-center p-4 text-center">
-                                    <p className="text-[10px] text-white/20 uppercase tracking-wider font-bold">Search results will appear here</p>
+                                <div className="flex-1 overflow-y-auto p-2">
+                                    {sidebarSearchQuery.trim().length < 2 ? (
+                                        <div className="h-full flex items-center justify-center p-4 text-center">
+                                            <p className="text-[10px] text-white/20 uppercase tracking-wider font-bold">Type at least 2 chars to search</p>
+                                        </div>
+                                    ) : sidebarSearchResults.length === 0 ? (
+                                        <div className="h-full flex items-center justify-center p-4 text-center">
+                                            <p className="text-[10px] text-white/20 uppercase tracking-wider font-bold">No results found</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-1">
+                                            {sidebarSearchResults.map(file => (
+                                                <button
+                                                    type="button"
+                                                    key={file.id}
+                                                    onClick={() => handleFileSelect(file.id)}
+                                                    className={cn(
+                                                        "w-full flex items-center gap-2 p-2 rounded-lg hover:bg-white/[0.05] text-left transition-colors",
+                                                        activeFileId === file.id ? "bg-purple-500/10 text-purple-300" : "text-white/55"
+                                                    )}
+                                                >
+                                                    <FileText className="w-3.5 h-3.5 shrink-0 text-white/30" />
+                                                    <span className="text-[11px] truncate">{file.name}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -417,6 +465,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                     filePath={activeFile?.name || "No file selected"}
                     isSaving={isSaving}
                     isDeploying={runStatus === 'installing' || runStatus === 'starting'}
+                    canShare={Boolean(activeFile)}
                     onDeploy={handleRunProject}
                     onShare={async () => {
                         if (activeFile) {
@@ -475,7 +524,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         fileContents={fileContents} replaceFileContent={replaceFileContent}
                         unsavedChanges={unsavedChanges}
                         handleSave={handleSave} handleRunProject={handleRunProject}
-                        runStatus={runStatus} webContainerBooted={webContainerBooted}
+                        runStatus={runStatus}
                         setShowSecretsManager={setShowSecretsManager}
                     />
                 </div>
@@ -773,10 +822,33 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                     switch(cmdId) {
                         case 'toggle-terminal': setShowTerminal(!showTerminal); break;
                         case 'toggle-sidebar': setShowSidebar(!showSidebar); break;
-                        case 'toggle-minimap': break;
-                        case 'format-document': break;
+                        case 'toggle-minimap': {
+                            if (!editorRef.current) {
+                                toast("Open a file before toggling the minimap", "warning");
+                                break;
+                            }
+                            const enabled = editorRef.current?.toggleMinimap();
+                            toast(`Minimap ${enabled ? 'enabled' : 'disabled'}`, 'success');
+                            break;
+                        }
+                        case 'format-document':
+                            if (!editorRef.current) {
+                                toast("Open a file before formatting", "warning");
+                                break;
+                            }
+                            editorRef.current?.formatDocument();
+                            toast("Format document requested", "success");
+                            break;
                         case 'go-to-settings': setShowKeyboardShortcuts(true); break;
-                        case 'toggle-wordwrap': break;
+                        case 'toggle-wordwrap': {
+                            if (!editorRef.current) {
+                                toast("Open a file before toggling word wrap", "warning");
+                                break;
+                            }
+                            const enabled = editorRef.current?.toggleWordWrap();
+                            toast(`Word wrap ${enabled ? 'enabled' : 'disabled'}`, 'success');
+                            break;
+                        }
                         case 'keyboard-shortcuts': setShowKeyboardShortcuts(true); break;
                     }
                 }}

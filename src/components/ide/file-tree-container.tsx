@@ -8,7 +8,12 @@ import { Loader2 } from "lucide-react";
 import { useToast } from "../toast";
 import { CreateFileDialog } from "./create-file-dialog";
 
-const fetcher = (url: string) => fetch(url).then((res) => {
+const getErrorMessage = async (res: Response) => {
+    const data = await res.json().catch(() => null);
+    return data?.message || data?.error || res.statusText || "Request failed";
+};
+
+const fetcher = (url: string) => fetch(url, { cache: "no-store" }).then((res) => {
     if (!res.ok) {
         throw new Error('An error occurred while fetching the data.');
     }
@@ -29,6 +34,7 @@ export function FileTreeContainer({ activeFileId, onSelect, onFileCreated, onFil
         revalidateOnReconnect: false,
     });
     const { toast } = useToast();
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     const [dialogState, setDialogState] = useState<{ open: boolean; type: "file" | "folder"; parentId: string }>({
         open: false,
@@ -47,13 +53,28 @@ export function FileTreeContainer({ activeFileId, onSelect, onFileCreated, onFil
                     parentId: dialogState.parentId,
                 }),
             });
-            if (!res.ok) throw new Error(await res.text());
+            if (!res.ok) throw new Error(await getErrorMessage(res));
             const newFile = await res.json();
             toast(`Created ${dialogState.type} '${name}'`, "success");
             onFileCreated(newFile);
-            mutate();
+            await mutate();
+            return true;
         } catch (e: any) {
             toast(`Failed to create ${dialogState.type}: ${e.message}`, "error");
+            return false;
+        }
+    };
+
+    const handleRefresh = async () => {
+        if (isRefreshing) return;
+        setIsRefreshing(true);
+        try {
+            await mutate();
+            toast("File tree refreshed", "success");
+        } catch (e: any) {
+            toast(`Failed to refresh files: ${e.message}`, "error");
+        } finally {
+            setIsRefreshing(false);
         }
     };
 
@@ -77,13 +98,13 @@ export function FileTreeContainer({ activeFileId, onSelect, onFileCreated, onFil
                     const res = await fetch(`/api/files/${contextId}`, {
                         method: "PUT",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ name: newName }) // API should handle full path update
+                        body: JSON.stringify({ newName })
                     });
-                    if (!res.ok) throw new Error(await res.text());
+                    if (!res.ok) throw new Error(await getErrorMessage(res));
                     const updatedFile = await res.json();
                     toast(`Renamed to ${newName}`, "success");
                     onFileRenamed(updatedFile.id, updatedFile.name);
-                    mutate();
+                    await mutate();
                 } catch (e: any) {
                     toast(`Failed to rename: ${e.message}`, "error");
                 }
@@ -96,10 +117,10 @@ export function FileTreeContainer({ activeFileId, onSelect, onFileCreated, onFil
                 if (confirm(`Are you sure you want to delete ${fileToDelete.name}?`)) {
                     try {
                         const res = await fetch(`/api/files/${contextId}`, { method: "DELETE" });
-                        if (!res.ok) throw new Error(await res.text());
+                        if (!res.ok) throw new Error(await getErrorMessage(res));
                         toast("File deleted", "success");
                         onFileDeleted(contextId);
-                        mutate();
+                        await mutate();
                     } catch (e: any) {
                         toast(`Failed to delete: ${e.message}`, "error");
                     }
@@ -121,6 +142,7 @@ export function FileTreeContainer({ activeFileId, onSelect, onFileCreated, onFil
             <div className="flex flex-col items-center justify-center h-full bg-[#030014] border-r border-white/[0.04] p-4">
                 <p className="text-xs text-red-400/70">Failed to load file tree.</p>
                 <button
+                    type="button"
                     onClick={() => mutate()}
                     className="mt-2 px-3 py-1 text-xs bg-white/5 hover:bg-white/10 rounded transition-colors"
                 >
@@ -137,7 +159,8 @@ export function FileTreeContainer({ activeFileId, onSelect, onFileCreated, onFil
                 activeFileId={activeFileId}
                 onSelect={onSelect}
                 onAction={handleAction}
-                onRefresh={() => mutate()}
+                onRefresh={handleRefresh}
+                isRefreshing={isRefreshing}
             />
             <CreateFileDialog
                 open={dialogState.open}

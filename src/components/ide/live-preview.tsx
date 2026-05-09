@@ -25,8 +25,10 @@ export function LivePreview({ url, runStatus = 'idle', onClose, onRun }: LivePre
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [viewport, setViewport] = useState<ViewportSize>("desktop");
     const [iframeKey, setIframeKey] = useState(0);
+    const isRunning = runStatus === 'installing' || runStatus === 'starting';
 
     const handleRefresh = () => {
+        if (!url) return;
         setIframeKey(prev => prev + 1);
     };
 
@@ -45,6 +47,7 @@ export function LivePreview({ url, runStatus = 'idle', onClose, onRun }: LivePre
                     <div className="flex items-center gap-0.5 bg-white/[0.04] rounded-md p-0.5">
                         {(Object.entries(VIEWPORT_SIZES) as [ViewportSize, typeof VIEWPORT_SIZES[ViewportSize]][]).map(([key, { icon, label }]) => (
                             <button
+                                type="button"
                                 key={key}
                                 onClick={() => setViewport(key)}
                                 title={label}
@@ -63,21 +66,26 @@ export function LivePreview({ url, runStatus = 'idle', onClose, onRun }: LivePre
 
                 <div className="flex items-center gap-1">
                     <button
+                        type="button"
                         onClick={handleRefresh}
-                        className="p-1 text-white/30 hover:text-white/60 transition-colors rounded hover:bg-white/[0.04]"
-                        title="Refresh"
+                        disabled={!url}
+                        className="p-1 text-white/30 hover:text-white/60 transition-colors rounded hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none"
+                        title={url ? "Refresh" : "No preview to refresh"}
                     >
                         <RefreshCw className="w-3.5 h-3.5" />
                     </button>
                     <button
+                        type="button"
                         onClick={handleOpenExternal}
-                        className="p-1 text-white/30 hover:text-white/60 transition-colors rounded hover:bg-white/[0.04]"
-                        title="Open in new tab"
+                        disabled={!url}
+                        className="p-1 text-white/30 hover:text-white/60 transition-colors rounded hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none"
+                        title={url ? "Open in new tab" : "No preview URL available"}
                     >
                         <ExternalLink className="w-3.5 h-3.5" />
                     </button>
                     {onClose && (
                         <button
+                            type="button"
                             onClick={onClose}
                             className="p-1 text-white/30 hover:text-white/60 transition-colors rounded hover:bg-white/[0.04]"
                             title="Close preview"
@@ -123,8 +131,10 @@ export function LivePreview({ url, runStatus = 'idle', onClose, onRun }: LivePre
                                 </div>
                                 {onRun && (
                                     <button
+                                        type="button"
                                         onClick={onRun}
-                                        className="mt-2 flex items-center gap-2 px-5 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white text-xs font-medium transition-colors"
+                                        disabled={isRunning}
+                                        className="mt-2 flex items-center gap-2 px-5 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none"
                                     >
                                         <RefreshCw className="w-3.5 h-3.5" />
                                         Retry
@@ -142,8 +152,10 @@ export function LivePreview({ url, runStatus = 'idle', onClose, onRun }: LivePre
                                 </div>
                                 {onRun && (
                                     <button
+                                        type="button"
                                         onClick={onRun}
-                                        className="mt-2 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 text-white text-sm font-semibold shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30 hover:from-emerald-500 hover:to-green-500 transition-all active:scale-95"
+                                        disabled={isRunning}
+                                        className="mt-2 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 text-white text-sm font-semibold shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30 hover:from-emerald-500 hover:to-green-500 transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none"
                                     >
                                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
                                         Run Project

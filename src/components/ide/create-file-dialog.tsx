@@ -13,18 +13,26 @@ interface CreateFileDialogProps {
   onOpenChange: (open: boolean) => void;
   type: "file" | "folder";
   parentId: string;
-  onCreate: (name: string) => void;
+  onCreate: (name: string) => boolean | Promise<boolean>;
 }
 
 export function CreateFileDialog({ open, onOpenChange, type, parentId, onCreate }: CreateFileDialogProps) {
   const [name, setName] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (name.trim()) {
-      onCreate(name.trim());
-      setName("");
-      onOpenChange(false);
+    if (name.trim() && !isCreating) {
+      setIsCreating(true);
+      try {
+        const created = await onCreate(name.trim());
+        if (created) {
+          setName("");
+          onOpenChange(false);
+        }
+      } finally {
+        setIsCreating(false);
+      }
     }
   };
 
@@ -53,10 +61,10 @@ export function CreateFileDialog({ open, onOpenChange, type, parentId, onCreate 
             </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={isCreating}>
               Cancel
             </Button>
-            <Button type="submit">Create</Button>
+            <Button type="submit" disabled={!name.trim() || isCreating} isLoading={isCreating}>Create</Button>
           </DialogFooter>
         </form>
       </DialogContent>

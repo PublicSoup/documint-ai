@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { RefreshCw, Plus, GitCommitHorizontal } from 'lucide-react';
+import { RefreshCw, Plus, GitCommitHorizontal, Loader2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface GitStatus {
@@ -32,6 +32,8 @@ export function SourceControlPanel() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [commitMessage, setCommitMessage] = useState('');
+    const [stagingPath, setStagingPath] = useState<string | null>(null);
+    const [isCommitting, setIsCommitting] = useState(false);
 
     const fetchStatus = useCallback(async () => {
         setIsLoading(true);
@@ -56,35 +58,53 @@ export function SourceControlPanel() {
     }, [fetchStatus]);
 
     const handleStage = async (filePath: string) => {
+        if (stagingPath || isCommitting) return;
+
+        setStagingPath(filePath);
+        setError(null);
         try {
             const res = await fetch('/api/git/add', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filePath }),
             });
-            if (!res.ok) throw new Error('Failed to stage file');
+            if (!res.ok) {
+                const errorData = await res.json().catch(() => ({}));
+                throw new Error(errorData.message || 'Failed to stage file');
+            }
             await fetchStatus(); // Refresh status
         } catch (e: any) {
             setError(e.message);
+        } finally {
+            setStagingPath(null);
         }
     };
 
     const handleCommit = async () => {
+        if (isCommitting || stagingPath) return;
+
         if (!commitMessage.trim()) {
             setError("Commit message cannot be empty.");
             return;
         }
+        setIsCommitting(true);
+        setError(null);
         try {
             const res = await fetch('/api/git/commit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: commitMessage }),
             });
-            if (!res.ok) throw new Error('Failed to commit changes');
+            if (!res.ok) {
+                const errorData = await res.json().catch(() => ({}));
+                throw new Error(errorData.message || 'Failed to commit changes');
+            }
             setCommitMessage('');
             await fetchStatus(); // Refresh status
         } catch (e: any) {
             setError(e.message);
+        } finally {
+            setIsCommitting(false);
         }
     };
     
@@ -105,8 +125,8 @@ export function SourceControlPanel() {
                     className="mb-2"
                     rows={3}
                 />
-                <Button onClick={handleCommit} disabled={isLoading || !commitMessage.trim()} className="mb-4">
-                    <GitCommitHorizontal className="mr-2 h-4 w-4" /> Commit
+                <Button onClick={handleCommit} disabled={isLoading || isCommitting || Boolean(stagingPath) || !commitMessage.trim()} className="mb-4">
+                    {isCommitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <GitCommitHorizontal className="mr-2 h-4 w-4" />} Commit
                 </Button>
                 
                 <h3 className="font-semibold mb-2">Changes</h3>
@@ -129,8 +149,8 @@ export function SourceControlPanel() {
                                         <span className="font-mono text-sm mr-4">{path}</span>
                                         <span className="text-xs font-bold text-blue-500">{fileStatus}</span>
                                     </span>
-                                    <Button variant="outline" size="sm" onClick={() => handleStage(path)}>
-                                        <Plus className="h-4 w-4" />
+                                    <Button variant="outline" size="sm" onClick={() => handleStage(path)} disabled={Boolean(stagingPath) || isCommitting}>
+                                        {stagingPath === path ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                                     </Button>
                                 </li>
                             ))}

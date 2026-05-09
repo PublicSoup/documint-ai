@@ -1,20 +1,19 @@
 "use client";
 
-import React from "react";
 import { cn } from "@/lib/utils";
 import {
     ChevronRight,
     Share2,
     Settings2,
     Box,
-    Play,
-    Globe
+    Play
 } from "lucide-react";
 
 interface ContextualHeaderProps {
     filePath?: string;
     isSaving?: boolean;
     isDeploying?: boolean;
+    canShare?: boolean;
     onShare?: () => void;
     onSettings?: () => void;
     onDeploy?: () => void;
@@ -24,6 +23,7 @@ export function ContextualHeader({
     filePath = "Select a file",
     isSaving,
     isDeploying,
+    canShare = true,
     onShare,
     onSettings,
     onDeploy
@@ -66,6 +66,7 @@ export function ContextualHeader({
 
             <div className="flex items-center gap-1">
                 <button
+                    type="button"
                     onClick={onDeploy}
                     disabled={isDeploying}
                     className={cn(
@@ -83,14 +84,17 @@ export function ContextualHeader({
                 <div className="w-px h-4 bg-white/[0.06] mx-1" />
 
                 <button
+                    type="button"
                     onClick={onShare}
-                    className="p-2 rounded-lg hover:bg-white/[0.04] text-white/30 hover:text-white/60 transition-all active:scale-95"
-                    title="Share"
+                    disabled={!canShare}
+                    className="p-2 rounded-lg hover:bg-white/[0.04] text-white/30 hover:text-white/60 transition-all active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
+                    title={canShare ? "Share" : "Select a file to share"}
                 >
                     <Share2 className="w-3.5 h-3.5" />
                 </button>
 
                 <button
+                    type="button"
                     onClick={onSettings}
                     className="p-2 rounded-lg hover:bg-white/[0.04] text-white/30 hover:text-white/60 transition-all active:scale-95"
                     title="IDE Configuration"

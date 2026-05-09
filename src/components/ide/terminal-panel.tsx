@@ -24,41 +24,46 @@ export function TerminalPanel({
     setTerminalInstance
 }: TerminalPanelProps) {
     const { toast } = useToast();
+    const [terminalInstance, setLocalTerminalInstance] = useState<any>(null);
 
     return (
         <div className={cn("flex-none border-t border-white/[0.06] bg-[#020010] flex flex-col shadow-[0_-4px_30px_rgba(0,0,0,0.5)] z-20", terminalMaximized ? "h-[60vh]" : "h-32")}>
             <div className="flex-none h-8 flex items-center justify-between px-3 border-b border-white/[0.04] select-none bg-[#030014]">
                 <div className="flex items-center gap-4 h-full">
-                    <button className="h-full text-[11px] font-medium text-white/80 flex items-center gap-1.5 px-2 relative">
+                    <button type="button" disabled className="h-full text-[11px] font-medium text-white/80 flex items-center gap-1.5 px-2 relative cursor-default">
                         WebContainerTerminal
                         <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-purple-500 to-violet-400" />
                     </button>
-                    <button className="h-full text-[11px] font-medium text-white/25 hover:text-white/50 flex items-center gap-1.5 px-2 transition-colors">
+                    <button type="button" disabled className="h-full text-[11px] font-medium text-white/20 flex items-center gap-1.5 px-2 transition-colors cursor-not-allowed">
                         Output
                     </button>
-                    <button className="h-full text-[11px] font-medium text-white/25 hover:text-white/50 flex items-center gap-1.5 px-2 transition-colors">
+                    <button type="button" disabled className="h-full text-[11px] font-medium text-white/20 flex items-center gap-1.5 px-2 transition-colors cursor-not-allowed">
                         Problems
                         <span className="bg-purple-500/15 text-purple-300/60 px-1 rounded-full text-[9px] font-bold">0</span>
                     </button>
-                    <button className="h-full text-[11px] font-medium text-white/25 hover:text-white/50 flex items-center gap-1.5 px-2 transition-colors">
+                    <button type="button" disabled className="h-full text-[11px] font-medium text-white/20 flex items-center gap-1.5 px-2 transition-colors cursor-not-allowed">
                         Debug Console
                     </button>
                 </div>
                 <div className="flex items-center gap-1.5">
-                    <button className="p-1 rounded hover:bg-white/[0.06] text-white/25 hover:text-white/60 transition-colors" title="Split">
+                    <button type="button" disabled className="p-1 rounded text-white/15 transition-colors cursor-not-allowed" title="Split unavailable">
                         <SplitSquareHorizontal className="w-3.5 h-3.5" />
                     </button>
                     <button
+                        type="button"
                         onClick={() => {
-                            toast('Terminal clear not available in interactive mode', "warning");
+                            terminalInstance?.clear();
+                            toast('Terminal cleared', "success");
                         }}
-                        className="p-1 rounded hover:bg-white/[0.06] text-white/25 hover:text-white/60 transition-colors"
-                        title="Clear Terminal"
+                        disabled={!terminalInstance}
+                        className="p-1 rounded hover:bg-white/[0.06] text-white/25 hover:text-white/60 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                        title={terminalInstance ? "Clear Terminal" : "Terminal is starting"}
                     >
                         <Trash2 className="w-3.5 h-3.5" />
                     </button>
                     <div className="w-px h-3 bg-white/[0.06] mx-1" />
                     <button
+                        type="button"
                         onClick={() => setTerminalMaximized(!terminalMaximized)}
                         className="p-1 rounded hover:bg-white/[0.06] text-white/25 hover:text-white/60 transition-colors"
                         title={terminalMaximized ? 'Restore' : 'Maximize'}
@@ -66,6 +71,7 @@ export function TerminalPanel({
                         {terminalMaximized ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
                     </button>
                     <button
+                        type="button"
                         onClick={() => setShowTerminal(false)}
                         className="p-1 rounded hover:bg-red-500/10 text-white/25 hover:text-red-400 transition-colors"
                         title="Close"
@@ -78,6 +84,7 @@ export function TerminalPanel({
             <div className="flex-1 min-h-0 bg-[#020010] p-1 pl-3 overflow-hidden">
                 <WebContainerTerminal
                     onReady={(term) => {
+                        setLocalTerminalInstance(term);
                         setTerminalInstance(term);
                     }}
                     onProcessStart={(process) => {

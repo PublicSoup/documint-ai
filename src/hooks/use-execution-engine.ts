@@ -129,6 +129,8 @@ export function useExecutionEngine({
 
     // Run Command
     const run = useCallback(async () => {
+        setRunStatus('starting');
+
         // Await terminal initialization (solves UI optimism race condition)
         let term = termRef.current;
         if (!term) {
@@ -143,6 +145,7 @@ export function useExecutionEngine({
         
         if (!term) {
             console.error("Terminal instance never materialized");
+            setRunStatus('error');
             return;
         }
 
