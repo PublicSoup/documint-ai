@@ -31,7 +31,16 @@ export async function GET() {
 
         await enforceRateLimit(session.user.id, "api");
 
-        const userWorkspacePath = await syncUserWorkspaceToWebContainer(session.user.id);
+        let userWorkspacePath: string;
+        try {
+            userWorkspacePath = await syncUserWorkspaceToWebContainer(session.user.id);
+        } catch (syncError) {
+            // Graceful degradation: if workspace sync fails (e.g. schema mismatch, DB issue),
+            // return a default "no changes" status instead of failing the request.
+            // This prevents cascading failures in the IDE.
+            console.warn("[Git Status] Workspace sync failed, returning default status:", syncError);
+            return NextResponse.json({ status: "## No changes detected (workspace unavailable)" });
+        }
 
         const gitProcess = await WebContainerManager.spawn('git', {
             args: ['status', '--short', '--branch'],

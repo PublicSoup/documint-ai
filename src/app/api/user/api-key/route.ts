@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { z } from "zod";
 import { saveUserApiKey, deleteUserApiKey, getUserAiUsage } from "@/lib/ai-usage";
+import { validateApiKey as validateGoogleApiKey } from "@/lib/ai";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, validateBody } from "@/lib/api-utils";
 import { db } from "@/lib/db";
@@ -58,6 +59,14 @@ export async function POST(req: NextRequest) {
         await enforceRateLimit(session.user.id, "security");
 
         const { apiKey } = await validateBody(req, saveKeySchema);
+
+        const validation = await validateGoogleApiKey(apiKey);
+        if (!validation.valid) {
+            return NextResponse.json(
+                { error: validation.error || "Invalid Google API key" },
+                { status: 400 }
+            );
+        }
 
         await saveUserApiKey(session.user.id, apiKey);
 

@@ -265,6 +265,7 @@ ${activeCtx}
             temperature: 0.2,
             maxTokens: 8192,
             model: modelName,
+            userId,
         });
         if (!result.success || !result.data || !result.data.content) {
             const errorReason = result.error || "Unknown connection error";

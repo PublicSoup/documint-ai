@@ -105,10 +105,9 @@ export async function syncUserWorkspaceToWebContainer(userId: string): Promise<s
     const files = await db.file.findMany({
         where: {
             OR: [
-                { ownerId: userId },
+                { userId: userId },
                 { team: { members: { some: { userId } } } },
             ],
-            isDeleted: false,
         },
     });
 
@@ -118,7 +117,7 @@ export async function syncUserWorkspaceToWebContainer(userId: string): Promise<s
     await wcInstance.fs.mkdir(userWorkspacePath, { recursive: true });
 
     for (const file of files) {
-        const filePath = path.join(userWorkspacePath, file.path);
+        const filePath = path.join(userWorkspacePath, file.name);
         const dirName = path.dirname(filePath);
 
         // Ensure the directory for the file exists

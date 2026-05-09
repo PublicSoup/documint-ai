@@ -185,6 +185,7 @@ export async function POST(req: NextRequest) {
         const result = await getAICompletion(messages, {
             temperature: 0.3,
             maxTokens: 2048,
+            userId: session.user.id,
         });
 
         if (!result?.content) {

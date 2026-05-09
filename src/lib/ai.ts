@@ -53,12 +53,20 @@ const gatewayProvider = env.AI_GATEWAY_API_KEY
     ? createGateway({ apiKey: env.AI_GATEWAY_API_KEY })
     : null;
 
+function hasSharedAiProviderConfigured(): boolean {
+    return Boolean(gatewayProvider || env.GOOGLE_API_KEY);
+}
+
 /**
  * Base AI Model selector (uses the shared API key)
  */
 function getModel(modelName: string = "google/gemini-2.0-flash") {
     if (gatewayProvider) {
         return gatewayProvider(modelName);
+    }
+
+    if (!env.GOOGLE_API_KEY) {
+        throw new Error("AI backend is not configured. Set GOOGLE_API_KEY or connect your own API key.");
     }
     
     // Fallback: strip 'google/' prefix if using direct Google API
@@ -115,15 +123,16 @@ export async function getAICompletionWithDetailedError(
     messages: AIMessage[],
     options: AICompletionOptions = {}
 ): Promise<{ success: boolean; data?: AICompletionResult; error?: string }> {
-    if (!env.GOOGLE_API_KEY) {
-        return {
-            success: false,
-            error: "AI backend is not configured. Set GOOGLE_API_KEY.",
-        };
-    }
-
     try {
         const modelName = options.model || "google/gemini-2.0-flash";
+        const { model, usingOwnKey } = await getModelForUser(options.userId, modelName);
+
+        if (!usingOwnKey && !hasSharedAiProviderConfigured()) {
+            return {
+                success: false,
+                error: "AI backend is not configured. Add GOOGLE_API_KEY or connect your own API key in Settings.",
+            };
+        }
         
         // Extract system message for Vercel AI SDK
         const systemMessage = messages.find(m => m.role === "system")?.content;
@@ -137,13 +146,23 @@ export async function getAICompletionWithDetailedError(
             }));
 
         const response = await aiSDKGenerateText({
-            model: getModel(modelName),
+            model,
             system: systemMessage,
             messages: chatMessages,
             temperature: options.temperature ?? 0.4,
             maxOutputTokens: options.maxTokens ?? 8192,
             abortSignal: AbortSignal.timeout(60000), // Strict 60s timeout abort
         });
+
+        if (options.userId) {
+            const estimatedInputTokens = Math.ceil(
+                ((systemMessage?.length ?? 0) + chatMessages.reduce((sum, msg) => sum + msg.content.length, 0)) / 4
+            );
+            const estimatedOutputTokens = Math.ceil((response.text?.length ?? 0) / 4);
+            const estimatedTotalTokens = estimatedInputTokens + estimatedOutputTokens;
+
+            await trackAiUsage(options.userId, estimatedTotalTokens, { isUsingOwnKey: usingOwnKey });
+        }
 
         if (!response.text || response.text.trim() === "") {
             return { success: false, error: "AI returned an empty response. Try rephrasing your request." };
@@ -160,6 +179,17 @@ export async function getAICompletionWithDetailedError(
     } catch (e: any) {
         const errorMessage = e instanceof Error ? e.message : "Unknown error";
         console.error("[Vercel AI SDK Error]:", errorMessage);
+
+        const lowerMessage = errorMessage.toLowerCase();
+        if (lowerMessage.includes("429") || lowerMessage.includes("rate limit") || lowerMessage.includes("resource exhausted")) {
+            return {
+                success: false,
+                error: options.userId
+                    ? "AI provider rate limit reached. Add your own Google API key in Settings to bypass shared limits, or try again in a minute."
+                    : "AI provider rate limit reached. Try again in a minute.",
+            };
+        }
+
         return { success: false, error: `Unexpected Error: ${errorMessage}` };
     }
 }
@@ -201,9 +231,10 @@ export async function streamTextEndpoint(
     options: AICompletionOptions = {}
 ) {
     const modelName = options.model || "google/gemini-2.0-flash";
+    const { model } = await getModelForUser(options.userId, modelName);
     
     return aiSDKStreamText({
-        model: getModel(modelName),
+        model,
         system: systemPrompt,
         messages: [{ role: 'user', content: safePrompt(userPrompt) }],
         temperature: options.temperature ?? 0.4,
@@ -278,7 +309,7 @@ ${safePrompt(code.slice(0, 2000))}
 \`\`\``;
     }
 
-    return generateText(systemPrompt, userPrompt);
+    return generateText(systemPrompt, userPrompt, { userId: undefined });
 }
 
 /**
@@ -306,7 +337,7 @@ CODE:
 ${safePrompt(code)}
 \`\`\``;
 
-    return generateText(systemPrompt, userPrompt);
+    return generateText(systemPrompt, userPrompt, { userId });
 }
 
 /**
@@ -327,6 +358,7 @@ Include:
 7. Security Considerations`;
 
     return generateText(systemPrompt, userPrompt, {
+        userId,
         temperature: 0.3,
         maxTokens: 4096
     });
@@ -344,7 +376,7 @@ export async function detectIntentDrift(
     
     try {
         const { object } = await generateObject({
-            model: getModel("google/gemini-2.0-flash"),
+            model: (await getModelForUser(undefined, "google/gemini-2.0-flash")).model,
             system: systemPrompt,
             prompt: `
             EXISTING DOCUMENTATION:

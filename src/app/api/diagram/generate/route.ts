@@ -139,6 +139,7 @@ export async function POST(request: NextRequest) {
         const mermaidCode = await generateText(DIAGRAM_SYSTEM_PROMPT, userPrompt, {
             temperature: 0.2,
             maxTokens: 2500,
+            userId: session.user.id,
         });
 
         if (!mermaidCode?.trim()) {
