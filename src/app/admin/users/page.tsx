@@ -58,7 +58,11 @@ export default function AdminUsersPage() {
                 return;
             }
             const data = await res.json();
-            setUsers(data);
+            if (!data.users) {
+                console.error("Unexpected API response format:", data);
+                return;
+            }
+            setUsers(data.users);
         } catch (error) {
             toast.error("Failed to fetch users");
         } finally {

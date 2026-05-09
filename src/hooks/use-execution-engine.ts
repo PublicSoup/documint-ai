@@ -98,6 +98,17 @@ export function useExecutionEngine({
             };
         }
 
+        // Inject .npmrc to force HTTP registry — WebContainer does not support HTTPS
+        // This is required for npm install / npx to work inside the sandbox.
+        fileMounts['.npmrc'] = {
+            file: {
+                contents: [
+                    "registry=http://registry.npmjs.org/",
+                    "strict-ssl=false",
+                ].join("\n"),
+            },
+        };
+
         await WebContainerManager.mountFiles(fileMounts);
     }, [toWorkspaceRelativePath]);
 

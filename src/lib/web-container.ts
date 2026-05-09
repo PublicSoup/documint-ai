@@ -116,7 +116,22 @@ export class WebContainerManager {
 
         for (let attempt = 1; attempt <= MAX_BOOT_RETRIES; attempt += 1) {
             try {
-                return await WebContainer.boot();
+                const instance = await WebContainer.boot();
+                
+                // Provision essential environment config immediately after boot.
+                // WebContainer's npm does not support HTTPS; force HTTP registry
+                // so npm install / npx work regardless of how they are spawned.
+                // This covers the interactive terminal, auto-run, and any other
+                // npm/npx invocation path.
+                await instance.fs.writeFile(
+                    "/home/.npmrc",
+                    [
+                        "registry=http://registry.npmjs.org/",
+                        "strict-ssl=false",
+                    ].join("\n")
+                );
+                
+                return instance;
             } catch (error) {
                 lastError = error;
                 if (attempt < MAX_BOOT_RETRIES) {

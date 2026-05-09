@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
                         select: { plan: true, status: true }
                     },
                     _count: {
-                        select: { files: true }
+                        select: { files: true, auditLogs: true }
                     }
                 }
             }),
