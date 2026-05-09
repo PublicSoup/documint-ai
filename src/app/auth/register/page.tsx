@@ -117,23 +117,9 @@ export default function RegisterPage() {
         setOauthLoading(provider);
 
         try {
-            const result = await signIn(provider, {
-                callbackUrl,
-                redirect: false,
-            });
-
-            if (result?.error) {
-                toast(AUTH_ERROR_MESSAGES[result.error] || `Unable to sign up with ${provider}.`, "error");
-                return;
-            }
-
-            if (result?.url) {
-                window.location.href = result.url;
-                return;
-            }
-
+            await signIn(provider, { callbackUrl });
+        } catch {
             toast(`Unable to start ${provider === "google" ? "Google" : "GitHub"} sign-up.`, "error");
-        } finally {
             setOauthLoading(null);
         }
     };
