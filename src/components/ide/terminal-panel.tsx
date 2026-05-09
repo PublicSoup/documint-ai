@@ -77,8 +77,10 @@ export function TerminalPanel({
 
             <div className="flex-1 min-h-0 bg-[#020010] p-1 pl-3 overflow-hidden">
                 <WebContainerTerminal
+                    onReady={(term) => {
+                        setTerminalInstance(term);
+                    }}
                     onProcessStart={(process) => {
-                        setTerminalInstance(null); // Clear old instance
                         toast("Command started in terminal", "success");
                     }}
                     onProcessExit={(code) => {

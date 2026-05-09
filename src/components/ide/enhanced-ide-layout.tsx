@@ -217,11 +217,6 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
 
     const handleRunProject = async () => {
-        if (!webContainerBooted) {
-            toast("runtime not ready", "error");
-            return;
-        }
-
         setShowTerminal(true);
         setIsPreviewOpen(true);
 

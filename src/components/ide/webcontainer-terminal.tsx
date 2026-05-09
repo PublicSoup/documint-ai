@@ -12,12 +12,14 @@ interface WebContainerTerminalProps {
   onProcessStart?: (process: WebContainerProcess) => void;
   onProcessExit?: (code: number | null) => void;
   onError?: (error: Error) => void;
+  onReady?: (terminal: XTerm) => void;
 }
 
 export const WebContainerTerminal = ({
   onProcessStart,
   onProcessExit,
-  onError
+  onError,
+  onReady
 }: WebContainerTerminalProps) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -62,6 +64,7 @@ export const WebContainerTerminal = ({
 
     xtermRef.current = term;
     setIsReady(true);
+    onReady?.(term);
 
     // Handle resize
     const handleResize = () => fitAddon.fit();
