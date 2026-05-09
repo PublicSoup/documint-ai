@@ -7,7 +7,6 @@ import { db } from "@/lib/db";
 import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
 import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
 import { logAudit } from "@/lib/audit-logger";
-import path from "path";
 
 const fileSchema = z.object({
     name: z.string().trim().min(1).max(1024)
@@ -76,7 +75,7 @@ export async function POST(req: NextRequest) {
 
 
         // Check for file name collisions before starting the transaction
-        const fileNames = files.map(f => path.basename(f.name.startsWith('/') ? f.name : `/${f.name}`));
+        const fileNames = files.map(f => f.name.replace(/^\/+/, ""));
         const existingFiles = await db.file.findMany({
             where: {
                 name: { in: fileNames },
@@ -97,8 +96,8 @@ export async function POST(req: NextRequest) {
         const createdFiles = await db.$transaction(async (tx: Prisma.TransactionClient) => {
             const results = [];
             for (const f of files) {
-                const fullPath = f.name.startsWith('/') ? f.name : `/${f.name}`;
-                const fileName = path.basename(fullPath);
+                const normalizedName = f.name.replace(/^\/+/, "");
+                const fullPath = `/${normalizedName}`;
 
                 // Optional: Check existence. 
                 // For simplicity in templates, we'll allow overwriting or returning error.
@@ -109,8 +108,8 @@ export async function POST(req: NextRequest) {
                     data: {
                         userId: session.user.id,
                         teamId: teamId || null,
-                        name: fileName,
-                        language: detectLanguage(fileName),
+                        name: normalizedName,
+                        language: detectLanguage(normalizedName),
                         content: content,
                         size: content.length,
                         storagePath: fullPath

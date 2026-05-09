@@ -253,7 +253,7 @@ h1 { font-size: 4rem; font-weight: 800; line-height: 1.1; margin-bottom: 1.5rem;
 ];
 
 interface ProjectTemplatesProps {
-    onSelectTemplate: (files: { name: string; content: string }[]) => void;
+    onSelectTemplate: (files: { name: string; content: string }[], projectName?: string) => void;
 }
 
 type WebsiteStyle = "saas" | "agency" | "ecommerce" | "portfolio" | "blog" | "custom";
@@ -295,7 +295,7 @@ export function ProjectTemplates({ onSelectTemplate }: ProjectTemplatesProps) {
 
         await new Promise(resolve => setTimeout(resolve, 500));
 
-        onSelectTemplate(template.files);
+        onSelectTemplate(template.files, template.name);
         setLoading(false);
     };
 
@@ -577,7 +577,7 @@ export function ProjectTemplates({ onSelectTemplate }: ProjectTemplatesProps) {
                             <button
                                 type="button"
                                 onClick={() => {
-                                    onSelectTemplate(generatedDraft.files);
+                                    onSelectTemplate(generatedDraft.files, generatedDraft.projectName);
                                     setGeneratedDraft(null);
                                     setShowAIGenerator(false);
                                     setBrief("");

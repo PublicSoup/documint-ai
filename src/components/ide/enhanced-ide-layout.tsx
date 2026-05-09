@@ -14,7 +14,7 @@ import { KeyboardShortcuts } from "./keyboard-shortcuts";
 import { LivePreview } from "./live-preview";
 import { ProjectTemplates } from "./project-templates";
 import NotificationsBell from "../notifications-bell";
-import { X, Save, Play, Bot, Layout, Maximize2, Columns, Terminal as TerminalIcon, Settings, Sparkles, GitBranch, Files, Search as SearchIcon, Globe, Loader2, Lock, FileText, Share2, Wand2, Zap, Layout as LayoutIcon, SplitSquareVertical, ChevronUp, ChevronDown, Trash2, SplitSquareHorizontal, Download, Keyboard } from "lucide-react";
+import { X, Save, Play, Bot, Layout, Maximize2, Columns, Terminal as TerminalIcon, Settings, Sparkles, GitBranch, Files, Search as SearchIcon, Globe, Loader2, Lock, FileText, Share2, Wand2, Zap, Layout as LayoutIcon, SplitSquareVertical, ChevronUp, ChevronDown, Trash2, SplitSquareHorizontal, Download, Keyboard, FolderOpen } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import type { File } from "@prisma/client";
 import { cn } from "@/lib/utils";
@@ -64,6 +64,17 @@ function getLanguageFromFileName(fileName: string): string {
         env: 'plaintext', txt: 'plaintext', log: 'plaintext',
     };
     return map[ext || ''] || 'plaintext';
+}
+
+function slugifyProjectName(name: string): string {
+    const slug = name
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 48);
+
+    return slug || "project";
 }
 
 
@@ -116,6 +127,24 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
         handleSave
     } = useIDEFileManager(initialFiles);
     const [terminalInstance, setTerminalInstance] = useState<any>(null);
+    const [activeWorkspace, setActiveWorkspace] = useState("Project");
+    const workspaceOptions = useMemo(() => {
+        const topLevelFolders = new Set<string>();
+        files.forEach(file => {
+            const [firstPart] = file.name.replace(/^\/+/, "").split("/");
+            if (firstPart && firstPart !== file.name) {
+                topLevelFolders.add(firstPart);
+            }
+        });
+
+        return ["Project", ...Array.from(topLevelFolders).sort((a, b) => a.localeCompare(b))];
+    }, [files]);
+    const visibleFiles = useMemo(() => {
+        if (activeWorkspace === "Project") return files;
+
+        const prefix = `${activeWorkspace}/`;
+        return files.filter(file => file.name.replace(/^\/+/, "").startsWith(prefix));
+    }, [activeWorkspace, files]);
 
     // Unify WebContainer logic via hook
     const {
@@ -130,7 +159,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
         files,
         activeFileId,
         fileContents,
-        terminalInstance
+        terminalInstance,
+        workspacePrefix: activeWorkspace
     });
 
     // Diff Modal State
@@ -270,13 +300,13 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
         const query = sidebarSearchQuery.trim().toLowerCase();
         if (query.length < 2) return [];
 
-        return files
+        return visibleFiles
             .filter(file => {
                 const content = fileContents[file.id] ?? file.content ?? "";
                 return file.name.toLowerCase().includes(query) || content.toLowerCase().includes(query);
             })
             .slice(0, 50);
-    }, [files, fileContents, sidebarSearchQuery]);
+    }, [visibleFiles, fileContents, sidebarSearchQuery]);
 
     return (
         <div className="flex h-screen w-screen overflow-hidden bg-[#030014] text-white fixed inset-0 z-[100] selection:bg-purple-500/30">
@@ -387,9 +417,28 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         onClick={() => setShowSidebar(false)}
                     />
                     <div className="absolute md:relative w-56 md:w-64 flex-none flex flex-col border-r border-white/[0.04] bg-[#030014] h-full overflow-hidden animate-in slide-in-from-left-1 duration-200 z-30 shadow-2xl md:shadow-none">
+                        <div className="p-3 border-b border-white/[0.04]">
+                            <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-white/25 mb-2">
+                                <FolderOpen className="w-3 h-3" />
+                                Workspace
+                            </label>
+                            <select
+                                value={activeWorkspace}
+                                onChange={(event) => setActiveWorkspace(event.target.value)}
+                                className="w-full rounded-md border border-white/[0.06] bg-black/30 px-2 py-1.5 text-xs text-white focus:outline-none focus:border-purple-500/50"
+                            >
+                                {workspaceOptions.map(workspace => (
+                                    <option key={workspace} value={workspace}>
+                                        {workspace}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
                         {activeSidebarTab === "explorer" && (
                             <FileTreeContainer
                                 activeFileId={activeFileId}
+                                files={visibleFiles}
+                                workspacePrefix={activeWorkspace}
                                 onSelect={handleFileSelect}
                                 onFileCreated={(newFile) => {
                                     upsertFile(newFile, {
@@ -568,13 +617,28 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         ) : (
                             /* Empty State: Show Project Templates when no file is open */
                             <ProjectTemplates
-                                onSelectTemplate={async (templateFiles) => {
+                                onSelectTemplate={async (templateFiles, projectName = "Project") => {
                                     try {
+                                        const baseSlug = slugifyProjectName(projectName);
+                                        const existingWorkspaces = new Set(workspaceOptions.map(workspace => workspace.toLowerCase()));
+                                        let projectSlug = baseSlug;
+                                        let suffix = 2;
+
+                                        while (existingWorkspaces.has(projectSlug.toLowerCase())) {
+                                            projectSlug = `${baseSlug}-${suffix}`;
+                                            suffix += 1;
+                                        }
+
+                                        const projectFiles = templateFiles.map(file => ({
+                                            ...file,
+                                            name: `${projectSlug}/${file.name.replace(/^\/+/, "")}`,
+                                        }));
+
                                         // Use the new bulk-create API for efficiency
                                         const res = await fetch("/api/files/bulk-create", {
                                             method: "POST",
                                             headers: { "Content-Type": "application/json" },
-                                            body: JSON.stringify({ files: templateFiles })
+                                            body: JSON.stringify({ files: projectFiles })
                                         });
 
                                         if (res.ok) {
@@ -590,6 +654,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
                                             // Auto-open the first file if available
                                             if (createdFiles.length > 0) {
+                                                setActiveWorkspace(projectSlug);
                                                 upsertFile(createdFiles[0], {
                                                     open: true,
                                                     makeActive: true,
@@ -597,7 +662,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                                 });
                                             }
 
-                                            toast(`Created ${createdFiles.length} files from template`, "success");
+                                            toast(`Created ${projectSlug} with ${createdFiles.length} files`, "success");
 
                                             // Synchronize all new files to WebContainer immediately
                                             if (webContainerBooted) {

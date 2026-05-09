@@ -11,13 +11,15 @@ interface UseExecutionEngineProps {
     activeFileId?: string;
     fileContents: Record<string, string>;
     terminalInstance: XTerm | null;
+    workspacePrefix?: string | null;
 }
 
 export function useExecutionEngine({
     files,
     activeFileId,
     fileContents,
-    terminalInstance
+    terminalInstance,
+    workspacePrefix
 }: UseExecutionEngineProps) {
     // State
     const [runStatus, setRunStatus] = useState<RunStatus>('idle');
@@ -37,6 +39,19 @@ export function useExecutionEngine({
         bootedRef.current = webContainerBooted;
     }, [webContainerBooted]);
 
+    const toWorkspaceRelativePath = useCallback((name: string) => {
+        const normalizedName = name.replace(/^\/+/, "").trim();
+        if (!normalizedName) return null;
+
+        if (workspacePrefix && workspacePrefix !== "Project") {
+            const normalizedPrefix = `${workspacePrefix.replace(/^\/+|\/+$/g, "")}/`;
+            if (!normalizedName.startsWith(normalizedPrefix)) return null;
+            return normalizedName.slice(normalizedPrefix.length);
+        }
+
+        return normalizedName;
+    }, [workspacePrefix]);
+
     const mountAll = useCallback(async (fileList: (File & { content?: string | null })[]) => {
         const fileMounts: Record<string, any> = {};
 
@@ -52,7 +67,7 @@ export function useExecutionEngine({
         };
 
         fileList.forEach(f => {
-            let name = f.name;
+            let name = toWorkspaceRelativePath(f.name);
             if (!name) return;
             name = name.trim();
 
@@ -84,7 +99,7 @@ export function useExecutionEngine({
         }
 
         await WebContainerManager.mountFiles(fileMounts);
-    }, []);
+    }, [toWorkspaceRelativePath]);
 
     const bootRuntime = useCallback(async () => {
         if (bootedRef.current) {
@@ -114,9 +129,10 @@ export function useExecutionEngine({
         const syncFile = async () => {
             if (activeFileId && fileContents[activeFileId] && webContainerBooted) {
                 const file = files.find(f => f.id === activeFileId);
-                if (file) {
+                const filePath = file ? toWorkspaceRelativePath(file.name) : null;
+                if (file && filePath) {
                     try {
-                        await WebContainerManager.writeFile(file.name, fileContents[activeFileId]);
+                        await WebContainerManager.writeFile(filePath, fileContents[activeFileId]);
                     } catch (e) {
                         console.error("Failed to sync file to WC:", e);
                     }
@@ -125,7 +141,7 @@ export function useExecutionEngine({
         };
         const timeout = setTimeout(syncFile, 500);
         return () => clearTimeout(timeout);
-    }, [fileContents, activeFileId, webContainerBooted, files]);
+    }, [fileContents, activeFileId, webContainerBooted, files, toWorkspaceRelativePath]);
 
     // Run Command
     const run = useCallback(async () => {
@@ -161,12 +177,14 @@ export function useExecutionEngine({
             return;
         }
 
+        await mountAll(files);
+
         setRunStatus('installing');
         try {
             const wc = await WebContainerManager.getInstance();
 
             // Detect framework strategy
-            const packageJsonFile = files.find(f => f.name === 'package.json');
+            const packageJsonFile = files.find(f => toWorkspaceRelativePath(f.name) === 'package.json');
             
             if (packageJsonFile) {
                 // Node.js project
@@ -222,7 +240,7 @@ export function useExecutionEngine({
             }
             setRunStatus('error');
         }
-    }, [bootRuntime, files]);
+    }, [bootRuntime, files, mountAll, toWorkspaceRelativePath]);
 
     return {
         runStatus,

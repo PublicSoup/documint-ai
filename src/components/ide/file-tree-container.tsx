@@ -22,17 +22,20 @@ const fetcher = (url: string) => fetch(url, { cache: "no-store" }).then((res) =>
 
 interface FileTreeContainerProps {
     activeFileId?: string;
+    files?: (File & { content?: string | null })[];
+    workspacePrefix?: string;
     onSelect: (fileId: string) => void;
     onFileCreated: (file: File) => void;
     onFileRenamed: (fileId: string, newName: string) => void;
     onFileDeleted: (fileId: string) => void;
 }
 
-export function FileTreeContainer({ activeFileId, onSelect, onFileCreated, onFileRenamed, onFileDeleted }: FileTreeContainerProps) {
-    const { data: files, error, isLoading, mutate } = useSWR<(File & { documentation?: any })[]>('/api/files', fetcher, {
+export function FileTreeContainer({ activeFileId, files: providedFiles, workspacePrefix = "Project", onSelect, onFileCreated, onFileRenamed, onFileDeleted }: FileTreeContainerProps) {
+    const { data: fetchedFiles, error, isLoading, mutate } = useSWR<(File & { documentation?: any })[]>('/api/files', fetcher, {
         revalidateOnFocus: false,
         revalidateOnReconnect: false,
     });
+    const files = providedFiles ?? fetchedFiles;
     const { toast } = useToast();
     const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -79,12 +82,14 @@ export function FileTreeContainer({ activeFileId, onSelect, onFileCreated, onFil
     };
 
     const handleAction = async (action: "ai" | "delete" | "rename" | "new_file" | "new_folder", contextId?: string) => {
+        const targetParentId = contextId === "Project" ? workspacePrefix : (contextId || workspacePrefix);
+
         switch (action) {
             case "new_file":
-                setDialogState({ open: true, type: "file", parentId: contextId || "Project" });
+                setDialogState({ open: true, type: "file", parentId: targetParentId });
                 break;
             case "new_folder":
-                setDialogState({ open: true, type: "folder", parentId: contextId || "Project" });
+                setDialogState({ open: true, type: "folder", parentId: targetParentId });
                 break;
             case "rename":
                 if (!contextId) return;
@@ -129,7 +134,7 @@ export function FileTreeContainer({ activeFileId, onSelect, onFileCreated, onFil
         }
     };
 
-    if (isLoading) {
+    if (isLoading && !providedFiles) {
         return (
             <div className="flex items-center justify-center h-full bg-[#030014] border-r border-white/[0.04]">
                 <Loader2 className="h-6 w-6 text-white/20 animate-spin" />
@@ -137,7 +142,7 @@ export function FileTreeContainer({ activeFileId, onSelect, onFileCreated, onFil
         );
     }
 
-    if (error) {
+    if (error && !providedFiles) {
         return (
             <div className="flex flex-col items-center justify-center h-full bg-[#030014] border-r border-white/[0.04] p-4">
                 <p className="text-xs text-red-400/70">Failed to load file tree.</p>
