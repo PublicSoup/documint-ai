@@ -34,6 +34,8 @@ model User {
   passwordResetTokens    PasswordResetToken[]
   agentStates            AgentState[]
   deployments            Deployment[]
+  encryptedApiKey        String?               @map("encrypted_api_key") // AES-256-GCM encrypted Google API key (BYO)
+  aiUsage                AiUsage[]
 }
 
 model Subscription {
@@ -400,4 +402,19 @@ model Deployment {
   @@index([userId])
   @@index([teamId])
   @@index([status])
+}
+
+model AiUsage {
+  id         String   @id @default(cuid())
+  userId     String
+  month      DateTime @map("month") // First day of the billing month, e.g. 2026-05-01
+  queryCount Int      @default(0)
+  tokenCount Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, month])
+  @@index([userId, month])
 }

@@ -1,63 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { randomBytes } from "crypto";
-import { Prisma } from "@prisma/client";
-import { z } from "zod";
 import { authOptions } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { z } from "zod";
+import { saveUserApiKey, deleteUserApiKey, getUserAiUsage } from "@/lib/ai-usage";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { errorResponse, ApiErrors, validateBody } from "@/lib/api-utils";
+import { errorResponse, validateBody } from "@/lib/api-utils";
+import { db } from "@/lib/db";
 
-const emptySchema = z.object({}).strict();
-
-function toSettingsObject(value: Prisma.JsonValue | null | undefined): Prisma.JsonObject {
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-        return value as Prisma.JsonObject;
-    }
-    return {};
-}
-
-function getApiKeyFromSettings(settings: Prisma.JsonObject): string | null {
-    const value = settings.apiKey;
-    return typeof value === "string" && value.trim().length > 0 ? value : null;
-}
-
-function maskApiKey(apiKey: string | null): string | null {
-    if (!apiKey) {
-        return null;
-    }
-
-    const visiblePrefix = apiKey.slice(0, 4);
-    return `${visiblePrefix}${"*".repeat(16)}`;
-}
+const saveKeySchema = z.object({
+    apiKey: z
+        .string()
+        .trim()
+        .min(20, "API key seems too short")
+        .max(200, "API key seems too long")
+        .regex(/^[A-Za-z0-9_\-]+$/, "API key contains invalid characters"),
+}).strict();
 
 /**
  * GET /api/user/api-key
- * Returns a masked representation of the current API key.
+ * Returns whether the user has a saved API key (never exposes the key itself).
  */
-export async function GET(req: NextRequest) {
+export async function GET() {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            throw ApiErrors.unauthorized();
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
-
-        // 1. Enforce Rate Limit
-        await enforceRateLimit(session.user.id, "api");
 
         const user = await db.user.findUnique({
             where: { id: session.user.id },
-            select: { id: true, settings: true },
+            select: { encryptedApiKey: true },
         });
 
-        if (!user) {
-            throw ApiErrors.notFound("User");
-        }
+        // Also return usage stats for the settings UI
+        const usage = await getUserAiUsage(session.user.id);
 
-        const settings = toSettingsObject(user.settings);
-        const apiKey = getApiKeyFromSettings(settings);
-
-        return NextResponse.json({ apiKey: maskApiKey(apiKey) });
+        return NextResponse.json({
+            hasKey: !!user?.encryptedApiKey,
+            usage,
+        });
     } catch (error) {
         return errorResponse(error);
     }
@@ -65,59 +46,22 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/user/api-key
- * Generates and stores a rotated API key.
+ * Save the user's API key (encrypted at rest).
  */
 export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            throw ApiErrors.unauthorized();
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
-        
-        await validateBody(req, emptySchema);
 
-        // 1. Enforce Security Rate Limit (Rotation is sensitive)
         await enforceRateLimit(session.user.id, "security");
 
-        const key = `dm_${randomBytes(24).toString("hex")}`;
+        const { apiKey } = await validateBody(req, saveKeySchema);
 
-        const user = await db.user.findUnique({
-            where: { id: session.user.id },
-            select: { id: true, settings: true },
-        });
+        await saveUserApiKey(session.user.id, apiKey);
 
-        if (!user) {
-            throw ApiErrors.notFound("User");
-        }
-
-        const currentSettings = toSettingsObject(user.settings);
-
-        // 2. Update settings in DB
-        await db.user.update({
-            where: { id: session.user.id },
-            data: {
-                settings: {
-                    ...currentSettings,
-                    apiKey: key,
-                } as Prisma.InputJsonValue,
-            },
-        });
-
-        // 3. Audit Log
-        try {
-            const { logAudit } = await import("@/lib/audit-logger");
-            await logAudit({
-                userId: session.user.id,
-                action: "ROTATE_API_KEY",
-                entity: "User",
-                entityId: session.user.id,
-            });
-        } catch (auditError) {
-            console.error("Failed to log audit event:", auditError);
-            // Non-blocking
-        }
-
-        return NextResponse.json({ apiKey: key });
+        return NextResponse.json({ success: true });
     } catch (error) {
         return errorResponse(error);
     }
@@ -125,61 +69,16 @@ export async function POST(req: NextRequest) {
 
 /**
  * DELETE /api/user/api-key
- * Revokes the current API key.
+ * Remove the user's API key.
  */
-export async function DELETE(req: NextRequest) {
+export async function DELETE() {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
-            throw ApiErrors.unauthorized();
-        }
-        
-        await validateBody(req, emptySchema);
-
-        // 1. Enforce Security Rate Limit (Revocation is sensitive)
-        await enforceRateLimit(session.user.id, "security");
-
-        const user = await db.user.findUnique({
-            where: { id: session.user.id },
-            select: { id: true, settings: true },
-        });
-
-        if (!user) {
-            throw ApiErrors.notFound("User");
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const currentSettings = toSettingsObject(user.settings);
-
-        // Check if a key even exists to be deleted
-        if (!currentSettings.apiKey) {
-            return NextResponse.json({ success: true, message: "No API key to revoke." });
-        }
-
-        // 2. Remove apiKey from settings
-        const { apiKey, ...remainingSettings } = currentSettings;
-
-        await db.user.update({
-            where: { id: session.user.id },
-            data: {
-                settings: {
-                    ...remainingSettings,
-                } as Prisma.InputJsonValue,
-            },
-        });
-
-        // 3. Audit Log
-        try {
-            const { logAudit } = await import("@/lib/audit-logger");
-            await logAudit({
-                userId: session.user.id,
-                action: "REVOKE_API_KEY",
-                entity: "User",
-                entityId: session.user.id,
-            });
-        } catch (auditError) {
-            console.error("Failed to log audit event:", auditError);
-            // Non-blocking
-        }
+        await deleteUserApiKey(session.user.id);
 
         return NextResponse.json({ success: true });
     } catch (error) {

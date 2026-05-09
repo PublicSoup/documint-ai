@@ -5,6 +5,8 @@ export interface PlanLimits {
     filesPerMonth: number;
     totalFiles: number;
     teamMembers: number;
+    aiQueries: number; // Monthly AI query allowance (-1 = unlimited)
+    aiTokenAllowance: number; // Monthly token allowance (-1 = unlimited)
     features: {
         analytics: boolean;
         changelog: boolean;
@@ -24,6 +26,8 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
         filesPerMonth: 10,
         totalFiles: 25,
         teamMembers: 1,
+        aiQueries: 0, // Must use own API key
+        aiTokenAllowance: 0,
         features: {
             analytics: false,
             changelog: false,
@@ -41,6 +45,8 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
         filesPerMonth: 100,
         totalFiles: 250,
         teamMembers: 3,
+        aiQueries: 500, // Included AI queries per month
+        aiTokenAllowance: 100000, // ~100K tokens
         features: {
             analytics: true,
             changelog: true,
@@ -58,6 +64,8 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
         filesPerMonth: 1000,
         totalFiles: -1, // Unlimited
         teamMembers: 10,
+        aiQueries: 5000, // Included AI queries per month
+        aiTokenAllowance: 1000000, // ~1M tokens
         features: {
             analytics: true,
             changelog: true,
@@ -75,6 +83,8 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
         filesPerMonth: -1, // Unlimited
         totalFiles: -1, // Unlimited
         teamMembers: -1, // Unlimited
+        aiQueries: 50000, // Included AI queries per month
+        aiTokenAllowance: -1, // Unlimited tokens
         features: {
             analytics: true,
             changelog: true,

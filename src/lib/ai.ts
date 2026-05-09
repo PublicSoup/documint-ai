@@ -3,10 +3,11 @@ import { generateText as aiSDKGenerateText, generateObject, streamText as aiSDKS
 import { z } from "zod";
 import { env } from "./env";
 import { createGateway } from "@ai-sdk/gateway";
+import { getUserApiKey, trackAiUsage } from "./ai-usage";
 
 /**
  * AI Provider Utility - Refactored for Vercel AI SDK (@ai-sdk/google)
- * Strictly uses Google Gemini (production-ready).
+ * Supports BYO API key per user + shared key with plan quota enforcement.
  */
 
 export interface AIMessage {
@@ -19,6 +20,8 @@ export interface AICompletionOptions {
     temperature?: number;
     maxTokens?: number;
     jsonMode?: boolean;
+    /** If provided, the user's own API key will be used if available */
+    userId?: string;
 }
 
 export interface AICompletionResult {
@@ -42,7 +45,7 @@ export function safePrompt(input: string): string {
 /**
  * Initialize SDKs
  */
-const googleGenAI = createGoogleGenerativeAI({
+const sharedGoogleGenAI = createGoogleGenerativeAI({
     apiKey: env.GOOGLE_API_KEY,
 });
 
@@ -51,7 +54,7 @@ const gatewayProvider = env.AI_GATEWAY_API_KEY
     : null;
 
 /**
- * Base AI Model selector
+ * Base AI Model selector (uses the shared API key)
  */
 function getModel(modelName: string = "google/gemini-2.0-flash") {
     if (gatewayProvider) {
@@ -60,7 +63,48 @@ function getModel(modelName: string = "google/gemini-2.0-flash") {
     
     // Fallback: strip 'google/' prefix if using direct Google API
     const directModelName = modelName.replace(/^google\//, "");
-    return googleGenAI(directModelName);
+    return sharedGoogleGenAI(directModelName);
+}
+
+/**
+ * Get or create a model instance for a specific user.
+ * - If the user has stored their own API key, it's used (bypasses plan quota).
+ * - Otherwise, falls back to the shared key with usage tracking.
+ */
+async function getModelForUser(
+    userId: string | undefined,
+    modelName: string = "google/gemini-2.0-flash"
+): Promise<{ model: ReturnType<typeof getModel>; usingOwnKey: boolean }> {
+    // Check for BYO API key
+    if (userId) {
+        const userKey = await getUserApiKey(userId);
+        if (userKey) {
+            const userGenAI = createGoogleGenerativeAI({ apiKey: userKey });
+            const directModelName = modelName.replace(/^google\//, "");
+            return { model: userGenAI(directModelName), usingOwnKey: true };
+        }
+    }
+
+    // Fall back to shared key
+    return { model: getModel(modelName), usingOwnKey: false };
+}
+
+/**
+ * Validate a Google API key by making a lightweight list models call.
+ */
+export async function validateApiKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
+    try {
+        const testAI = createGoogleGenerativeAI({ apiKey });
+        const model = testAI("gemini-2.0-flash");
+        await aiSDKGenerateText({
+            model,
+            messages: [{ role: "user", content: "Hi" }],
+            maxOutputTokens: 1,
+        });
+        return { valid: true };
+    } catch (e: any) {
+        return { valid: false, error: e?.message || "Invalid API key" };
+    }
 }
 
 /**
