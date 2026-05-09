@@ -172,9 +172,11 @@ git push origin main
 vercel --prod
 ```
 
+> **Important:** Do not run `prisma migrate deploy` inside the Vercel build command. Vercel builds can fail if the migration connection requires a direct database host that is not reachable from the build environment. Keep the build command to `npx prisma generate && next build`, and run production migrations separately from a trusted environment.
+
 ### 3. Post-Deployment
 ```bash
-# 1. Run database migrations
+# 1. Pull production env vars, then run database migrations separately
 vercel env pull .env.production
 npx prisma migrate deploy
 
