@@ -47,6 +47,9 @@ export function CreateFileDialog({ open, onOpenChange, type, parentId, onCreate 
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <div className="grid gap-4 py-4">
+            <p className="text-xs text-muted-foreground">
+              Creating inside {parentId === "Project" ? "Project" : parentId.replace("Project/", "")}
+            </p>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="name" className="text-right">
                 Name
