@@ -219,6 +219,36 @@ export const authOptions: NextAuthOptions = {
         })
     ],
     callbacks: {
+        async signIn({ account, profile }) {
+            if (account?.provider === "google") {
+                const emailVerified = (profile as { email_verified?: boolean | string } | undefined)?.email_verified;
+                if (emailVerified === false || emailVerified === "false") {
+                    await logAudit({
+                        action: "AUTH_BLOCKED_UNVERIFIED_GOOGLE_EMAIL",
+                        entity: "User",
+                        entityId: account.providerAccountId,
+                        details: {
+                            provider: account.provider,
+                        },
+                    });
+                    return "/auth/login?error=OAuthEmailNotVerified";
+                }
+            }
+
+            return true;
+        },
+        async redirect({ url, baseUrl }) {
+            if (url.startsWith("/")) return `${baseUrl}${url}`;
+
+            try {
+                const targetUrl = new URL(url);
+                if (targetUrl.origin === baseUrl) return url;
+            } catch {
+                return `${baseUrl}/dashboard`;
+            }
+
+            return `${baseUrl}/dashboard`;
+        },
         async session({ session, token }) {
             if (token && session.user) {
                 session.user.id = token.id as string;
