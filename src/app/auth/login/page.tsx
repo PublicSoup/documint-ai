@@ -118,23 +118,9 @@ export default function LoginPage() {
         setOauthLoading(provider);
 
         try {
-            const result = await signIn(provider, {
-                callbackUrl: dashboardHref,
-                redirect: false,
-            });
-
-            if (result?.error) {
-                toast(AUTH_ERROR_MESSAGES[result.error] || `Unable to sign in with ${provider}.`, "error");
-                return;
-            }
-
-            if (result?.url) {
-                window.location.href = result.url;
-                return;
-            }
-
+            await signIn(provider, { callbackUrl: dashboardHref });
+        } catch {
             toast(`Unable to start ${provider === "google" ? "Google" : "GitHub"} sign-in.`, "error");
-        } finally {
             setOauthLoading(null);
         }
     };
