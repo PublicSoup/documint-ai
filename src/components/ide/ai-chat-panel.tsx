@@ -41,7 +41,7 @@ import { useToast } from "../toast";
 import { useAgentLoop } from "@/hooks/use-agent-loop";
 import { ToolVisualizer } from "./tool-visualizer";
 import { ThinkingProcess } from "./thinking-process";
-import { AVAILABLE_MODELS } from "@/lib/ai";
+import { AVAILABLE_MODELS } from "@/lib/ai-models";
 
 // ============================================================================
 // Types & Interfaces
