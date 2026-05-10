@@ -32,26 +32,7 @@ export async function proxy(request: NextRequest) {
     }
 
     const isAdmin = pathname.startsWith("/admin");
-    const isDashboard = pathname.startsWith("/dashboard");
     const isCode = pathname.startsWith("/code");
-    const isProtectedApi = pathname.startsWith("/api/") && !publicPaths.some(path => pathname.startsWith(path));
-
-    if (isAdmin || isDashboard || isCode || isProtectedApi) {
-        const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
-
-        if (!token) {
-            if (isProtectedApi) {
-                return NextResponse.json(
-                    { success: false, error: "Authentication required" },
-                    { status: 401 }
-                );
-            }
-
-            const url = new URL("/auth/login", request.url);
-            url.searchParams.set("callbackUrl", encodeURI(request.url));
-            return NextResponse.redirect(url);
-        }
-    }
 
     if (isAdmin) {
         const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
