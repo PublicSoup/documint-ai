@@ -4,28 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Sparkles, Github, ArrowRight, User, Mail, Lock } from "lucide-react";
-import { getProviders, signIn } from "next-auth/react";
+import { signIn } from "next-auth/react";
 import { useToast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 
 type RegistrationIntent = "signup" | "trial";
 type RegistrationPlan = "starter" | "pro" | "team";
-type OAuthProviderState = {
-    google: boolean;
-    github: boolean;
-};
-
-const AUTH_ERROR_MESSAGES: Record<string, string> = {
-    OAuthSignin: "Google sign-up could not start. Check the provider configuration.",
-    OAuthCallback: "Google returned an authentication error. Confirm the callback URL is configured correctly.",
-    OAuthCreateAccount: "We could not create your OAuth account. Try again or contact support.",
-    EmailCreateAccount: "We could not create your account with that email.",
-    Callback: "The sign-up callback was rejected. Try again or contact support.",
-    OAuthAccountNotLinked: "This email already exists with another sign-in method. Sign in with the original method first.",
-    OAuthEmailNotVerified: "Your Google email must be verified before signing up.",
-    AccessDenied: "Access was denied for this sign-up attempt.",
-    Configuration: "Authentication is not configured correctly. Please contact support.",
-};
 
 const INTENT_HEADLINE: Record<RegistrationIntent, string> = {
     signup: "Create workspace",
@@ -47,15 +31,12 @@ export default function RegisterPage() {
     const [intent, setIntent] = useState<RegistrationIntent>("signup");
     const [plan, setPlan] = useState<RegistrationPlan | null>(null);
     const [source, setSource] = useState<string | null>(null);
-    const [oauthProviders, setOauthProviders] = useState<OAuthProviderState>({ google: false, github: false });
-    const [oauthLoading, setOauthLoading] = useState<"google" | "github" | null>(null);
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const rawIntent = params.get("intent");
         const rawPlan = params.get("plan");
         const rawSource = params.get("source")?.trim().toLowerCase();
-        const error = params.get("error");
 
         setIntent(rawIntent === "trial" ? "trial" : "signup");
 
@@ -70,31 +51,6 @@ export default function RegisterPage() {
         } else {
             setSource(null);
         }
-
-        if (error) {
-            toast(AUTH_ERROR_MESSAGES[error] || "Sign-up failed. Please try again.", "error");
-        }
-    }, []);
-
-    useEffect(() => {
-        let mounted = true;
-
-        getProviders()
-            .then((providers) => {
-                if (!mounted) return;
-                setOauthProviders({
-                    google: Boolean(providers?.google),
-                    github: Boolean(providers?.github),
-                });
-            })
-            .catch(() => {
-                if (!mounted) return;
-                setOauthProviders({ google: false, github: false });
-            });
-
-        return () => {
-            mounted = false;
-        };
     }, []);
 
     const callbackUrl = (() => {
@@ -108,28 +64,12 @@ export default function RegisterPage() {
             : "/dashboard";
     })();
 
-    const handleOAuthSignUp = async (provider: "google" | "github") => {
-        if (!oauthProviders[provider]) {
-            toast(`${provider === "google" ? "Google" : "GitHub"} sign-up is not configured yet.`, "error");
-            return;
-        }
-
-        setOauthLoading(provider);
-
-        try {
-            await signIn(provider, { callbackUrl });
-        } catch {
-            toast(`Unable to start ${provider === "google" ? "Google" : "GitHub"} sign-up.`, "error");
-            setOauthLoading(null);
-        }
-    };
-
     const handleGoogleSignUp = () => {
-        void handleOAuthSignUp("google");
+        void signIn("google", { callbackUrl });
     };
 
     const handleGitHubSignUp = () => {
-        void handleOAuthSignUp("github");
+        void signIn("github", { callbackUrl });
     };
 
     /* ... handlers ... */
@@ -280,11 +220,8 @@ export default function RegisterPage() {
 
                     <div className="space-y-3">
                         <Button
-                            type="button"
                             variant="outline"
                             onClick={handleGoogleSignUp}
-                            disabled={!oauthProviders.google || Boolean(oauthLoading)}
-                            isLoading={oauthLoading === "google"}
                             className="w-full h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
                         >
                             <svg className="w-4 h-4" viewBox="0 0 24 24">
@@ -297,11 +234,8 @@ export default function RegisterPage() {
                         </Button>
 
                         <Button
-                            type="button"
                             variant="outline"
                             onClick={handleGitHubSignUp}
-                            disabled={!oauthProviders.github || Boolean(oauthLoading)}
-                            isLoading={oauthLoading === "github"}
                             className="w-full h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
                         >
                             <Github className="w-4 h-4" />
