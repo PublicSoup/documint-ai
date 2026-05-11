@@ -20,10 +20,57 @@ const Auth0ProfileSchema = z.object({
     picture: z.string().url().optional(),
 });
 
+const GoogleProfileSchema = z.object({
+    sub: z.string(),
+    email: z.string().email().optional(),
+    email_verified: z.boolean().optional(),
+});
+
+function getAuthLoggerMetadata(metadata: unknown): Record<string, unknown> | undefined {
+    if (metadata instanceof Error) {
+        return {
+            name: metadata.name,
+            message: metadata.message,
+            stack: metadata.stack,
+        };
+    }
+
+    if (!metadata || typeof metadata !== "object") {
+        return undefined;
+    }
+
+    const record = metadata as Record<string, unknown>;
+    const error = record.error;
+
+    return {
+        provider: typeof record.provider === "string" ? record.provider : undefined,
+        message: typeof record.message === "string" ? record.message : undefined,
+        error: error instanceof Error
+            ? { name: error.name, message: error.message, stack: error.stack }
+            : typeof error === "string"
+                ? error
+                : undefined,
+    };
+}
+
 export const authOptions: NextAuthOptions = {
     adapter: PrismaAdapter(db),
+    secret: env.NEXTAUTH_SECRET,
     session: {
         strategy: "jwt"
+    },
+    logger: {
+        error(code, metadata) {
+            console.error("[next-auth][error]", code, getAuthLoggerMetadata(metadata));
+        },
+        warn(code) {
+            console.warn("[next-auth][warn]", code);
+        },
+        debug(code, metadata) {
+            if (process.env.NEXTAUTH_DEBUG === "true") {
+                console.debug("[next-auth][debug]", code, getAuthLoggerMetadata(metadata));
+            }
+        },
     },
     pages: {
         signIn: "/auth/login",
@@ -37,6 +84,7 @@ export const authOptions: NextAuthOptions = {
         ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET ? [GoogleProvider({
             clientId: env.GOOGLE_CLIENT_ID,
             clientSecret: env.GOOGLE_CLIENT_SECRET,
+            allowDangerousEmailAccountLinking: true,
         })] : []),
         ...(env.GITLAB_CLIENT_ID && env.GITLAB_CLIENT_SECRET ? [GitLabProvider({
             clientId: env.GITLAB_CLIENT_ID,
@@ -219,6 +267,23 @@ export const authOptions: NextAuthOptions = {
         })
     ],
     callbacks: {
+        async signIn({ account, profile }) {
+            if (account?.provider !== "google") {
+                return true;
+            }
+
+            const parsedProfile = GoogleProfileSchema.safeParse(profile);
+
+            if (!parsedProfile.success || parsedProfile.data.email_verified !== true) {
+                console.warn("[next-auth][google] rejected unverified profile", {
+                    providerAccountId: account.providerAccountId,
+                    hasEmail: parsedProfile.success ? Boolean(parsedProfile.data.email) : false,
+                });
+                return "/auth/login?error=OAuthEmailNotVerified";
+            }
+
+            return true;
+        },
         async session({ session, token }) {
             if (token && session.user) {
                 session.user.id = token.id as string;

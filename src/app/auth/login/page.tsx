@@ -11,6 +11,19 @@ import { Button } from "@/components/ui/button";
 type LoginIntent = "signup" | "trial";
 type LoginPlan = "starter" | "pro" | "team";
 
+const AUTH_ERROR_MESSAGES: Record<string, string> = {
+    OAuthSignin: "Google sign-in could not start. Check the OAuth provider configuration.",
+    OAuthCallback: "Google returned an authentication error. Confirm the production callback URL is configured correctly.",
+    OAuthCreateAccount: "We could not create your Google account. Try again or contact support.",
+    EmailCreateAccount: "We could not create your account with that email.",
+    Callback: "The sign-in callback was rejected. Try again or contact support.",
+    OAuthAccountNotLinked: "This email already exists. Verified Google accounts are now linked automatically; try signing in with Google again.",
+    OAuthEmailNotVerified: "Your Google email must be verified before signing in.",
+    AccessDenied: "Access was denied for this sign-in attempt.",
+    Configuration: "Authentication is not configured correctly. Please contact support.",
+    SessionRequired: "Please sign in to continue.",
+};
+
 function buildDashboardHref(params: { intent: LoginIntent; plan: LoginPlan | null; source: string | null }): string {
     const query = new URLSearchParams();
 
@@ -38,12 +51,14 @@ export default function LoginPage() {
     const [intent, setIntent] = useState<LoginIntent>("signup");
     const [plan, setPlan] = useState<LoginPlan | null>(null);
     const [source, setSource] = useState<string | null>(null);
+    const [authError, setAuthError] = useState<string | null>(null);
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const rawIntent = params.get("intent");
         const rawPlan = params.get("plan");
         const rawSource = params.get("source")?.trim();
+        const error = params.get("error");
 
         setIntent(rawIntent === "trial" ? "trial" : "signup");
 
@@ -58,6 +73,8 @@ export default function LoginPage() {
         } else {
             setSource(null);
         }
+
+        setAuthError(error ? AUTH_ERROR_MESSAGES[error] || `Authentication failed: ${error}` : null);
     }, []);
 
     const dashboardHref = useMemo(
@@ -121,6 +138,11 @@ export default function LoginPage() {
                         <p className="mt-2 text-sm text-white/50">{intent === "trial" ? "Sign in to continue your guided trial onboarding." : "Enter your credentials to access your workspace"}</p>
                         {plan && (
                             <p className="mt-2 text-xs uppercase tracking-[0.16em] text-primary font-bold">Selected plan: {plan}</p>
+                        )}
+                        {authError && (
+                            <p className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                                {authError}
+                            </p>
                         )}
                     </div>
 
