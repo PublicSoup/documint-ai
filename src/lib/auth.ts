@@ -1,24 +1,12 @@
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import GitHubProvider from "next-auth/providers/github";
 import GoogleProvider from "next-auth/providers/google";
-import GitLabProvider from "next-auth/providers/gitlab";
 import { db } from "./db";
 import { compare } from "bcryptjs";
-import { sendEmail, emailTemplates } from "./email";
 import { env } from "./env";
-import { encrypt } from "./security/encryption";
 import { z } from "zod";
 import { logAudit } from "./audit-logger";
-import { AuditLogSeverity } from "@prisma/client";
-
-const Auth0ProfileSchema = z.object({
-    sub: z.string(),
-    name: z.string().optional(),
-    email: z.string().email().optional(),
-    picture: z.string().url().optional(),
-});
 
 function getAuthLoggerMetadata(metadata: unknown): Record<string, unknown> | undefined {
     if (metadata instanceof Error) {
@@ -70,65 +58,11 @@ export const authOptions: NextAuthOptions = {
         signIn: "/auth/login",
     },
     providers: [
-        // Only register OAuth providers when credentials are configured
-        ...(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET ? [GitHubProvider({
-            clientId: env.GITHUB_CLIENT_ID,
-            clientSecret: env.GITHUB_CLIENT_SECRET,
-        })] : []),
         ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET ? [GoogleProvider({
             clientId: env.GOOGLE_CLIENT_ID,
             clientSecret: env.GOOGLE_CLIENT_SECRET,
             allowDangerousEmailAccountLinking: true,
         })] : []),
-        ...(env.GITLAB_CLIENT_ID && env.GITLAB_CLIENT_SECRET ? [GitLabProvider({
-            clientId: env.GITLAB_CLIENT_ID,
-            clientSecret: env.GITLAB_CLIENT_SECRET,
-        })] : []),
-        ...(env.AUTH0_CLIENT_ID && env.AUTH0_CLIENT_SECRET && env.AUTH0_ISSUER ? [{
-            id: 'auth0',
-            name: 'Auth0',
-            type: 'oauth' as const,
-            version: '2.0',
-            wellKnown: `${env.AUTH0_ISSUER}/.well-known/openid-configuration`,
-            authorization: { params: { scope: "openid email profile" } },
-            idToken: true,
-            profile(profile: z.infer<typeof Auth0ProfileSchema>) {
-
-                const parsedProfile = Auth0ProfileSchema.safeParse(profile);
-
-                if (!parsedProfile.success) {
-                    logAudit({
-                        action: "AUTH0_PROFILE_PARSE_FAILED",
-                        entity: "Auth0",
-                        entityId: "N/A",
-                        details: {
-                            reason: "Failed to parse Auth0 profile",
-                            errors: parsedProfile.error.flatten(),
-                            profileKeys: Object.keys(profile),
-                        },
-                    });
-                    // Return a minimal profile to avoid breaking the authentication flow
-                    return {
-                        id: profile.sub as string || 'unknown-auth0-id',
-                        name: 'Unknown Auth0 User',
-                        email: 'unknown-auth0-email',
-                        image: null,
-                    };
-                }
-
-                const { sub, name, email, picture } = parsedProfile.data;
-
-                return {
-                    id: sub,
-                    name: name || "Auth0 User",
-                    email: email || "N/A",
-                    image: picture || null,
-                };
-            },
-            clientId: env.AUTH0_CLIENT_ID,
-            clientSecret: env.AUTH0_CLIENT_SECRET,
-            issuer: env.AUTH0_ISSUER,
-        }] : []),
         CredentialsProvider({
             name: "Credentials",
             credentials: {
@@ -273,124 +207,7 @@ export const authOptions: NextAuthOptions = {
                 token.id = user.id;
                 token.role = user.role; // Pass to token
             }
-            // Capture GitHub Access Token on Sign In
-            if (account && account.provider === "github" && account.access_token) {
-                try {
-                    // We must use the user ID from the token (which is already set) or the user object
-                    let userId: string = (token.id as string) || "N/A";
-                    if (userId) {
-                        await db.gitHubConnection.upsert({
-                            where: { userId },
-                            update: {
-                                accessToken: encrypt(account.access_token),
-                                updatedAt: new Date(),
-                            },
-                            create: {
-                                userId,
-                                accessToken: encrypt(account.access_token),
-                                githubId: parseInt(account.providerAccountId),
-                                username: "github_user", // Fallback, updated later if needed
-                            },
-                        });
-                    }
-                } catch (e: unknown) {
-                    await logAudit({
-                        action: "GITHUB_TOKEN_SAVE_FAILED",
-                        entity: "GitHubConnection",
-                        entityId: "N/A",
-                        details: {
-                            reason: "Failed to save GitHub access token",
-                            error: (e instanceof Error ? e.message : String(e)),
-                        },
-                    });
-                }
-            }
             return token;
         }
     },
-    events: {
-        async signIn({ user, account, isNewUser }) {
-            try {
-
-                await logAudit({
-                    userId: user.id,
-                    action: isNewUser ? "SIGN_UP" : "SIGN_IN",
-                    entity: "User",
-                    entityId: user.id,
-                    details: {
-                        method: account?.provider || "credentials",
-                        isNewUser: !!isNewUser
-                    }
-                });
-            } catch (e: unknown) {
-                await logAudit({
-                    action: "AUDIT_LOG_ERROR",
-                    entity: "Auth",
-                    entityId: user.id,
-                    details: {
-                        reason: "Failed to log auth audit event",
-                        event: isNewUser ? "SIGN_UP" : "SIGN_IN",
-                        error: (e instanceof Error ? e.message : String(e)),
-                    },
-                    severity: AuditLogSeverity.ERROR,
-                });
-            }
-        },
-        async signOut({ token }) {
-            try {
-                if (token?.id) {
-                    await logAudit({
-                        userId: token.id as string,
-                        action: "SIGN_OUT",
-                        entity: "User",
-                        entityId: token.id as string,
-                        details: { method: "session-end" }
-                    });
-                }
-            } catch (e: unknown) {
-                await logAudit({
-                    action: "AUDIT_LOG_ERROR",
-                    entity: "Auth",
-                    entityId: token?.id || "N/A",
-                    details: {
-                        reason: "Failed to log signOut audit event",
-                        error: (e instanceof Error ? e.message : String(e)),
-                    },
-                    severity: AuditLogSeverity.ERROR,
-                });
-            }
-        },
-        async createUser({ user }) {
-            if (user.email) {
-                try {
-                    await sendEmail({
-                        to: user.email,
-                        subject: "Welcome to DocuMint AI! 🎉",
-                        html: emailTemplates.welcome(user.name || "Developer", `${env.NEXT_PUBLIC_APP_URL}/dashboard`)
-                    });
-                    await logAudit({
-                        action: "WELCOME_EMAIL_SENT",
-                        entity: "User",
-                        entityId: user.id,
-                        details: {
-                            email: user.email,
-                            reason: "Welcome email successfully sent."
-                        },
-                        severity: AuditLogSeverity.INFO,
-                    });
-                } catch (e: unknown) {
-                    await logAudit({
-                        action: "WELCOME_EMAIL_FAILED",
-                        entity: "User",
-                        entityId: user.id,
-                        details: {
-                            email: user.email,
-                            reason: "Failed to send welcome email",
-                            error: (e instanceof Error ? e.message : String(e)),
-                        },
-                    });
-                }
-            }
-        }
-    }
 };
