@@ -20,12 +20,6 @@ const Auth0ProfileSchema = z.object({
     picture: z.string().url().optional(),
 });
 
-const GoogleProfileSchema = z.object({
-    sub: z.string(),
-    email: z.string().email().optional(),
-    email_verified: z.boolean().optional(),
-});
-
 function getAuthLoggerMetadata(metadata: unknown): Record<string, unknown> | undefined {
     if (metadata instanceof Error) {
         return {
@@ -267,23 +261,6 @@ export const authOptions: NextAuthOptions = {
         })
     ],
     callbacks: {
-        async signIn({ account, profile }) {
-            if (account?.provider !== "google") {
-                return true;
-            }
-
-            const parsedProfile = GoogleProfileSchema.safeParse(profile);
-
-            if (!parsedProfile.success || parsedProfile.data.email_verified !== true) {
-                console.warn("[next-auth][google] rejected unverified profile", {
-                    providerAccountId: account.providerAccountId,
-                    hasEmail: parsedProfile.success ? Boolean(parsedProfile.data.email) : false,
-                });
-                return "/auth/login?error=OAuthEmailNotVerified";
-            }
-
-            return true;
-        },
         async session({ session, token }) {
             if (token && session.user) {
                 session.user.id = token.id as string;
