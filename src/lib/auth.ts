@@ -1,4 +1,4 @@
-import { PrismaAdapter } from "@auth/prisma-adapter";
+import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
@@ -36,7 +36,7 @@ function getAuthLoggerMetadata(metadata: unknown): Record<string, unknown> | und
 }
 
 export const authOptions: NextAuthOptions = {
-    adapter: PrismaAdapter(db),
+    adapter: PrismaAdapter(db as any),
     secret: env.NEXTAUTH_SECRET,
     session: {
         strategy: "jwt"
