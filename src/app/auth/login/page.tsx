@@ -1,6 +1,6 @@
 "use client";
 
-import { signIn } from "next-auth/react";
+import { getProviders, signIn, type ClientSafeProvider } from "next-auth/react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 
 type LoginIntent = "signup" | "trial";
 type LoginPlan = "starter" | "pro" | "team";
+type OAuthProviderId = "google" | "github";
 
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
     OAuthSignin: "Google sign-in could not start. Check the OAuth provider configuration.",
@@ -23,6 +24,8 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
     Configuration: "Authentication is not configured correctly. Please contact support.",
     SessionRequired: "Please sign in to continue.",
 };
+
+const OAUTH_PROVIDER_IDS = ["google", "github"] as const satisfies readonly OAuthProviderId[];
 
 function buildDashboardHref(params: { intent: LoginIntent; plan: LoginPlan | null; source: string | null }): string {
     const query = new URLSearchParams();
@@ -52,6 +55,7 @@ export default function LoginPage() {
     const [plan, setPlan] = useState<LoginPlan | null>(null);
     const [source, setSource] = useState<string | null>(null);
     const [authError, setAuthError] = useState<string | null>(null);
+    const [oauthProviders, setOauthProviders] = useState<Partial<Record<OAuthProviderId, ClientSafeProvider>>>({});
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -77,17 +81,44 @@ export default function LoginPage() {
         setAuthError(error ? AUTH_ERROR_MESSAGES[error] || `Authentication failed: ${error}` : null);
     }, []);
 
+    useEffect(() => {
+        let active = true;
+
+        getProviders()
+            .then((providers) => {
+                if (!active || !providers) return;
+
+                setOauthProviders(
+                    Object.fromEntries(
+                        OAUTH_PROVIDER_IDS
+                            .filter((providerId) => providers[providerId])
+                            .map((providerId) => [providerId, providers[providerId]]),
+                    ),
+                );
+            })
+            .catch((error: unknown) => {
+                console.error("Failed to load auth providers", error);
+            });
+
+        return () => {
+            active = false;
+        };
+    }, []);
+
     const dashboardHref = useMemo(
         () => buildDashboardHref({ intent, plan, source }),
         [intent, plan, source],
     );
 
-    const handleGoogleSignIn = () => {
-        void signIn("google", { callbackUrl: dashboardHref });
-    };
+    const hasOAuthProviders = OAUTH_PROVIDER_IDS.some((providerId) => oauthProviders[providerId]);
 
-    const handleGitHubSignIn = () => {
-        void signIn("github", { callbackUrl: dashboardHref });
+    const handleOAuthSignIn = (providerId: OAuthProviderId) => {
+        if (!oauthProviders[providerId]) {
+            toast("This sign-in provider is not configured yet.", "warning");
+            return;
+        }
+
+        void signIn(providerId, { callbackUrl: dashboardHref });
     };
 
     /* ... handlers ... */
@@ -98,17 +129,22 @@ export default function LoginPage() {
         try {
             const res = await signIn("credentials", {
                 redirect: false,
+                callbackUrl: dashboardHref,
                 email,
                 password,
             });
 
             if (res?.error) {
                 toast(res.error === "CredentialsSignin" ? "Invalid email or password" : `Authentication Error: ${res.error}`, "error");
+            } else if (res?.ok) {
+                router.refresh();
+                router.push(res.url || dashboardHref);
             } else {
-                router.push(dashboardHref);
+                toast("Authentication did not complete. Please try again.", "error");
             }
         } catch (error) {
             console.error(error);
+            toast("Unable to sign in right now. Please try again.", "error");
         } finally {
             setLoading(false);
         }
@@ -202,40 +238,49 @@ export default function LoginPage() {
                         </Button>
                     </form>
 
-                    {/* ALWAYS show OAuth section */}
-                    <div className="relative my-8">
-                        <div className="absolute inset-0 flex items-center">
-                            <div className="w-full border-t border-white/5"></div>
-                        </div>
-                        <div className="relative flex justify-center text-[10px] uppercase font-black tracking-widest">
-                            <span className="px-4 bg-[#030014]/50 text-white/20">or continue with</span>
-                        </div>
-                    </div>
+                    {hasOAuthProviders && (
+                        <>
+                            <div className="relative my-8">
+                                <div className="absolute inset-0 flex items-center">
+                                    <div className="w-full border-t border-white/5"></div>
+                                </div>
+                                <div className="relative flex justify-center text-[10px] uppercase font-black tracking-widest">
+                                    <span className="px-4 bg-[#030014]/50 text-white/20">or continue with</span>
+                                </div>
+                            </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <Button
-                            variant="outline"
-                            onClick={handleGoogleSignIn}
-                            className="h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
-                        >
-                            <svg className="w-4 h-4" viewBox="0 0 24 24">
-                                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
-                                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
-                                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
-                                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
-                            </svg>
-                            Sign in with Google
-                        </Button>
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                {oauthProviders.google && (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => handleOAuthSignIn("google")}
+                                        className="h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
+                                    >
+                                        <svg className="w-4 h-4" viewBox="0 0 24 24">
+                                            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+                                            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+                                            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+                                            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+                                        </svg>
+                                        Sign in with Google
+                                    </Button>
+                                )}
 
-                        <Button
-                            variant="outline"
-                            onClick={handleGitHubSignIn}
-                            className="h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
-                        >
-                            <Github className="w-4 h-4" />
-                            Sign in with GitHub
-                        </Button>
-                    </div>
+                                {oauthProviders.github && (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => handleOAuthSignIn("github")}
+                                        className="h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
+                                    >
+                                        <Github className="w-4 h-4" />
+                                        Sign in with GitHub
+                                    </Button>
+                                )}
+                            </div>
+                        </>
+                    )}
 
                 </div>
 

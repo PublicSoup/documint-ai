@@ -1,7 +1,7 @@
-import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
+import GitHubProvider from "next-auth/providers/github";
 import { db } from "./db";
 import { compare } from "bcryptjs";
 import { env } from "./env";
@@ -35,8 +35,37 @@ function getAuthLoggerMetadata(metadata: unknown): Record<string, unknown> | und
     };
 }
 
+function normalizeEmail(email: unknown): string | null {
+    if (typeof email !== "string") {
+        return null;
+    }
+
+    const normalized = email.trim().toLowerCase();
+    return z.string().email().safeParse(normalized).success ? normalized : null;
+}
+
+function getProfileString(profile: unknown, key: string): string | null {
+    if (!profile || typeof profile !== "object") {
+        return null;
+    }
+
+    const value = (profile as Record<string, unknown>)[key];
+    return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function isGoogleEmailVerified(profile: unknown): boolean {
+    if (!profile || typeof profile !== "object") {
+        return true;
+    }
+
+    return (profile as Record<string, unknown>).email_verified !== false;
+}
+
+function getOAuthImage(profile: unknown, fallback?: string | null): string | null {
+    return getProfileString(profile, "picture") ?? getProfileString(profile, "avatar_url") ?? fallback ?? null;
+}
+
 export const authOptions: NextAuthOptions = {
-    adapter: PrismaAdapter(db as any),
     secret: env.NEXTAUTH_SECRET,
     session: {
         strategy: "jwt"
@@ -61,7 +90,10 @@ export const authOptions: NextAuthOptions = {
         ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET ? [GoogleProvider({
             clientId: env.GOOGLE_CLIENT_ID,
             clientSecret: env.GOOGLE_CLIENT_SECRET,
-            allowDangerousEmailAccountLinking: true,
+        })] : []),
+        ...(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET ? [GitHubProvider({
+            clientId: env.GITHUB_CLIENT_ID,
+            clientSecret: env.GITHUB_CLIENT_SECRET,
         })] : []),
         CredentialsProvider({
             name: "Credentials",
@@ -75,7 +107,7 @@ export const authOptions: NextAuthOptions = {
                 await enforceRateLimit(clientIp, "auth-ip");
 
                 const LoginCredentialsSchema = z.object({
-                    email: z.string().email({ message: "Invalid email address." }),
+                    email: z.string().trim().toLowerCase().email({ message: "Invalid email address." }),
                     password: z.string().min(8, { message: "Password must be at least 8 characters." }),
                 });
 
@@ -96,14 +128,15 @@ export const authOptions: NextAuthOptions = {
                 }
 
                 const { email, password } = parsedCredentials.data;
-                const trimmedEmail = email.trim();
+                const trimmedEmail = email.trim().toLowerCase();
 
                 // High-Security Rate Limiting: 10 attempts per 30 minutes per email
                 try {
                     const { enforceRateLimit } = await import("./rate-limit");
                     // Relaxed for ADMIN_EMAIL: use 'api' tier (300/m) instead of 'security' (10/30m)
-                    const tier = email === env.ADMIN_EMAIL ? "api" : "security";
-                    await enforceRateLimit(email, tier);
+                    const adminEmail = env.ADMIN_EMAIL?.trim().toLowerCase();
+                    const tier = trimmedEmail === adminEmail ? "api" : "security";
+                    await enforceRateLimit(trimmedEmail, tier);
                 } catch (error) {
                     const message = error instanceof Error ? error.message : "Too many attempts. Try again in 30 minutes.";
                     await logAudit({
@@ -124,7 +157,7 @@ export const authOptions: NextAuthOptions = {
 
                 const user = await db.user.findUnique({
                     where: {
-                        email
+                        email: trimmedEmail
                     }
                 });
 
@@ -195,6 +228,65 @@ export const authOptions: NextAuthOptions = {
         })
     ],
     callbacks: {
+        async signIn({ user, account, profile }) {
+            if (account?.type !== "oauth") {
+                return true;
+            }
+
+            if (account.provider === "google" && !isGoogleEmailVerified(profile)) {
+                console.warn("[next-auth][oauth] rejected unverified Google email", { provider: account.provider });
+                return false;
+            }
+
+            const email = normalizeEmail(getProfileString(profile, "email") ?? user.email);
+            if (!email) {
+                console.warn("[next-auth][oauth] rejected sign-in without verified email", { provider: account.provider });
+                return false;
+            }
+
+            const name = user.name ?? getProfileString(profile, "name");
+            const image = getOAuthImage(profile, user.image);
+            const updateData: { name?: string | null; image?: string | null } = {};
+
+            if (name) updateData.name = name;
+            if (image) updateData.image = image;
+
+            try {
+                const dbUser = await db.user.upsert({
+                    where: { email },
+                    update: updateData,
+                    create: {
+                        email,
+                        name,
+                        image,
+                        role: "USER",
+                    },
+                    select: {
+                        id: true,
+                        email: true,
+                        name: true,
+                        image: true,
+                        role: true,
+                    },
+                });
+
+                user.id = dbUser.id;
+                user.email = dbUser.email;
+                user.name = dbUser.name;
+                user.image = dbUser.image;
+                user.role = dbUser.role;
+
+                return true;
+            } catch (error) {
+                console.error("[next-auth][oauth] failed to upsert OAuth user", {
+                    provider: account.provider,
+                    email,
+                    error: getAuthLoggerMetadata(error),
+                });
+
+                return false;
+            }
+        },
         async session({ session, token }) {
             if (token && session.user) {
                 session.user.id = token.id as string;
@@ -207,6 +299,23 @@ export const authOptions: NextAuthOptions = {
                 token.id = user.id;
                 token.role = user.role; // Pass to token
             }
+
+            if (account?.type === "oauth") {
+                const email = normalizeEmail(user?.email ?? token.email);
+
+                if (email) {
+                    const dbUser = await db.user.findUnique({
+                        where: { email },
+                        select: { id: true, role: true },
+                    });
+
+                    if (dbUser) {
+                        token.id = dbUser.id;
+                        token.role = dbUser.role;
+                    }
+                }
+            }
+
             return token;
         }
     },
