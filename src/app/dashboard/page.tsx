@@ -55,6 +55,7 @@ import { TeamAIAudit } from "@/components/team-ai-audit";
 import { CodeHealthIndex } from "@/components/analytics/health-index";
 import { GlobalSearch } from "@/components/global-search";
 import { TrackedLink } from "@/components/marketing/tracked-link";
+import { CodebasesView } from "@/components/codebases/codebases-view";
 import { getPriorityActions } from "./actions";
 import { Network, Sparkles, BrainCircuit, Fingerprint } from "lucide-react";
 import { File, Prisma } from "@prisma/client";
@@ -205,6 +206,17 @@ export default async function DashboardPage(props: {
     }
 
     const selectedDocId = searchParams?.docId;
+
+    // Feature flag: unified Codebases view (replaces the Command Center
+    // placeholder + Sync Status stub). Defaults to OFF until validated in
+    // production; enable with `?codebasesView=v2` on the dashboard URL.
+    const codebasesViewFlag = (() => {
+        const raw = Array.isArray(searchParams?.codebasesView)
+            ? searchParams.codebasesView[0]
+            : searchParams?.codebasesView;
+        return raw === "v2" || raw === "1" || raw === "true";
+    })();
+
     let selectedFile = null;
     let parsedDoc = null;
 
@@ -432,7 +444,9 @@ export default async function DashboardPage(props: {
 
                         {/* Right Content: Main Viewport */}
                         <div className="lg:col-span-8 flex flex-col gap-6">
-                            {typedFiles.length === 0 ? (
+                            {codebasesViewFlag ? (
+                                <CodebasesView teamId={teamId ?? null} />
+                            ) : typedFiles.length === 0 ? (
                                 <DashboardEmptyState teamId={teamId} isPro={subscription.isPro || subscription.isTeam} />
                             ) : selectedDocId && selectedFile ? (
                                 parsedDoc ? (
@@ -500,8 +514,9 @@ export default async function DashboardPage(props: {
                                 </div>
                             )}
 
-                            {/* Secondary Insights Row */}
-                            {!selectedDocId && typedFiles.length > 0 && (
+                            {/* Secondary Insights Row — hidden when the unified
+                                Codebases view (codebasesViewFlag) replaces it. */}
+                            {!selectedDocId && !codebasesViewFlag && typedFiles.length > 0 && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <Card className="glass-card border-white/5 p-6">
                                         <div className="flex items-center justify-between mb-6">
