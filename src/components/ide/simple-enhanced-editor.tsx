@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useRef, forwardRef, useImperativeHandle } from "react";
+import React, { useRef, forwardRef, useImperativeHandle } from "react";
 import Editor, { Monaco } from "@monaco-editor/react";
 import { FileCode } from "lucide-react";
+import type { editor } from "monaco-editor";
 
 interface SimpleEnhancedEditorProps {
     code: string;
@@ -14,7 +15,6 @@ interface SimpleEnhancedEditorProps {
     onCursorChange?: (line: number, column: number) => void;
     onMonacoMount?: (monaco: Monaco) => void;
     readOnly?: boolean;
-    theme?: "vs-dark" | "light" | "hc-black";
 }
 
 export interface SimpleEnhancedEditorRef {
@@ -37,10 +37,9 @@ const SimpleEnhancedEditorComponent = ({
     onRun,
     onCursorChange,
     onMonacoMount,
-    readOnly = false,
-    theme = "vs-dark"
+    readOnly = false
 }: SimpleEnhancedEditorProps, ref: React.Ref<SimpleEnhancedEditorRef>) => {
-    const editorRef = useRef<any>(null);
+    const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
     const monacoRef = useRef<Monaco | null>(null);
     const minimapEnabledRef = useRef(true);
     const wordWrapEnabledRef = useRef(true);
@@ -137,8 +136,8 @@ const SimpleEnhancedEditorComponent = ({
         }
     }));
 
-    const handleEditorDidMount = (editor: any, monaco: Monaco) => {
-        editorRef.current = editor;
+    const handleEditorDidMount = (mountedEditor: editor.IStandaloneCodeEditor, monaco: Monaco) => {
+        editorRef.current = mountedEditor;
         monacoRef.current = monaco;
 
         // Notify parent so layout can use Monaco instance for type loading
@@ -159,7 +158,7 @@ const SimpleEnhancedEditorComponent = ({
         jsDefaults.setDiagnosticsOptions(diagnosticsOptions);
 
         // Set comprehensive compiler options for both TS and JS
-        const compilerOptions: any = {
+        const compilerOptions: Parameters<typeof tsDefaults.setCompilerOptions>[0] = {
             jsx: monaco.languages.typescript.JsxEmit.ReactJSX,  // Modern JSX transform
             target: monaco.languages.typescript.ScriptTarget.ESNext,
             allowNonTsExtensions: true,
@@ -181,7 +180,7 @@ const SimpleEnhancedEditorComponent = ({
         jsDefaults.setCompilerOptions(compilerOptions);
 
         // Track cursor position and report to parent
-        editor.onDidChangeCursorPosition((e: any) => {
+        mountedEditor.onDidChangeCursorPosition((e) => {
             onCursorChange?.(e.position.lineNumber, e.position.column);
         });
 
@@ -223,8 +222,11 @@ const SimpleEnhancedEditorComponent = ({
         monaco.editor.setTheme("documint-dark");
 
         // Keybindings
-        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+        mountedEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             onSave?.();
+        });
+        mountedEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
+            onRun?.();
         });
     };
 

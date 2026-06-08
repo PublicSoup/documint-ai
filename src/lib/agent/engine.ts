@@ -1,6 +1,6 @@
 
 import { db } from "../db";
-import { AgentState, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 interface AgentInternalState {
     history: AIMessage[];
@@ -8,12 +8,19 @@ interface AgentInternalState {
     // Add other internal state variables as needed
 }
 
-import { getAICompletion, getAICompletionWithDetailedError, AIMessage } from "../ai";
+interface AgentRunOptions {
+    reasoningEffort?: "low" | "medium";
+    autoFixErrors?: boolean;
+}
+
+import { getAICompletionWithDetailedError, AIMessage } from "../ai";
 // import * as fs from "fs/promises"; // Removed for Cloudflare compatibility
-import * as path from "path";
 import * as vfs from "./vm-fs";
 import { buildProjectGraph, generateGraphSummary } from "../graph/project-graph";
 import { currentRuntime } from "../runtime";
+import { buildAgentSystemPrompt } from "./prompt";
+import { compactAgentMessages, compactPersistedHistory, compactToolResult, truncateMiddle } from "./context-budget";
+import type { AgentEvent } from "./events";
 
 type DbFile = {
     name: string;
@@ -39,7 +46,7 @@ async function getExecFile() {
 const sanitizeContent = (content: string): string => {
     if (!content) return "";
 
-    let clean = content.trim();
+    const clean = content.trim();
 
     // Check for double-escaping (common with LLMs thinking they need to JSON.stringify)
     // e.g. "import React..." (with quotes)
@@ -47,7 +54,7 @@ const sanitizeContent = (content: string): string => {
         try {
             const parsed = JSON.parse(clean);
             if (typeof parsed === 'string') return parsed;
-        } catch (e) {
+        } catch {
             // Fallback: manual unescape
             return clean.slice(1, -1).replace(/\\n/g, '\n').replace(/\\"/g, '"');
         }
@@ -55,15 +62,6 @@ const sanitizeContent = (content: string): string => {
 
     return content;
 };
-
-export type AgentEvent =
-    | { type: "thought"; content: string }
-    | { type: "tool_call"; tool: string; args: string }
-    | { type: "tool_result"; result: string }
-    | { type: "response"; content: string }
-    | { type: "error"; message: string }
-    | { type: "file_created"; fileName: string; content: string }
-    | { type: "state_change"; state: string; tool?: string; timestamp: number };
 
 const MAX_TURNS = 20;
 
@@ -101,7 +99,8 @@ export async function* runAgent(
     activeFileContent: string | undefined,
     onStateChange?: (state: string, tool?: string) => void,
     initialHistory: AIMessage[] = [],
-    modelName?: string
+    modelName?: string,
+    options: AgentRunOptions = {}
 ): AsyncGenerator<AgentEvent, void, unknown> {
 
     // Use process.cwd() as the base directory (read-only in serverless, writable via Supabase VFS overlay)
@@ -109,7 +108,6 @@ export async function* runAgent(
 
     // Use VFS to get file list (UNION of Local FS + Supabase User Workspace)
     const fileList = await vfs.listFiles(userId, ".", cwd);
-    const fileListSnippet = fileList.slice(0, 150).join("\n");
 
     // Build Project Graph for Context Awareness
     const dbFiles = await db.file.findMany({
@@ -126,62 +124,19 @@ export async function* runAgent(
             // Use VFS instead of direct fs for read-only safety in Edge
             const content = await vfs.readFile(userId, contextFileId, cwd);
             activeCtx = `\n[OPEN_FILE]: ${contextFileId}\n[CONTENT]:\n\`\`\`typescript\n${content}\n\`\`\`\n`;
-        } catch (e) { }
+        } catch { }
     } else if (activeFileContent) {
         activeCtx = `\n[OPEN_FILE]: (Active Buffer)\n[CONTENT]:\n\`\`\`\n${activeFileContent}\n\`\`\`\n`;
     }
 
-    const CORE_SYSTEM_PROMPT = `
-You are **DocuMint AI Architect**, an elite Senior Full-Stack Engineer embedded in a Cloud IDE.
-You have REAL file system access via Supabase VFS. You behave exactly like Cursor AI.
-
-## RESPONSE FORMAT — CRITICAL
-- Lead with CODE, not explanation. Show the complete code in a fenced markdown block first.
-- After the code block, add ONE short sentence describing what you did.
-- NEVER include raw tool calls, XML tags, or internal markers in your response text.
-- NEVER say "I'll now use write_to_file" or describe your tool usage in prose.
-- Tool calls are INVISIBLE to the user — just use them silently after your code.
-- Keep responses SHORT. No essays, no line-by-line explanations, no preambles.
-
-## PRIME DIRECTIVE
-Write **COMPLETE, PRODUCTION-READY code**. Never generate skeleton code, placeholders, or TODOs.
-Every file must be fully functional and beautifully styled out of the box.
-
-## CODE QUALITY
-- React functional components with hooks, TypeScript types (no \`any\`)
-- Tailwind CSS for all styling — responsive, mobile-first
-- Premium UI: gradients, shadows, hover states, transitions, spacing
-- Real content — no placeholders, no "add your API key here"
-- Complete files: imports, component, exports — everything included
-
-## FILE OPERATIONS
-- \`apply_patch\` for small targeted edits (read_file first)
-- \`write_to_file\` for new files or full rewrites (pass RAW content, NOT JSON stringified)
-- Always \`read_file\` before modifying existing files
-
-## TOOLS
-1. **list_files(dir)** — List files in a directory.
-2. **read_file(path)** — Read a file's content.
-3. **read_file_chunk(path, startLine, endLine)** — Read specific lines.
-4. **apply_patch(path, snippet)** — Surgically edit a file.
-5. **write_to_file(path, content)** — Create or overwrite a file.
-6. **execute_command(cmd)** — Run a shell command.
-7. **search_files(pattern)** — Search for files matching a pattern.
-8. **grep_search(query)** — Search inside files.
-
-## TOOL CALL FORMAT (INTERNAL ONLY — never show this to user)
-<tool_code>call:tool_name(arg1, arg2, ...)</tool_code>
-
-## PROJECT CONTEXT
-CWD: ${cwd}
-Files:
-${fileListSnippet}
-
-## Topology
-${graphSummary}
-
-${activeCtx}
-`;
+    const CORE_SYSTEM_PROMPT = buildAgentSystemPrompt({
+        cwd,
+        fileList,
+        graphSummary,
+        activeContext: activeCtx,
+        reasoningEffort: options.reasoningEffort,
+        autoFixErrors: options.autoFixErrors,
+    });
 
     let messages: AIMessage[] = [];
     let toolAttempts = new Map<string, number>();
@@ -196,28 +151,28 @@ ${activeCtx}
             // Ensure stateJson is an object before casting
             if (typeof existingAgentState.stateJson === 'object' && existingAgentState.stateJson !== null) {
                 const parsedState: AgentInternalState = existingAgentState.stateJson as unknown as AgentInternalState;
-                messages = parsedState.history || [];
+                messages = compactPersistedHistory(parsedState.history || []);
                 toolAttempts = new Map(Object.entries(parsedState.toolAttempts || {}));
                 // Restore other state variables here if needed
                 console.log(`Agent state loaded for session ${sessionId}. History length: ${messages.length}`);
             } else {
                 console.warn(`Agent state for session ${sessionId} is not a valid object. Initializing fresh state.`);
-                messages = initialHistory;
+                messages = compactPersistedHistory(initialHistory);
                 toolAttempts = new Map();
             }
         } catch (e) {
             console.error(`Failed to parse agent state for session ${sessionId}:`, e);
-            messages = initialHistory;
+            messages = compactPersistedHistory(initialHistory);
             toolAttempts = new Map();
         }
     } else {
-        messages = initialHistory;
+        messages = compactPersistedHistory(initialHistory);
         toolAttempts = new Map();
     }
 
-    // Always push the current user message to the messages array, whether loaded or fresh
-    messages.push({ role: "system", content: CORE_SYSTEM_PROMPT });
+    // Always push the current user message. The system prompt is intentionally not persisted.
     messages.push({ role: "user", content: userMessage });
+    messages = compactPersistedHistory(messages);
 
     const MAX_RETRIES = 2;
 
@@ -261,10 +216,16 @@ ${activeCtx}
         turns++;
         yield { type: "thought", content: "Thinking..." };
 
-        const result = await getAICompletionWithDetailedError(messages, { 
+        const promptMessages: AIMessage[] = [
+            { role: "system", content: CORE_SYSTEM_PROMPT },
+            ...compactAgentMessages(messages),
+        ];
+
+        const result = await getAICompletionWithDetailedError(promptMessages, {
             temperature: 0.2,
             maxTokens: 8192,
             model: modelName,
+            reasoningEffort: options.reasoningEffort,
             userId,
         });
         if (!result.success || !result.data || !result.data.content) {
@@ -277,6 +238,7 @@ ${activeCtx}
 
         const response = result.data.content;
         messages.push({ role: "assistant", content: response });
+        messages = compactPersistedHistory(messages);
         await saveAgentState(userId, sessionId, { history: messages, toolAttempts: Object.fromEntries(toolAttempts) });
 
         // ====== Multi-layer response sanitization ======
@@ -329,6 +291,7 @@ ${activeCtx}
                 const toolResult = `[MAX_RETRIES]: Tool ${toolName} failed ${MAX_RETRIES} times. Please check the input or try a different approach.`;
                 yield { type: "tool_result", result: toolResult };
                 messages.push({ role: "user", content: `[TOOL_OUTPUT]: ${toolResult}` });
+                messages = compactPersistedHistory(messages);
                 continue; // Skip to next tool
             }
 
@@ -343,7 +306,7 @@ ${activeCtx}
                     case "read_file": {
                         // Use VFS to read (checks Supabase first, then Local)
                         const content = await vfs.readFile(userId, args[0], cwd);
-                        toolResult = `[FILE_CONTENT]:\n${content}`;
+                        toolResult = `[FILE_CONTENT: ${args[0]}]:\n${truncateMiddle(content, 12_000)}${content.length > 12_000 ? "\n[NOTE]: File truncated. Use read_file_chunk for exact sections." : ""}`;
                         break;
                     }
 
@@ -354,7 +317,7 @@ ${activeCtx}
                         const content = await vfs.readFile(userId, args[0], cwd);
                         const lines = content.split('\n');
                         const chunk = lines.slice(start - 1, end).join('\n');
-                        toolResult = `[FILE_CHUNK_LINES_${start}_TO_${end}]:\n${chunk}`;
+                        toolResult = `[FILE_CHUNK_LINES_${start}_TO_${end}]:\n${truncateMiddle(chunk, 12_000)}`;
                         break;
                     }
 
@@ -420,13 +383,13 @@ ${activeCtx}
                                 try {
                                     const { runInSandbox } = await import("../sandbox");
                                     // Split command and args for sandbox
-                                    const parts = cmd.split(' ');
+                                    const parts = splitCommand(cmd);
                                     const sandboxRes = await runInSandbox(parts[0], parts.slice(1));
                                     if (sandboxRes.success) {
-                                        const out = sandboxRes.stdout ? sandboxRes.stdout.substring(0, 50000) : "(no output)";
+                                        const out = sandboxRes.stdout ? truncateMiddle(sandboxRes.stdout, 20_000) : "(no output)";
                                         toolResult = `[SANDBOX_STDOUT]:\n${out}`;
                                         if (sandboxRes.stderr) {
-                                            toolResult += `\n[SANDBOX_STDERR]:\n${sandboxRes.stderr.substring(0, 50000)}`;
+                                            toolResult += `\n[SANDBOX_STDERR]:\n${truncateMiddle(sandboxRes.stderr, 12_000)}`;
                                         }
                                     } else {
                                         toolResult = `[SANDBOX_ERROR]:\n${sandboxRes.error}`;
@@ -439,9 +402,9 @@ ${activeCtx}
                                 if (!execFn) {
                                     toolResult = `[ERROR]: Command execution unavailable in this runtime.`;
                                 } else {
-                                    const parts = cmd.split(' ');
+                                    const parts = splitCommand(cmd);
                                     const { stdout, stderr } = await execFn(parts[0], parts.slice(1), { cwd, timeout: 10000 });
-                                    toolResult = `[STDOUT]:\n${stdout.substring(0, 50000)}\n[STDERR]:\n${stderr.substring(0, 50000)}`;
+                                    toolResult = `[STDOUT]:\n${truncateMiddle(stdout, 20_000)}\n[STDERR]:\n${truncateMiddle(stderr, 12_000)}`;
                                 }
                             } else {
                                 toolResult = `[ERROR]: Execution path blocked.`;
@@ -465,7 +428,7 @@ ${activeCtx}
                             const res = await execFn("find", [".", "-type", "f", "-name", `*${pattern}*`, "-not", "-path", "*/node_modules/*", "-not", "-path", "*/.git/*"], { cwd, timeout: 15000 });
                             const lines = (res.stdout || "").split("\n").slice(0, 25).join("\n");
                             toolResult = `[RESULTS]:\n${lines || "None found."}`;
-                        } catch (e: unknown) {
+                        } catch {
                             toolResult = `[RESULTS]:\nNone found.`;
                         }
                         break;
@@ -486,7 +449,7 @@ ${activeCtx}
                             const res = await execFn("grep", ["-r", query, ".", "--exclude-dir=node_modules", "--exclude-dir=.git"], { cwd, timeout: 15000 });
                             const lines = (res.stdout || "").split("\n").slice(0, 25).join("\n");
                             toolResult = `[RESULTS]:\n${lines || "None found."}`;
-                        } catch (e: unknown) {
+                        } catch {
                             toolResult = `[RESULTS]:\nNone found.`;
                         }
                         break;
@@ -499,11 +462,14 @@ ${activeCtx}
                 toolResult = `[EXCEPTION]: ${e instanceof Error ? e.message : String(e)}`;
             }
 
+            const compactedToolResult = compactToolResult(toolResult);
+
             // Only show result if it's important
-            if (shouldShowToolResult(toolName, toolResult)) {
-                yield { type: "tool_result", result: toolResult };
+            if (shouldShowToolResult(toolName, compactedToolResult)) {
+                yield { type: "tool_result", result: compactedToolResult };
             }
-            messages.push({ role: "user", content: `[TOOL_OUTPUT]: ${toolResult}` });
+            messages.push({ role: "user", content: `[TOOL_OUTPUT]: ${compactedToolResult}` });
+            messages = compactPersistedHistory(messages);
             await saveAgentState(userId, sessionId, { history: messages, toolAttempts: Object.fromEntries(toolAttempts) });
             if (onStateChange) onStateChange("THINKING");
         }
@@ -512,6 +478,7 @@ ${activeCtx}
     }
 
     if (onStateChange) onStateChange("COMPLETED");
+    messages = compactPersistedHistory(messages);
     await saveAgentState(userId, sessionId, { history: messages, toolAttempts: Object.fromEntries(toolAttempts) });
 }
 
@@ -521,13 +488,18 @@ async function saveAgentState(
     currentState: AgentInternalState
 ): Promise<void> {
     try {
+        const sanitizedState: AgentInternalState = {
+            ...currentState,
+            history: compactPersistedHistory(currentState.history),
+        };
+
         await db.agentState.upsert({
             where: { sessionId: sessionId },
-            update: { stateJson: currentState as unknown as Prisma.InputJsonValue },
+            update: { stateJson: sanitizedState as unknown as Prisma.InputJsonValue },
             create: {
                 userId: userId,
                 sessionId: sessionId,
-                stateJson: currentState as unknown as Prisma.InputJsonValue,
+                stateJson: sanitizedState as unknown as Prisma.InputJsonValue,
             },
         });
         // console.log(`Agent state saved for session ${sessionId}.`);
@@ -563,5 +535,18 @@ function parseArgs(raw: string): string[] {
     }
     args.push(current.trim());
     return args;
+}
+
+function splitCommand(command: string): string[] {
+    const tokens: string[] = [];
+    const matcher = /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|\S+/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = matcher.exec(command)) !== null) {
+        const token = match[1] ?? match[2] ?? match[0];
+        tokens.push(token.replace(/\\(["'])/g, "$1"));
+    }
+
+    return tokens;
 }
 

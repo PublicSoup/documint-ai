@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { cn } from "@/lib/utils";
 import { WebContainerTerminal } from "./webcontainer-terminal";
 import { useToast } from "@/components/toast";
@@ -9,12 +9,13 @@ import {
     Trash2,
     SplitSquareHorizontal
 } from "lucide-react";
+import type { Terminal } from "@xterm/xterm";
 
 interface TerminalPanelProps {
     terminalMaximized: boolean;
     setTerminalMaximized: (val: boolean) => void;
     setShowTerminal: (val: boolean) => void;
-    setTerminalInstance: (val: any) => void;
+    setTerminalInstance: (val: Terminal | null) => void;
 }
 
 export function TerminalPanel({
@@ -24,7 +25,16 @@ export function TerminalPanel({
     setTerminalInstance
 }: TerminalPanelProps) {
     const { toast } = useToast();
-    const [terminalInstance, setLocalTerminalInstance] = useState<any>(null);
+    const [terminalInstance, setLocalTerminalInstance] = useState<Terminal | null>(null);
+    const handleTerminalReady = useCallback((term: Terminal) => {
+        setLocalTerminalInstance(term);
+        setTerminalInstance(term);
+    }, [setTerminalInstance]);
+
+    const handleClose = () => {
+        setTerminalInstance(null);
+        setShowTerminal(false);
+    };
 
     return (
         <div className={cn("flex-none border-t border-white/[0.06] bg-[#020010] flex flex-col shadow-[0_-4px_30px_rgba(0,0,0,0.5)] z-20", terminalMaximized ? "h-[60vh]" : "h-32")}>
@@ -72,7 +82,7 @@ export function TerminalPanel({
                     </button>
                     <button
                         type="button"
-                        onClick={() => setShowTerminal(false)}
+                        onClick={handleClose}
                         className="p-1 rounded hover:bg-red-500/10 text-white/25 hover:text-red-400 transition-colors"
                         title="Close"
                     >
@@ -83,11 +93,8 @@ export function TerminalPanel({
 
             <div className="flex-1 min-h-0 bg-[#020010] p-1 pl-3 overflow-hidden">
                 <WebContainerTerminal
-                    onReady={(term) => {
-                        setLocalTerminalInstance(term);
-                        setTerminalInstance(term);
-                    }}
-                    onProcessStart={(process) => {
+                    onReady={handleTerminalReady}
+                    onProcessStart={() => {
                         toast("Command started in terminal", "success");
                     }}
                     onProcessExit={(code) => {

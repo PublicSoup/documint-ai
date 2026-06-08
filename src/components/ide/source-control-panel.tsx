@@ -5,30 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { RefreshCw, Plus, GitCommitHorizontal, Loader2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-
-interface GitStatus {
-    branch: string;
-    files: { path: string; status: 'M' | 'A' | 'D' | 'R' | 'C' | '??' }[];
-}
-
-const parseGitStatus = (statusText: string): GitStatus => {
-    const lines = statusText.split('\n');
-    const branchLine = lines.find(line => line.startsWith('##'));
-    const branch = branchLine ? branchLine.replace(/^## /, '').split('...')[0] : 'HEAD';
-
-    const files = lines
-        .filter(line => !line.startsWith('##') && line.trim() !== '')
-        .map(line => {
-            const status = line.substring(0, 2).trim();
-            const path = line.substring(3).trim();
-            return { path, status: status as GitStatus['files'][0]['status'] };
-        });
-
-    return { branch, files };
-};
+import { parseGitStatus } from './shared/ide-constants';
+import type { ParsedGitStatus } from './shared/types';
 
 export function SourceControlPanel() {
-    const [status, setStatus] = useState<GitStatus | null>(null);
+    const [status, setStatus] = useState<ParsedGitStatus | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [commitMessage, setCommitMessage] = useState('');
@@ -44,10 +25,10 @@ export function SourceControlPanel() {
                 const errorData = await res.json();
                 throw new Error(errorData.message || 'Failed to fetch git status');
             }
-            const data = await res.json();
-            setStatus(parseGitStatus(data.status));
-        } catch (e: any) {
-            setError(e.message);
+            const data = (await res.json()) as { status?: string };
+            setStatus(parseGitStatus(data.status || ""));
+        } catch (error) {
+            setError(error instanceof Error ? error.message : 'Failed to fetch git status');
         } finally {
             setIsLoading(false);
         }
@@ -73,8 +54,8 @@ export function SourceControlPanel() {
                 throw new Error(errorData.message || 'Failed to stage file');
             }
             await fetchStatus(); // Refresh status
-        } catch (e: any) {
-            setError(e.message);
+        } catch (error) {
+            setError(error instanceof Error ? error.message : 'Failed to stage file');
         } finally {
             setStagingPath(null);
         }
@@ -101,8 +82,8 @@ export function SourceControlPanel() {
             }
             setCommitMessage('');
             await fetchStatus(); // Refresh status
-        } catch (e: any) {
-            setError(e.message);
+        } catch (error) {
+            setError(error instanceof Error ? error.message : 'Failed to commit changes');
         } finally {
             setIsCommitting(false);
         }

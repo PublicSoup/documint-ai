@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 interface HotkeyActions {
     onSave: () => void;
@@ -14,10 +14,31 @@ export function useIDEHotkeys({
     onCommandPalette,
     onToggleAIChat,
     onToggleTerminal
-}: HotkeyActions, dependencies: any[] = []) {
+}: HotkeyActions) {
+    const actionsRef = useRef<HotkeyActions>({
+        onSave,
+        onToggleSidebar,
+        onCommandPalette,
+        onToggleAIChat,
+        onToggleTerminal,
+    });
+
+    useEffect(() => {
+        actionsRef.current = {
+            onSave,
+            onToggleSidebar,
+            onCommandPalette,
+            onToggleAIChat,
+            onToggleTerminal,
+        };
+    }, [onSave, onToggleSidebar, onCommandPalette, onToggleAIChat, onToggleTerminal]);
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.repeat) return;
+
             const isCmd = e.ctrlKey || e.metaKey;
+            const actions = actionsRef.current;
 
             // Don't intercept if user is typing in an input or textarea
             const target = e.target as HTMLElement;
@@ -30,38 +51,38 @@ export function useIDEHotkeys({
                 switch (e.key.toLowerCase()) {
                     case 's':
                         e.preventDefault();
-                        onSave();
+                        actions.onSave();
                         break;
                     case 'b':
                         e.preventDefault();
-                        onToggleSidebar();
+                        actions.onToggleSidebar();
                         break;
                     case 'k':
                         e.preventDefault();
-                        onCommandPalette();
+                        actions.onCommandPalette();
                         break;
                     case 'i':
                         e.preventDefault();
-                        onToggleAIChat();
+                        actions.onToggleAIChat();
                         break;
                     case '\`':
                         e.preventDefault();
-                        onToggleTerminal();
+                        actions.onToggleTerminal();
                         break;
                 }
             } else if (isCmd && isEditing) {
                 // Allow Cmd+S and Cmd+K even when in editor
                 if (e.key.toLowerCase() === 's') {
                     e.preventDefault();
-                    onSave();
+                    actions.onSave();
                 } else if (e.key.toLowerCase() === 'k') {
                     e.preventDefault();
-                    onCommandPalette();
+                    actions.onCommandPalette();
                 }
             }
         };
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, dependencies);
+    }, []);
 }

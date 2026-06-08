@@ -34,13 +34,21 @@ export async function trackAiUsage(
         };
     }
 
-    // Check plan quota for shared key usage
+    // Check plan quota for shared key usage. Preflight checks should prevent this path,
+    // but this remains as defense-in-depth for concurrent requests and legacy callers.
     const { limits } = await getUserSubscription(userId);
 
     if (limits.aiQueries !== -1 && usage.queryCount > limits.aiQueries) {
         throw new AiQuotaExceededError(
             `You've used ${usage.queryCount - 1} of ${limits.aiQueries} AI queries this month. Upgrade your plan or add your own Google API key to continue using the AI agent.`,
-            { queryCount: usage.queryCount - 1, limit: limits.aiQueries }
+            { current: usage.queryCount - 1, limit: limits.aiQueries, limitType: "query" }
+        );
+    }
+
+    if (limits.aiTokenAllowance !== -1 && usage.tokenCount > limits.aiTokenAllowance) {
+        throw new AiQuotaExceededError(
+            `You've used your included AI token allowance for this month. Upgrade your plan or add your own Google API key to continue using the AI agent.`,
+            { current: usage.tokenCount - tokens, limit: limits.aiTokenAllowance, limitType: "token" }
         );
     }
 
@@ -52,12 +60,53 @@ export async function trackAiUsage(
 }
 
 /**
+ * Preflight shared-key AI usage before a provider call is made.
+ * This prevents the app from paying for AI requests that the user cannot afford under their plan.
+ */
+export async function assertAiUsageBudget(
+    userId: string,
+    reservedTokens: number,
+    options?: { isUsingOwnKey?: boolean }
+): Promise<void> {
+    if (options?.isUsingOwnKey) return;
+
+    const now = new Date();
+    const month = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const [usage, { limits }] = await Promise.all([
+        db.aiUsage.findUnique({
+            where: { userId_month: { userId, month } },
+            select: { queryCount: true, tokenCount: true },
+        }),
+        getUserSubscription(userId),
+    ]);
+
+    const currentQueries = usage?.queryCount ?? 0;
+    const currentTokens = usage?.tokenCount ?? 0;
+
+    if (limits.aiQueries !== -1 && currentQueries >= limits.aiQueries) {
+        throw new AiQuotaExceededError(
+            `You've used ${currentQueries} of ${limits.aiQueries} AI queries this month. Upgrade your plan or add your own Google API key to continue using the AI agent.`,
+            { current: currentQueries, limit: limits.aiQueries, limitType: "query" }
+        );
+    }
+
+    if (limits.aiTokenAllowance !== -1 && currentTokens + reservedTokens > limits.aiTokenAllowance) {
+        throw new AiQuotaExceededError(
+            `This request may exceed your included AI token allowance. Upgrade your plan, shorten the prompt, or add your own Google API key to continue.`,
+            { current: currentTokens, limit: limits.aiTokenAllowance, limitType: "token" }
+        );
+    }
+}
+
+/**
  * Get the user's AI usage stats for the current month.
  */
 export async function getUserAiUsage(userId: string): Promise<{
     queryCount: number;
     tokenCount: number;
     quota: number;
+    tokenQuota: number;
     hasApiKey: boolean;
 }> {
     const now = new Date();
@@ -78,6 +127,7 @@ export async function getUserAiUsage(userId: string): Promise<{
         queryCount: usage?.queryCount ?? 0,
         tokenCount: usage?.tokenCount ?? 0,
         quota: limits.aiQueries,
+        tokenQuota: limits.aiTokenAllowance,
         hasApiKey: !!user?.encryptedApiKey,
     };
 }
@@ -131,13 +181,17 @@ export async function deleteUserApiKey(userId: string): Promise<void> {
  * Custom error for AI quota exceeded scenarios.
  */
 export class AiQuotaExceededError extends Error {
+    public readonly current: number;
     public readonly queryCount: number;
     public readonly limit: number;
+    public readonly limitType: "query" | "token";
 
-    constructor(message: string, details: { queryCount: number; limit: number }) {
+    constructor(message: string, details: { current?: number; queryCount?: number; limit: number; limitType?: "query" | "token" }) {
         super(message);
         this.name = "AiQuotaExceededError";
-        this.queryCount = details.queryCount;
+        this.current = details.current ?? details.queryCount ?? 0;
+        this.queryCount = details.queryCount ?? this.current;
         this.limit = details.limit;
+        this.limitType = details.limitType ?? "query";
     }
 }

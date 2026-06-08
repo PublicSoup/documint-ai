@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import type { File } from "@prisma/client";
 import { EnhancedFileTree } from "./enhanced-file-tree";
-import { Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { useToast } from "../toast";
-import { CreateFileDialog } from "./create-file-dialog";
+import { CreateFileDialog, type CreateFileDialogType } from "./create-file-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import type { FileAction, IDEFile, IDEFileWithDocumentation } from "./shared/types";
 
 const getErrorMessage = async (res: Response) => {
     const data = await res.json().catch(() => null);
@@ -22,16 +24,17 @@ const fetcher = (url: string) => fetch(url, { cache: "no-store" }).then((res) =>
 
 interface FileTreeContainerProps {
     activeFileId?: string;
-    files?: (File & { content?: string | null })[];
+    files?: IDEFileWithDocumentation[];
     workspacePrefix?: string;
     onSelect: (fileId: string) => void;
-    onFileCreated: (file: File) => void;
+    onFileCreated: (file: IDEFile) => void;
     onFileRenamed: (fileId: string, newName: string) => void;
     onFileDeleted: (fileId: string) => void;
+    onProjectDeleteRequest?: (workspace: string) => void;
 }
 
-export function FileTreeContainer({ activeFileId, files: providedFiles, workspacePrefix = "Project", onSelect, onFileCreated, onFileRenamed, onFileDeleted }: FileTreeContainerProps) {
-    const { data: fetchedFiles, error, isLoading, mutate } = useSWR<(File & { documentation?: any })[]>('/api/files', fetcher, {
+export function FileTreeContainer({ activeFileId, files: providedFiles, workspacePrefix = "Project", onSelect, onFileCreated, onFileRenamed, onFileDeleted, onProjectDeleteRequest }: FileTreeContainerProps) {
+    const { data: fetchedFiles, error, isLoading, mutate } = useSWR<IDEFileWithDocumentation[]>('/api/files', fetcher, {
         revalidateOnFocus: false,
         revalidateOnReconnect: false,
     });
@@ -39,14 +42,38 @@ export function FileTreeContainer({ activeFileId, files: providedFiles, workspac
     const { toast } = useToast();
     const [isRefreshing, setIsRefreshing] = useState(false);
 
-    const [dialogState, setDialogState] = useState<{ open: boolean; type: "file" | "folder"; parentId: string }>({
+    const [dialogState, setDialogState] = useState<{
+        open: boolean;
+        type: CreateFileDialogType;
+        parentId: string;
+        targetFile?: IDEFileWithDocumentation;
+    }>({
         open: false,
         type: "file",
         parentId: "Project"
     });
+    const [deleteTarget, setDeleteTarget] = useState<IDEFileWithDocumentation | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
-    const handleCreate = async (name: string) => {
+    const handleDialogSubmit = async (name: string) => {
         try {
+            if (dialogState.type === "rename") {
+                const target = dialogState.targetFile;
+                if (!target || name === target.name) return true;
+
+                const res = await fetch(`/api/files/${target.id}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ newName: name })
+                });
+                if (!res.ok) throw new Error(await getErrorMessage(res));
+                const updatedFile = (await res.json()) as Pick<IDEFile, "id" | "name">;
+                toast(`Renamed to ${updatedFile.name}`, "success");
+                onFileRenamed(updatedFile.id, updatedFile.name);
+                await mutate();
+                return true;
+            }
+
             const res = await fetch("/api/files/create", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -57,13 +84,14 @@ export function FileTreeContainer({ activeFileId, files: providedFiles, workspac
                 }),
             });
             if (!res.ok) throw new Error(await getErrorMessage(res));
-            const newFile = await res.json();
+            const newFile = (await res.json()) as IDEFile;
             toast(`Created ${dialogState.type} '${name}'`, "success");
             onFileCreated(newFile);
             await mutate();
             return true;
-        } catch (e: any) {
-            toast(`Failed to create ${dialogState.type}: ${e.message}`, "error");
+        } catch (error) {
+            const action = dialogState.type === "rename" ? "rename" : `create ${dialogState.type}`;
+            toast(`Failed to ${action}: ${error instanceof Error ? error.message : "Request failed"}`, "error");
             return false;
         }
     };
@@ -74,14 +102,32 @@ export function FileTreeContainer({ activeFileId, files: providedFiles, workspac
         try {
             await mutate();
             toast("File tree refreshed", "success");
-        } catch (e: any) {
-            toast(`Failed to refresh files: ${e.message}`, "error");
+        } catch (error) {
+            toast(`Failed to refresh files: ${error instanceof Error ? error.message : "Request failed"}`, "error");
         } finally {
             setIsRefreshing(false);
         }
     };
 
-    const handleAction = async (action: "ai" | "delete" | "rename" | "new_file" | "new_folder", contextId?: string) => {
+    const handleDeleteConfirmed = async () => {
+        if (!deleteTarget || isDeleting) return;
+
+        setIsDeleting(true);
+        try {
+            const res = await fetch(`/api/files/${deleteTarget.id}`, { method: "DELETE" });
+            if (!res.ok) throw new Error(await getErrorMessage(res));
+            toast("File deleted", "success");
+            onFileDeleted(deleteTarget.id);
+            setDeleteTarget(null);
+            await mutate();
+        } catch (error) {
+            toast(`Failed to delete: ${error instanceof Error ? error.message : "Request failed"}`, "error");
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
+    const handleAction = async (action: Extract<FileAction, "ai" | "delete" | "delete_project" | "rename" | "new_file" | "new_folder">, contextId?: string) => {
         const targetParentId = contextId === "Project" ? workspacePrefix : (contextId || workspacePrefix);
 
         switch (action) {
@@ -95,41 +141,19 @@ export function FileTreeContainer({ activeFileId, files: providedFiles, workspac
                 if (!contextId) return;
                 const fileToRename = files?.find(f => f.id === contextId);
                 if (!fileToRename) return;
-
-                const newName = prompt("Enter new file name:", fileToRename.name);
-                if (!newName || newName === fileToRename.name) return;
-
-                try {
-                    const res = await fetch(`/api/files/${contextId}`, {
-                        method: "PUT",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ newName })
-                    });
-                    if (!res.ok) throw new Error(await getErrorMessage(res));
-                    const updatedFile = await res.json();
-                    toast(`Renamed to ${newName}`, "success");
-                    onFileRenamed(updatedFile.id, updatedFile.name);
-                    await mutate();
-                } catch (e: any) {
-                    toast(`Failed to rename: ${e.message}`, "error");
-                }
+                setDialogState({ open: true, type: "rename", parentId: targetParentId, targetFile: fileToRename });
                 break;
             case "delete":
                 if (!contextId) return;
                 const fileToDelete = files?.find(f => f.id === contextId);
                 if (!fileToDelete) return;
-
-                if (confirm(`Are you sure you want to delete ${fileToDelete.name}?`)) {
-                    try {
-                        const res = await fetch(`/api/files/${contextId}`, { method: "DELETE" });
-                        if (!res.ok) throw new Error(await getErrorMessage(res));
-                        toast("File deleted", "success");
-                        onFileDeleted(contextId);
-                        await mutate();
-                    } catch (e: any) {
-                        toast(`Failed to delete: ${e.message}`, "error");
-                    }
-                }
+                setDeleteTarget(fileToDelete);
+                break;
+            case "delete_project":
+                if (contextId) onProjectDeleteRequest?.(contextId);
+                break;
+            case "ai":
+                if (contextId) onSelect(contextId);
                 break;
         }
     };
@@ -172,8 +196,30 @@ export function FileTreeContainer({ activeFileId, files: providedFiles, workspac
                 onOpenChange={(open) => setDialogState(prev => ({ ...prev, open }))}
                 type={dialogState.type}
                 parentId={dialogState.parentId}
-                onCreate={handleCreate}
+                initialName={dialogState.targetFile?.name || ""}
+                onCreate={handleDialogSubmit}
             />
+            <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-red-400">
+                            <AlertTriangle className="h-4 w-4" />
+                            Delete file
+                        </DialogTitle>
+                        <DialogDescription>
+                            This will permanently delete <span className="font-mono text-foreground">{deleteTarget?.name}</span>. This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button type="button" variant="ghost" onClick={() => setDeleteTarget(null)} disabled={isDeleting}>
+                            Cancel
+                        </Button>
+                        <Button type="button" onClick={handleDeleteConfirmed} disabled={isDeleting} isLoading={isDeleting} className="bg-red-600 text-white hover:bg-red-500">
+                            Delete
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </>
     );
 }

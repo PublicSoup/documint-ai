@@ -85,6 +85,13 @@ const limiters = {
         prefix: "rl:file_delete"
     }) : null,
 
+    // Project deletions: 3 per 10 minutes
+    project_delete: redis ? new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(3, "10 m"),
+        prefix: "rl:project_delete"
+    }) : null,
+
     // File renames: 10 per 5 minutes
     file_rename: redis ? new Ratelimit({
         redis,
@@ -106,7 +113,7 @@ const limiters = {
     }) : null,
 };
 
-type RateLimitTier = "auth" | "auth-ip" | "pro" | "api" | "upload" | "security" | "file_create" | "file_delete" | "file_rename" | "file_create_bulk" | "architect" | "chat";
+type RateLimitTier = "auth" | "auth-ip" | "pro" | "api" | "upload" | "security" | "file_create" | "file_delete" | "project_delete" | "file_rename" | "file_create_bulk" | "architect" | "chat";
 
 const fallbackLimits: Record<RateLimitTier, { requests: number; windowMs: number }> = {
     auth: { requests: 5, windowMs: 15 * 60 * 1000 },
@@ -118,6 +125,7 @@ const fallbackLimits: Record<RateLimitTier, { requests: number; windowMs: number
     upload: { requests: 10, windowMs: 60 * 1000 },
     file_create: { requests: 10, windowMs: 60 * 1000 },
     file_delete: { requests: 10, windowMs: 5 * 60 * 1000 },
+    project_delete: { requests: 3, windowMs: 10 * 60 * 1000 },
     file_rename: { requests: 10, windowMs: 5 * 60 * 1000 },
     file_create_bulk: { requests: 5, windowMs: 60 * 1000 },
     architect: { requests: 10, windowMs: 60 * 60 * 1000 },
@@ -252,7 +260,7 @@ export async function getClientIP(req?: Request): Promise<string> {
         try {
             // Try to use next/headers if called in a request context
             headersList = await nextHeaders();
-        } catch (error: unknown) {
+        } catch {
             // Not in a request context or headers() failed
             return "127.0.0.1";
         }
@@ -279,7 +287,7 @@ export async function getUserAgent(req?: Request): Promise<string> {
     } else {
         try {
             headersList = await nextHeaders();
-        } catch (error: unknown) {
+        } catch {
             return "unknown";
         }
     }

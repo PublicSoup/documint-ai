@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Loader2, Terminal, CheckCircle2, AlertCircle, BrainCircuit } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, Terminal, CheckCircle2, AlertCircle, BrainCircuit, Monitor, Bug } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 import { ThoughtStep } from "./chat/types";
@@ -45,6 +45,9 @@ export function ThinkingProcess({ steps, isThinking }: ThinkingProcessProps) {
                                 {step.type === 'thought' && <div className="w-1.5 h-1.5 rounded-full bg-white/20" />}
                                 {step.type === 'tool_call' && <Terminal className="w-3 h-3 text-blue-400" />}
                                 {step.type === 'tool_result' && <CheckCircle2 className="w-3 h-3 text-green-400" />}
+                                {step.type === 'command' && <Terminal className="w-3 h-3 text-cyan-400" />}
+                                {step.type === 'preview' && <Monitor className="w-3 h-3 text-emerald-400" />}
+                                {step.type === 'error_report' && <Bug className="w-3 h-3 text-amber-400" />}
                                 {step.type === 'error' && <AlertCircle className="w-3 h-3 text-red-400" />}
                             </div>
                             <div className="flex-1 min-w-0">
@@ -56,7 +59,10 @@ export function ThinkingProcess({ steps, isThinking }: ThinkingProcessProps) {
                                 <span className={cn(
                                     "text-white/60 whitespace-pre-wrap break-words",
                                     step.type === 'error' && "text-red-300",
-                                    step.type === 'tool_result' && "text-green-300/80 italic"
+                                    step.type === 'tool_result' && "text-green-300/80 italic",
+                                    step.type === 'command' && "text-cyan-300/80",
+                                    step.type === 'preview' && "text-emerald-300/80",
+                                    step.type === 'error_report' && "text-amber-300/80"
                                 )}>
                                     {step.content}
                                 </span>

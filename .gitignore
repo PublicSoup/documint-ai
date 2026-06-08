@@ -55,3 +55,6 @@ logs/
 *.tsbuildinfo
 next-env.d.ts
 .npm-cache/
+
+# reference projects (cloned, not part of main codebase)
+/vibe-coding-platform-main/

@@ -1,17 +1,210 @@
-
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { WebContainerProcess } from '@webcontainer/api';
+import type { Terminal as XTerm } from '@xterm/xterm';
+import type { IDEFile, RuntimeErrorCode, RuntimeErrorInfo, RuntimeProjectManifest } from '@/components/ide/shared/types';
+import { detectRuntimeProject, isSafeWorkspacePath, toWorkspaceRelativePath } from '@/components/ide/shared/ide-constants';
+import { compactRuntimeLogLine, type RuntimeCommand, type RuntimeLogLine } from '@/lib/ide/runtime-events';
 import { WebContainerManager } from '@/lib/web-container';
-import { Terminal as XTerm } from '@xterm/xterm';
-import type { File } from '@prisma/client';
 
 export type RunStatus = 'idle' | 'installing' | 'starting' | 'ready' | 'error';
 
 interface UseExecutionEngineProps {
-    files: (File & { content?: string | null })[];
+    files: IDEFile[];
     activeFileId?: string;
     fileContents: Record<string, string>;
     terminalInstance: XTerm | null;
     workspacePrefix?: string | null;
+    envSecrets?: { key: string; value: string }[];
+}
+
+type WebContainerMountTree = Record<string, { file: { contents: string } } | { directory: WebContainerMountTree }>;
+type PackageManager = 'npm' | 'pnpm' | 'yarn';
+type CliCommand = { command: string; args: string[] };
+type RuntimeTerminal = Pick<XTerm, 'write' | 'writeln'> | null;
+
+const SAFE_ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const SERVER_READY_TIMEOUT_MS = 30_000;
+const LOCKFILE_NAMES = ['package-lock.json', 'npm-shrinkwrap.json', 'pnpm-lock.yaml', 'yarn.lock'] as const;
+
+const RUNTIME_ERROR_HINTS: Record<RuntimeErrorCode, string> = {
+    TERMINAL_NOT_READY: 'The runtime can still run, but the terminal UI did not mount fast enough. Reopen the terminal or retry the run action.',
+    WEBCONTAINER_BOOT_FAILED: 'Refresh the IDE and try again. WebContainers require cross-origin isolation and may fail if the browser blocks SharedArrayBuffer.',
+    INSTALL_FAILED: 'Check dependency names, package versions, and package manager lockfiles. Try simplifying package.json if install keeps failing.',
+    PACKAGE_JSON_INVALID: 'Fix package.json syntax. If this is a static site, keep index.html so DocuMint can fall back to static preview.',
+    SCRIPT_NOT_FOUND: 'Add a scripts.dev or scripts.start entry to package.json, or include index.html for static preview.',
+    ENTRYPOINT_NOT_FOUND: 'Add index.html for static sites or package.json with a dev/start script for Node projects.',
+    SERVER_READY_TIMEOUT: 'Ensure the dev server binds to 0.0.0.0 and prints/listens on a port WebContainer can expose.',
+    SERVER_EXITED: 'Check the terminal logs for the first compile/runtime error before the server exited.',
+    UNSUPPORTED_BROWSER_RUNTIME: 'This language needs the server sandbox runtime rather than the browser WebContainer preview.',
+    SANDBOX_UNAVAILABLE: 'Configure Vercel Sandbox in production or run a browser-supported static/Node project instead.',
+    SANDBOX_FAILED: 'Review sandbox command output and verify the detected entrypoint can run non-interactively.',
+    NO_PREVIEW_AVAILABLE: 'The code executed, but no web server/port was exposed for iframe preview. Check terminal output for CLI results.',
+    UNKNOWN_RUNTIME_ERROR: 'Review the terminal/runtime logs, then retry after fixing the first reported error.',
+};
+
+interface SandboxRuntimeResponse {
+    sandboxId?: string;
+    commandId?: string;
+    previewUrl?: string;
+    stdout?: string;
+    stderr?: string;
+    message?: string;
+    code?: string;
+}
+
+const STATIC_PREVIEW_SERVER_SCRIPT = `
+const http = require("node:http");
+const fs = require("node:fs/promises");
+const path = require("node:path");
+
+const resolvedRoot = path.resolve(process.cwd());
+let port = Number(process.env.PORT || 3000);
+
+const mimeTypes = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon"
+};
+
+function send(res, status, body, contentType) {
+  res.writeHead(status, { "Content-Type": contentType, "Cache-Control": "no-store" });
+  res.end(body);
+}
+
+function safeResolve(rawUrl) {
+  try {
+    const pathname = decodeURIComponent(new URL(rawUrl || "/", "http://localhost").pathname);
+    const requestPath = pathname === "/" ? "index.html" : pathname.replace(/^\\/+/, "");
+    const filePath = path.resolve(resolvedRoot, requestPath);
+    return filePath === resolvedRoot || filePath.startsWith(resolvedRoot + path.sep) ? filePath : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readStaticFile(filePath) {
+  const stats = await fs.stat(filePath);
+  return await fs.readFile(stats.isDirectory() ? path.join(filePath, "index.html") : filePath);
+}
+
+const server = http.createServer(async (req, res) => {
+  const filePath = safeResolve(req.url);
+  if (!filePath) {
+    send(res, 400, "Bad request", "text/plain; charset=utf-8");
+    return;
+  }
+
+  try {
+    const data = await readStaticFile(filePath);
+    const ext = path.extname(filePath).toLowerCase() || ".html";
+    res.writeHead(200, { "Content-Type": mimeTypes[ext] || "application/octet-stream", "Cache-Control": "no-store" });
+    res.end(data);
+  } catch {
+    if (!path.extname(filePath)) {
+      try {
+        const data = await fs.readFile(path.join(resolvedRoot, "index.html"));
+        res.writeHead(200, { "Content-Type": mimeTypes[".html"], "Cache-Control": "no-store" });
+        res.end(data);
+        return;
+      } catch {}
+    }
+
+    send(res, 404, "Not found", "text/plain; charset=utf-8");
+  }
+});
+
+server.on("error", (error) => {
+  if (error && error.code === "EADDRINUSE" && port < 3010) {
+    port += 1;
+    server.listen(port, "0.0.0.0");
+    return;
+  }
+
+  throw error;
+});
+
+server.listen(port, "0.0.0.0", () => {
+  console.log("[documint-preview] Static server ready on http://localhost:" + port);
+});
+
+process.on("SIGTERM", () => server.close(() => process.exit(0)));
+process.on("SIGINT", () => server.close(() => process.exit(0)));
+`;
+
+function hashString(value: string): string {
+    let hash = 5381;
+    for (let index = 0; index < value.length; index += 1) {
+        hash = ((hash << 5) + hash) ^ value.charCodeAt(index);
+    }
+
+    return (hash >>> 0).toString(36);
+}
+
+function formatCommand({ command, args }: CliCommand): string {
+    return [command, ...args].join(' ');
+}
+
+function getInstallCommand(packageManager: PackageManager): CliCommand {
+    switch (packageManager) {
+        case 'pnpm':
+            return { command: 'npx', args: ['pnpm', 'install'] };
+        case 'yarn':
+            return { command: 'npx', args: ['yarn', 'install', '--ignore-engines'] };
+        case 'npm':
+            return { command: 'npm', args: ['install'] };
+        default: {
+            const exhaustive: never = packageManager;
+            return exhaustive;
+        }
+    }
+}
+
+function getScriptCommand(packageManager: PackageManager, scriptName: string): CliCommand {
+    switch (packageManager) {
+        case 'pnpm':
+            return { command: 'npx', args: ['pnpm', 'run', scriptName] };
+        case 'yarn':
+            return { command: 'npx', args: ['yarn', 'run', scriptName] };
+        case 'npm':
+            return scriptName === 'start'
+                ? { command: 'npm', args: ['start'] }
+                : { command: 'npm', args: ['run', scriptName] };
+        default: {
+            const exhaustive: never = packageManager;
+            return exhaustive;
+        }
+    }
+}
+
+function serializeEnvSecrets(secrets: { key: string; value: string }[]): string {
+    return secrets
+        .filter(secret => SAFE_ENV_KEY_PATTERN.test(secret.key.trim()))
+        .map(secret => `${secret.key.trim()}=${JSON.stringify(secret.value)}`)
+        .join('\n');
+}
+
+function getPackageScripts(content: string): { scripts: Record<string, string>; error?: string } {
+    try {
+        const parsed = JSON.parse(content) as { scripts?: unknown };
+        const scripts = parsed.scripts && typeof parsed.scripts === 'object' && !Array.isArray(parsed.scripts)
+            ? Object.fromEntries(
+                Object.entries(parsed.scripts).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+            )
+            : {};
+
+        return { scripts };
+    } catch (error) {
+        return { scripts: {}, error: error instanceof Error ? error.message : 'Invalid package.json' };
+    }
 }
 
 export function useExecutionEngine({
@@ -19,17 +212,26 @@ export function useExecutionEngine({
     activeFileId,
     fileContents,
     terminalInstance,
-    workspacePrefix
+    workspacePrefix,
+    envSecrets = []
 }: UseExecutionEngineProps) {
-    // State
     const [runStatus, setRunStatus] = useState<RunStatus>('idle');
     const [webContainerBooted, setWebContainerBooted] = useState(false);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+    const [isRuntimeTaskRunning, setIsRuntimeTaskRunning] = useState(false);
+    const [runtimeCommands, setRuntimeCommands] = useState<RuntimeCommand[]>([]);
+    const [runtimeLogs, setRuntimeLogs] = useState<RuntimeLogLine[]>([]);
+    const [runtimeError, setRuntimeError] = useState<RuntimeErrorInfo | null>(null);
 
-    // Refs to break closure for async execution
     const termRef = useRef<XTerm | null>(terminalInstance);
     const bootedRef = useRef<boolean>(webContainerBooted);
+    const filesRef = useRef(files);
+    const fileContentsRef = useRef(fileContents);
+    const envSecretsRef = useRef(envSecrets);
+    const runtimeProcessRef = useRef<WebContainerProcess | null>(null);
+    const previewUrlRef = useRef<string | null>(previewUrl);
+    const previewTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         termRef.current = terminalInstance;
@@ -39,219 +241,633 @@ export function useExecutionEngine({
         bootedRef.current = webContainerBooted;
     }, [webContainerBooted]);
 
-    const toWorkspaceRelativePath = useCallback((name: string) => {
-        const normalizedName = name.replace(/^\/+/, "").trim();
-        if (!normalizedName) return null;
+    useEffect(() => {
+        filesRef.current = files;
+    }, [files]);
 
-        if (workspacePrefix && workspacePrefix !== "Project") {
-            const normalizedPrefix = `${workspacePrefix.replace(/^\/+|\/+$/g, "")}/`;
-            if (!normalizedName.startsWith(normalizedPrefix)) return null;
-            return normalizedName.slice(normalizedPrefix.length);
+    useEffect(() => {
+        fileContentsRef.current = fileContents;
+    }, [fileContents]);
+
+    useEffect(() => {
+        previewUrlRef.current = previewUrl;
+    }, [previewUrl]);
+
+    useEffect(() => {
+        envSecretsRef.current = envSecrets;
+    }, [envSecrets]);
+
+    const clearPreviewTimeout = useCallback(() => {
+        if (!previewTimeoutRef.current) return;
+        clearTimeout(previewTimeoutRef.current);
+        previewTimeoutRef.current = null;
+    }, []);
+
+    useEffect(() => clearPreviewTimeout, [clearPreviewTimeout]);
+
+    const upsertCommand = useCallback((command: RuntimeCommand) => {
+        setRuntimeCommands(prev => {
+            const existingIndex = prev.findIndex(item => item.id === command.id);
+            if (existingIndex === -1) return [...prev, command].slice(-30);
+
+            const next = [...prev];
+            next[existingIndex] = { ...next[existingIndex], ...command };
+            return next;
+        });
+    }, []);
+
+    const appendRuntimeLog = useCallback((line: RuntimeLogLine) => {
+        const compacted = compactRuntimeLogLine(line);
+        setRuntimeLogs(prev => [...prev, compacted].slice(-200));
+    }, []);
+
+    const writeRuntimeLine = useCallback((term: RuntimeTerminal, data: string, stream: RuntimeLogLine['stream'] = 'stdout') => {
+        term?.writeln(data);
+        appendRuntimeLog({
+            commandId: 'runtime-system',
+            command: 'runtime',
+            args: [],
+            stream,
+            data: `${data}\n`,
+            timestamp: Date.now(),
+        });
+    }, [appendRuntimeLog]);
+
+    const failRuntime = useCallback((params: {
+        code: RuntimeErrorCode;
+        message: string;
+        details?: string;
+        term?: RuntimeTerminal;
+    }) => {
+        const errorInfo: RuntimeErrorInfo = {
+            code: params.code,
+            message: params.message,
+            hint: RUNTIME_ERROR_HINTS[params.code],
+            details: params.details,
+        };
+
+        setRuntimeError(errorInfo);
+        setRunStatus('error');
+        writeRuntimeLine(
+            params.term ?? termRef.current,
+            `\r\nError [${errorInfo.code}]: ${errorInfo.message}\r\nHint: ${errorInfo.hint}${errorInfo.details ? `\r\nDetails: ${errorInfo.details}` : ''}\r\n`,
+            'stderr',
+        );
+        return errorInfo;
+    }, [writeRuntimeLine]);
+
+    const spawnTracked = useCallback(async (
+        command: string,
+        args: string[],
+        term: RuntimeTerminal,
+        options: { background?: boolean } = {}
+    ) => {
+        const commandId = `${command}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+        const startedAt = Date.now();
+
+        upsertCommand({ id: commandId, command, args, status: 'running', startedAt });
+        const process = await WebContainerManager.spawn(command, { args });
+
+        void process.output.pipeTo(new WritableStream({
+            write(data) {
+                term?.write(data);
+                appendRuntimeLog({
+                    commandId,
+                    command,
+                    args,
+                    stream: /\berror\b|failed|exception|traceback|syntaxerror|typeerror/i.test(data) ? 'stderr' : 'stdout',
+                    data,
+                    timestamp: Date.now(),
+                });
+            }
+        })).catch(error => {
+            appendRuntimeLog({
+                commandId,
+                command,
+                args,
+                stream: 'stderr',
+                data: error instanceof Error ? error.message : String(error),
+                timestamp: Date.now(),
+            });
+        });
+
+        if (!options.background) {
+            const exitCode = await process.exit;
+            upsertCommand({
+                id: commandId,
+                command,
+                args,
+                status: exitCode === 0 ? 'done' : 'error',
+                exitCode,
+                startedAt,
+                completedAt: Date.now(),
+            });
+            return { process, exitCode, commandId };
         }
 
-        return normalizedName;
+        void process.exit.then(exitCode => {
+            upsertCommand({
+                id: commandId,
+                command,
+                args,
+                status: exitCode === 0 ? 'done' : 'error',
+                exitCode,
+                startedAt,
+                completedAt: Date.now(),
+            });
+        }).catch(error => {
+            appendRuntimeLog({
+                commandId,
+                command,
+                args,
+                stream: 'stderr',
+                data: error instanceof Error ? error.message : String(error),
+                timestamp: Date.now(),
+            });
+            upsertCommand({ id: commandId, command, args, status: 'error', startedAt, completedAt: Date.now() });
+        });
+
+        return { process, commandId };
+    }, [appendRuntimeLog, upsertCommand]);
+
+    const startPreviewTimeout = useCallback((term: RuntimeTerminal, label: string) => {
+        clearPreviewTimeout();
+        previewTimeoutRef.current = setTimeout(() => {
+            if (!runtimeProcessRef.current || previewUrlRef.current) return;
+
+            failRuntime({
+                code: 'SERVER_READY_TIMEOUT',
+                message: `${label} did not expose a preview URL within ${SERVER_READY_TIMEOUT_MS / 1000}s.`,
+                details: 'Check that the server binds to 0.0.0.0 and does not crash during startup.',
+                term,
+            });
+            previewTimeoutRef.current = null;
+        }, SERVER_READY_TIMEOUT_MS);
+    }, [clearPreviewTimeout, failRuntime]);
+
+    const stopCurrentRuntime = useCallback((term?: XTerm | null) => {
+        const process = runtimeProcessRef.current;
+        if (!process) return;
+
+        term?.writeln('\r\n> Stopping previous runtime...\r\n');
+        try {
+            process.kill();
+        } catch (error) {
+            console.warn('Failed to stop previous WebContainer process:', error);
+        } finally {
+            clearPreviewTimeout();
+            runtimeProcessRef.current = null;
+            previewUrlRef.current = null;
+            setPreviewUrl(null);
+        }
+    }, [clearPreviewTimeout]);
+
+    const spawnRuntimeProcess = useCallback(async (command: string, args: string[], term: RuntimeTerminal, label: string) => {
+        const { process } = await spawnTracked(command, args, term, { background: true });
+        runtimeProcessRef.current = process;
+        startPreviewTimeout(term, label);
+
+        void process.exit.then(exitCode => {
+            if (runtimeProcessRef.current !== process) return;
+
+            clearPreviewTimeout();
+            runtimeProcessRef.current = null;
+            if (!previewUrlRef.current) {
+                failRuntime({
+                    code: 'SERVER_EXITED',
+                    message: `${label} exited before the preview server became ready.`,
+                    details: `Exit code ${exitCode}`,
+                    term,
+                });
+            }
+        }).catch(error => {
+            if (runtimeProcessRef.current !== process) return;
+
+            clearPreviewTimeout();
+            runtimeProcessRef.current = null;
+            failRuntime({
+                code: 'UNKNOWN_RUNTIME_ERROR',
+                message: `${label} failed to start.`,
+                details: error instanceof Error ? error.message : String(error),
+                term,
+            });
+        });
+
+        return process;
+    }, [clearPreviewTimeout, failRuntime, spawnTracked, startPreviewTimeout]);
+
+    const getWorkspacePath = useCallback((name: string) => {
+        const path = toWorkspaceRelativePath(name, workspacePrefix);
+        return path && isSafeWorkspacePath(path) ? path : null;
     }, [workspacePrefix]);
 
-    const mountAll = useCallback(async (fileList: (File & { content?: string | null })[]) => {
-        const fileMounts: Record<string, any> = {};
+    const getMountContent = useCallback((file: IDEFile) => {
+        return Object.prototype.hasOwnProperty.call(fileContentsRef.current, file.id)
+            ? fileContentsRef.current[file.id]
+            : file.content || '';
+    }, []);
 
-        const ensureDir = (root: any, pathParts: string[]) => {
+    const getWorkspaceFile = useCallback((relativePath: string) => {
+        return filesRef.current.find(file => toWorkspaceRelativePath(file.name, workspacePrefix) === relativePath);
+    }, [workspacePrefix]);
+
+    const getWorkspaceFileContent = useCallback((relativePath: string) => {
+        const file = getWorkspaceFile(relativePath);
+        return file ? getMountContent(file) : null;
+    }, [getMountContent, getWorkspaceFile]);
+
+    const detectPackageManager = useCallback((): PackageManager => {
+        if (getWorkspaceFile('pnpm-lock.yaml')) return 'pnpm';
+        if (getWorkspaceFile('yarn.lock')) return 'yarn';
+        return 'npm';
+    }, [getWorkspaceFile]);
+
+    const getInstallFingerprint = useCallback((packageJsonFile: IDEFile, packageManager: PackageManager) => {
+        const fragments = [
+            `workspace:${workspacePrefix || 'Project'}`,
+            `manager:${packageManager}`,
+            `package.json:${getMountContent(packageJsonFile)}`,
+            ...LOCKFILE_NAMES.map(name => `${name}:${getWorkspaceFileContent(name) || ''}`),
+        ];
+
+        return hashString(fragments.join('\n---documint-runtime---\n'));
+    }, [getMountContent, getWorkspaceFileContent, workspacePrefix]);
+
+    const mountAll = useCallback(async (fileList: IDEFile[] = filesRef.current) => {
+        const fileMounts: WebContainerMountTree = {};
+
+        const ensureDir = (root: WebContainerMountTree, pathParts: string[]): WebContainerMountTree => {
             let current = root;
             for (const part of pathParts) {
                 if (!current[part]) {
                     current[part] = { directory: {} };
                 }
-                current = current[part].directory;
+                const entry = current[part];
+                if ('file' in entry) {
+                    current[part] = { directory: {} };
+                }
+                current = (current[part] as { directory: WebContainerMountTree }).directory;
             }
             return current;
         };
 
-        fileList.forEach(f => {
-            let name = toWorkspaceRelativePath(f.name);
+        fileList.forEach(file => {
+            let name = getWorkspacePath(file.name);
             if (!name) return;
             name = name.trim();
-
-            if (name.startsWith('//') || name.startsWith('#') || name.includes('\n') || !name.match(/^[a-zA-Z0-9@._\-\/]+$/)) {
-                return;
-            }
+            if (!isSafeWorkspacePath(name)) return;
 
             if (name.includes('/')) {
                 const parts = name.split('/');
-                const fileName = parts.pop()!;
-                const dir = ensureDir(fileMounts, parts);
-                dir[fileName] = { file: { contents: f.content || "" } };
-            } else {
-                fileMounts[name] = { file: { contents: f.content || "" } };
+                const fileName = parts.pop();
+                if (!fileName) return;
+                const directory = ensureDir(fileMounts, parts);
+                directory[fileName] = { file: { contents: getMountContent(file) } };
+                return;
             }
+
+            fileMounts[name] = { file: { contents: getMountContent(file) } };
         });
 
-        if (!fileMounts['package.json']) {
-            fileMounts['package.json'] = {
-                file: {
-                    contents: JSON.stringify({
-                        name: "documint-preview",
-                        private: true,
-                        scripts: { "dev": "next dev", "build": "next build", "start": "next start" },
-                        dependencies: { "next": "latest", "react": "latest", "react-dom": "latest" }
-                    }, null, 2)
-                }
-            };
-        }
-
-        // Inject .npmrc to force HTTP registry — WebContainer does not support HTTPS
-        // This is required for npm install / npx to work inside the sandbox.
         fileMounts['.npmrc'] = {
             file: {
                 contents: [
-                    "registry=http://registry.npmjs.org/",
-                    "strict-ssl=false",
-                ].join("\n"),
+                    'registry=http://registry.npmjs.org/',
+                    'strict-ssl=false',
+                ].join('\n'),
             },
         };
 
+        const envFileContents = serializeEnvSecrets(envSecretsRef.current);
+        if (envFileContents) {
+            fileMounts['.env'] = { file: { contents: `${envFileContents}\n` } };
+            fileMounts['.env.local'] = { file: { contents: `${envFileContents}\n` } };
+        }
+
         await WebContainerManager.mountFiles(fileMounts);
-    }, [toWorkspaceRelativePath]);
+    }, [getMountContent, getWorkspacePath]);
+
+    const startStaticPreviewServer = useCallback(async (term: RuntimeTerminal) => {
+        writeRuntimeLine(term, '\r\n> node static preview server\r\n');
+        await spawnRuntimeProcess('node', ['-e', STATIC_PREVIEW_SERVER_SCRIPT], term, 'Static preview server');
+    }, [spawnRuntimeProcess, writeRuntimeLine]);
 
     const bootRuntime = useCallback(async () => {
-        if (bootedRef.current) {
-            return true;
-        }
+        if (bootedRef.current) return true;
 
         try {
             const wc = await WebContainerManager.getInstance();
             setWebContainerBooted(true);
             bootedRef.current = true;
-            await mountAll(files);
-            wc.on('server-ready', (port, url) => {
+            await mountAll(filesRef.current);
+            wc.on('server-ready', (_port, url) => {
+                clearPreviewTimeout();
+                previewUrlRef.current = url;
                 setPreviewUrl(url);
                 setRunStatus('ready');
                 setIsPreviewOpen(true);
             });
             return true;
-        } catch (e) {
-            console.error("WebContainer Boot Error:", e);
-            setRunStatus('error');
+        } catch (error) {
+            console.error('WebContainer Boot Error:', error);
+            failRuntime({
+                code: 'WEBCONTAINER_BOOT_FAILED',
+                message: 'WebContainer failed to boot.',
+                details: error instanceof Error ? error.message : String(error),
+            });
             return false;
         }
-    }, [files, mountAll]);
+    }, [clearPreviewTimeout, failRuntime, mountAll]);
 
-    // Sync Files
-    useEffect(() => {
-        const syncFile = async () => {
-            if (activeFileId && fileContents[activeFileId] && webContainerBooted) {
-                const file = files.find(f => f.id === activeFileId);
-                const filePath = file ? toWorkspaceRelativePath(file.name) : null;
-                if (file && filePath) {
-                    try {
-                        await WebContainerManager.writeFile(filePath, fileContents[activeFileId]);
-                    } catch (e) {
-                        console.error("Failed to sync file to WC:", e);
-                    }
-                }
-            }
-        };
-        const timeout = setTimeout(syncFile, 500);
-        return () => clearTimeout(timeout);
-    }, [fileContents, activeFileId, webContainerBooted, files, toWorkspaceRelativePath]);
-
-    // Run Command
-    const run = useCallback(async () => {
-        setRunStatus('starting');
-
-        // Await terminal initialization (solves UI optimism race condition)
+    const getReadyTerminal = useCallback(async (options: { required?: boolean } = {}) => {
+        const required = options.required ?? true;
         let term = termRef.current;
         if (!term) {
-            for (let i = 0; i < 20; i++) { // wait up to 2 seconds
-                await new Promise(r => setTimeout(r, 100));
+            for (let index = 0; index < 20; index += 1) {
+                await new Promise(resolve => setTimeout(resolve, 100));
                 if (termRef.current) {
                     term = termRef.current;
                     break;
                 }
             }
         }
-        
+
         if (!term) {
-            console.error("Terminal instance never materialized");
-            setRunStatus('error');
-            return;
+            console.error('Terminal instance never materialized');
+            if (required) {
+                failRuntime({
+                    code: 'TERMINAL_NOT_READY',
+                    message: 'Terminal did not mount before runtime startup.',
+                });
+            }
+            return null;
         }
 
-        // Await WebContainer boot
+        return term;
+    }, [failRuntime]);
+
+    const ensureBooted = useCallback(async (term: RuntimeTerminal) => {
         let isBooted = bootedRef.current;
         if (!isBooted) {
-            term.writeln('\r\nWaiting for WebContainer to boot...\r\n');
+            writeRuntimeLine(term, '\r\nWaiting for WebContainer to boot...\r\n');
             isBooted = await bootRuntime();
         }
         if (!isBooted) {
-            term.writeln('\r\nError: WebContainer failed to boot in time.\r\n');
-            setRunStatus('error');
+            failRuntime({
+                code: 'WEBCONTAINER_BOOT_FAILED',
+                message: 'WebContainer failed to boot in time.',
+                term,
+            });
+            return false;
+        }
+
+        return true;
+    }, [bootRuntime, failRuntime, writeRuntimeLine]);
+
+    const ensureDependenciesInstalled = useCallback(async (packageJsonFile: IDEFile, packageManager: PackageManager, term: RuntimeTerminal) => {
+        const installFingerprint = getInstallFingerprint(packageJsonFile, packageManager);
+        try {
+            const currentFingerprint = await WebContainerManager.readFile('.documint-install-key');
+            if (currentFingerprint.trim() === installFingerprint) {
+                writeRuntimeLine(term, `\r\n> Dependencies unchanged (${packageManager}); skipping install.\r\n`);
+                return;
+            }
+        } catch {
+            // Missing cache key means dependencies need to be installed.
+        }
+
+        const installCommand = getInstallCommand(packageManager);
+        setRunStatus('installing');
+        writeRuntimeLine(term, `\r\n> ${formatCommand(installCommand)}\r\n`);
+        const installResult = await spawnTracked(installCommand.command, installCommand.args, term);
+
+        if (installResult.exitCode !== 0) {
+            failRuntime({
+                code: 'INSTALL_FAILED',
+                message: 'Dependency installation failed.',
+                details: `${formatCommand(installCommand)} exited with code ${installResult.exitCode}`,
+                term,
+            });
+            throw new Error('Installation failed');
+        }
+
+        await WebContainerManager.writeFile('.documint-install-key', `${installFingerprint}\n`);
+    }, [failRuntime, getInstallFingerprint, spawnTracked, writeRuntimeLine]);
+
+    const runSandboxRuntime = useCallback(async (runtimeProject: RuntimeProjectManifest, term: RuntimeTerminal) => {
+        writeRuntimeLine(term, `\r\n> Server sandbox runtime selected (${runtimeProject.kind})\r\n`);
+
+        const workspaceFiles = filesRef.current
+            .map((file) => {
+                const name = toWorkspaceRelativePath(file.name, workspacePrefix);
+                return name && isSafeWorkspacePath(name)
+                    ? { name, content: getMountContent(file) }
+                    : null;
+            })
+            .filter((file): file is { name: string; content: string } => Boolean(file));
+
+        const response = await fetch('/api/ide/sandbox/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                files: workspaceFiles,
+                runtimeKind: runtimeProject.kind,
+                entryFile: runtimeProject.entryFile ? toWorkspaceRelativePath(runtimeProject.entryFile, workspacePrefix) || runtimeProject.entryFile : undefined,
+                port: 3000,
+            }),
+        });
+
+        const payload = await response.json().catch(() => ({})) as SandboxRuntimeResponse;
+        if (!response.ok) {
+            const code = payload.code === 'SANDBOX_UNAVAILABLE' ? 'SANDBOX_UNAVAILABLE' : 'SANDBOX_FAILED';
+            failRuntime({
+                code,
+                message: payload.message || `Sandbox failed to run ${runtimeProject.kind} project.`,
+                details: payload.stderr || payload.stdout,
+                term,
+            });
             return;
         }
 
-        await mountAll(files);
+        if (payload.stdout) writeRuntimeLine(term, payload.stdout);
+        if (payload.stderr) writeRuntimeLine(term, payload.stderr, 'stderr');
+        writeRuntimeLine(term, `\r\n> Sandbox started${payload.commandId ? ` (command ${payload.commandId})` : ''}.\r\n`);
 
-        setRunStatus('installing');
-        try {
-            const wc = await WebContainerManager.getInstance();
-
-            // Detect framework strategy
-            const packageJsonFile = files.find(f => toWorkspaceRelativePath(f.name) === 'package.json');
-            
-            if (packageJsonFile) {
-                // Node.js project
-                term.writeln("\r\n> npm install\r\n");
-                const installProcess = await wc.spawn('npm', ['install']);
-                installProcess.output.pipeTo(new WritableStream({
-                    write(data) { term.write(data); }
-                }));
-
-                if ((await installProcess.exit) !== 0) {
-                    setRunStatus('error');
-                    throw new Error("Installation failed");
-                }
-
-                setRunStatus('starting');
-                
-                // Read processed package.json
-                const pkgJsonStr = packageJsonFile.content || "{}";
-                let hasDevScript = false;
-                let hasStartScript = false;
-                try {
-                    const parsed = JSON.parse(pkgJsonStr);
-                    hasDevScript = !!parsed?.scripts?.dev;
-                    hasStartScript = !!parsed?.scripts?.start;
-                } catch { }
-
-                let runCmd = ['run', 'dev'];
-                if (!hasDevScript && hasStartScript) runCmd = ['start'];
-                else if (!hasDevScript && !hasStartScript) {
-                    term.writeln("\r\n> No scripts.dev or scripts.start found. Attempting fallback: npx serve .\r\n");
-                    const serveProcess = await wc.spawn('npx', ['serve', '.']);
-                    serveProcess.output.pipeTo(new WritableStream({ write(data) { term.write(data); } }));
-                    return; // Server ready will trigger
-                }
-
-                term.writeln(`\r\n> npm ${runCmd.join(' ')}\r\n`);
-                const devProcess = await wc.spawn('npm', runCmd);
-                devProcess.output.pipeTo(new WritableStream({
-                    write(data) { term.write(data); }
-                }));
-            } else {
-                // Static HTML fallback
-                setRunStatus('starting');
-                term.writeln("\r\n> npx serve .\r\n");
-                const serveProcess = await wc.spawn('npx', ['serve', '.']);
-                serveProcess.output.pipeTo(new WritableStream({
-                    write(data) { term.write(data); }
-                }));
-            }
-        } catch (e) {
-            if (termRef.current) {
-                termRef.current.writeln(`\r\nError: ${e}\r\n`);
-            }
-            setRunStatus('error');
+        if (payload.previewUrl) {
+            previewUrlRef.current = payload.previewUrl;
+            setPreviewUrl(payload.previewUrl);
+            setRunStatus('ready');
+            setIsPreviewOpen(true);
+            return;
         }
-    }, [bootRuntime, files, mountAll, toWorkspaceRelativePath]);
+
+        failRuntime({
+            code: 'NO_PREVIEW_AVAILABLE',
+            message: `${runtimeProject.kind} runtime started, but no preview URL was exposed.`,
+            details: payload.message,
+            term,
+        });
+    }, [failRuntime, getMountContent, workspacePrefix, writeRuntimeLine]);
+
+    const runPackageScript = useCallback(async (scriptName: string, label: string) => {
+        const term = await getReadyTerminal({ required: false });
+        if (!await ensureBooted(term)) throw new Error('WebContainer failed to boot');
+
+        setIsRuntimeTaskRunning(true);
+        try {
+            await mountAll(filesRef.current);
+            const runtimeProject = detectRuntimeProject(filesRef.current, workspacePrefix);
+            const packageJsonFile = runtimeProject.kind === 'node' ? runtimeProject.packageFile : undefined;
+            if (!packageJsonFile) throw new Error(`${label} requires a package.json in the selected workspace`);
+
+            const { scripts, error } = getPackageScripts(getMountContent(packageJsonFile) || '{}');
+            if (error) throw new Error(`package.json is invalid: ${error}`);
+            if (!scripts[scriptName]) throw new Error(`No scripts.${scriptName} found in package.json`);
+
+            const packageManager = detectPackageManager();
+            await ensureDependenciesInstalled(packageJsonFile, packageManager, term);
+
+            const scriptCommand = getScriptCommand(packageManager, scriptName);
+            writeRuntimeLine(term, `\r\n> ${formatCommand(scriptCommand)}\r\n`);
+            const result = await spawnTracked(scriptCommand.command, scriptCommand.args, term);
+            if (result.exitCode !== 0) throw new Error(`${label} failed with exit code ${result.exitCode}`);
+        } finally {
+            setIsRuntimeTaskRunning(false);
+        }
+    }, [detectPackageManager, ensureBooted, ensureDependenciesInstalled, getMountContent, getReadyTerminal, mountAll, spawnTracked, workspacePrefix, writeRuntimeLine]);
+
+    useEffect(() => {
+        const syncFile = async () => {
+            if (activeFileId && Object.prototype.hasOwnProperty.call(fileContents, activeFileId) && webContainerBooted) {
+                const file = files.find(item => item.id === activeFileId);
+                const filePath = file ? getWorkspacePath(file.name) : null;
+                if (file && filePath) {
+                    try {
+                        await WebContainerManager.writeFile(filePath, fileContents[activeFileId]);
+                    } catch (error) {
+                        console.error('Failed to sync file to WC:', error);
+                    }
+                }
+            }
+        };
+        const timeout = setTimeout(syncFile, 500);
+        return () => clearTimeout(timeout);
+    }, [fileContents, activeFileId, webContainerBooted, files, getWorkspacePath]);
+
+    const run = useCallback(async () => {
+        setRunStatus('starting');
+        setRuntimeError(null);
+        setPreviewUrl(null);
+        previewUrlRef.current = null;
+
+        const term = await getReadyTerminal({ required: false });
+        stopCurrentRuntime(term);
+
+        try {
+            const runtimeProject = detectRuntimeProject(files, workspacePrefix);
+            const packageJsonFile = runtimeProject.kind === 'node' ? runtimeProject.packageFile : undefined;
+            const hasStaticEntry = files.some(file => toWorkspaceRelativePath(file.name, workspacePrefix) === 'index.html');
+
+            writeRuntimeLine(term, [
+                '\r\n> Runtime preflight',
+                `> Workspace: ${workspacePrefix || 'Project'}`,
+                `> Detected: ${runtimeProject.kind}`,
+                `> Entrypoint: ${runtimeProject.entryFile || (hasStaticEntry ? 'index.html' : 'none')}`,
+                `> Reason: ${runtimeProject.reason || 'n/a'}\r\n`,
+            ].join('\r\n'));
+
+            if (runtimeProject.requiresSandbox) {
+                await runSandboxRuntime(runtimeProject, term);
+                return;
+            }
+
+            if (!await ensureBooted(term)) return;
+            await mountAll(files);
+
+            if (packageJsonFile) {
+                const pkgJsonStr = getMountContent(packageJsonFile) || '{}';
+                const { scripts, error } = getPackageScripts(pkgJsonStr);
+
+                if (error) {
+                    writeRuntimeLine(term, `\r\n> package.json is invalid: ${error}\r\n`, 'stderr');
+                    if (hasStaticEntry) {
+                        writeRuntimeLine(term, '\r\n> Falling back to static preview because index.html exists.\r\n');
+                        setRunStatus('starting');
+                        await startStaticPreviewServer(term);
+                        return;
+                    }
+
+                    failRuntime({
+                        code: 'PACKAGE_JSON_INVALID',
+                        message: 'package.json is invalid and no static index.html fallback was found.',
+                        details: error,
+                        term,
+                    });
+                    return;
+                }
+
+                const packageManager = detectPackageManager();
+                await ensureDependenciesInstalled(packageJsonFile, packageManager, term);
+
+                setRunStatus('starting');
+                const hasDevScript = Boolean(scripts.dev);
+                const hasStartScript = Boolean(scripts.start);
+                let scriptName = 'dev';
+
+                if (!hasDevScript && hasStartScript) scriptName = 'start';
+                else if (!hasDevScript && !hasStartScript) {
+                    if (hasStaticEntry) {
+                        writeRuntimeLine(term, '\r\n> No scripts.dev or scripts.start found. Serving workspace statically.\r\n');
+                        await startStaticPreviewServer(term);
+                        return;
+                    }
+
+                    failRuntime({
+                        code: 'SCRIPT_NOT_FOUND',
+                        message: 'No scripts.dev or scripts.start found in package.json.',
+                        term,
+                    });
+                    return;
+                }
+
+                const scriptCommand = getScriptCommand(packageManager, scriptName);
+                writeRuntimeLine(term, `\r\n> ${formatCommand(scriptCommand)}\r\n`);
+                await spawnRuntimeProcess(scriptCommand.command, scriptCommand.args, term, `${scriptName} server`);
+                return;
+            }
+
+            if (!hasStaticEntry) {
+                writeRuntimeLine(term, '\r\n> No package.json or index.html found in the selected workspace.\r\n', 'stderr');
+                if (workspacePrefix === 'Project') {
+                    writeRuntimeLine(term, '> Select a concrete project workspace from the sidebar dropdown, then run again.\r\n', 'stderr');
+                }
+                failRuntime({
+                    code: 'ENTRYPOINT_NOT_FOUND',
+                    message: 'No runnable project entrypoint found.',
+                    term,
+                });
+                return;
+            }
+
+            setRunStatus('starting');
+            await startStaticPreviewServer(term);
+        } catch (error) {
+            failRuntime({
+                code: 'UNKNOWN_RUNTIME_ERROR',
+                message: 'Runtime startup failed.',
+                details: error instanceof Error ? error.message : String(error),
+                term,
+            });
+        }
+    }, [detectPackageManager, ensureBooted, ensureDependenciesInstalled, failRuntime, files, getMountContent, getReadyTerminal, mountAll, runSandboxRuntime, spawnRuntimeProcess, startStaticPreviewServer, stopCurrentRuntime, workspacePrefix, writeRuntimeLine]);
+
+    const build = useCallback(async () => {
+        await runPackageScript('build', 'Build');
+    }, [runPackageScript]);
+
+    const test = useCallback(async () => {
+        await runPackageScript('test', 'Test');
+    }, [runPackageScript]);
 
     return {
         runStatus,
@@ -261,7 +877,13 @@ export function useExecutionEngine({
         isPreviewOpen,
         setIsPreviewOpen,
         run,
+        build,
+        test,
         mountAll,
-        bootRuntime
+        bootRuntime,
+        isRuntimeTaskRunning,
+        runtimeCommands,
+        runtimeLogs,
+        runtimeError
     };
 }

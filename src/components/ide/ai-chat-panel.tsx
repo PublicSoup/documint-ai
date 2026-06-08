@@ -7,51 +7,28 @@ import {
     User,
     Loader2,
     Sparkles,
-    FileText,
-    Plus,
-    Check,
     X,
-    Copy,
-    Undo2,
-    AlertCircle,
-    ChevronDown,
-    ChevronUp,
-    Code2,
-    Replace,
-    FileCode,
-    Diff,
-    CheckCircle2,
-    CheckCircle,
-    Lightbulb,
-    ClipboardList,
-    Search as SearchIcon,
-    Terminal,
-    Database,
-    XCircle,
     Bug,
-    Wand2,
-    Trash2,
     MoreHorizontal,
-    Crown
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn, extractCodeBlocks } from "@/lib/utils";
 import { applyPatch } from "@/lib/code-patcher";
 import { useToast } from "../toast";
 import { useAgentLoop } from "@/hooks/use-agent-loop";
-import { ToolVisualizer } from "./tool-visualizer";
 import { ThinkingProcess } from "./thinking-process";
 import { AVAILABLE_MODELS } from "@/lib/ai-models";
+import { parseAgentEvent, type AgentEvent } from "@/lib/agent/events";
+import { getRuntimeErrorFingerprint, type RuntimeLogLine, type RuntimeErrorSummary } from "@/lib/ide/runtime-events";
 
 // ============================================================================
 // Types & Interfaces
 // ============================================================================
 
-import { CodeBlock, Message, PendingChange, ThoughtStep } from "./chat/types";
+import { CodeBlock, Message, PendingChange } from "./chat/types";
 import { CodeBlockRenderer } from "./chat/code-block-renderer";
 import { SlashCommandMenu } from "./chat/slash-command-menu";
 import { FileMentionMenu } from "./chat/file-mention-menu";
-import { applyCodeBlock } from "@/lib/code-applicator";
 
 interface AIChatPanelProps {
     activeFileId: string | undefined;
@@ -61,13 +38,15 @@ interface AIChatPanelProps {
     allFileContents?: Record<string, string>;
     onInsertCode?: (code: string) => void;
     onInsertCodeAtCursor?: (code: string) => void;
-    onReplaceFileContent?: (code: string, markUnsaved?: boolean) => void;
+    onReplaceFileContent?: (code: string, markUnsaved?: boolean, fileId?: string) => void;
     onApplyDiff?: (original: string, modified: string) => void;
     onReviewDiff?: (original: string, modified: string) => void;
     onCreateFile?: (name: string, content: string) => void;
     onSelectFile?: (fileId: string) => void;
     onAgentAction?: (action: string | null) => void;
     initialInput?: string;
+    runtimeErrorLines?: RuntimeLogLine[];
+    previewUrl?: string | null;
 }
 
 // ============================================================================
@@ -76,14 +55,141 @@ interface AIChatPanelProps {
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
-const copyToClipboard = async (text: string): Promise<boolean> => {
-    try {
-        await navigator.clipboard.writeText(text);
-        return true;
-    } catch {
-        return false;
+type ChatFileRef = NonNullable<AIChatPanelProps["allFiles"]>[number];
+
+interface ApplyCodeResult {
+    content: string;
+    markUnsaved: boolean;
+    undoEntry: PendingChange;
+    message: string;
+}
+
+interface AssistantStreamState {
+    content: string;
+    codeBlocks: CodeBlock[];
+    fenceCount: number;
+    parsedFenceCount: number;
+}
+
+function countCodeFences(content: string): number {
+    return content.match(/```/g)?.length || 0;
+}
+
+function toStableCodeBlocks(content: string, assistantId: string): CodeBlock[] {
+    return extractCodeBlocks(content).map((block, index) => ({
+        ...block,
+        id: `${assistantId}-block-${index}-${block.filename || "inline"}`,
+        fileName: block.filename,
+        applied: false,
+        timestamp: Date.now(),
+    }));
+}
+
+function createUndoEntry(blockId: string, fileId: string, originalContent: string, newContent: string): PendingChange {
+    return {
+        id: blockId,
+        fileId,
+        originalContent,
+        newContent,
+        applied: true,
+        canUndo: true,
+        timestamp: Date.now(),
+    };
+}
+
+function applyCodeBlock(blockId: string, fileId: string, originalContent: string, code: string): ApplyCodeResult {
+    const patchResult = applyPatch(originalContent, code);
+    const patchedContent = patchResult?.success && patchResult.patchedCode ? patchResult.patchedCode : null;
+    const content = patchedContent || code;
+
+    return {
+        content,
+        markUnsaved: !patchedContent,
+        undoEntry: createUndoEntry(blockId, fileId, originalContent, content),
+        message: patchedContent ? "Code applied successfully" : "Code replaced successfully",
+    };
+}
+
+function getMentionedFileNames(message: string): Set<string> {
+    return new Set(
+        (message.match(/@([^\s@]+)/g) || [])
+            .map((mention) => mention.substring(1).replace(/[.,;:!?)]$/, ""))
+            .filter(Boolean)
+    );
+}
+
+function isMentionedFile(file: ChatFileRef, mentionedFiles: Set<string>): boolean {
+    const baseName = file.name.split("/").pop() || file.name;
+    return mentionedFiles.has(file.name) || mentionedFiles.has(baseName);
+}
+
+function buildAdditionalContext(params: {
+    allFiles?: ChatFileRef[];
+    allFileContents?: Record<string, string>;
+    activeFileId?: string;
+    userMessage: string;
+    budget?: number;
+}): string {
+    const { allFiles, allFileContents, activeFileId, userMessage, budget = 5_000 } = params;
+    if (!allFiles || !allFileContents) return "";
+
+    const mentionedFiles = getMentionedFileNames(userMessage);
+    const candidates = Object.entries(allFileContents)
+        .filter(([id]) => id !== activeFileId)
+        .map(([id, content]) => ({ file: allFiles.find((item) => item.id === id), content }))
+        .filter((entry): entry is { file: ChatFileRef; content: string } => Boolean(entry.file))
+        .sort((a, b) => Number(isMentionedFile(b.file, mentionedFiles)) - Number(isMentionedFile(a.file, mentionedFiles)));
+
+    let remaining = budget;
+    const sections: string[] = [];
+    let omitted = 0;
+
+    for (const { file, content } of candidates) {
+        if (remaining <= 120) {
+            omitted += 1;
+            continue;
+        }
+
+        const mentioned = isMentionedFile(file, mentionedFiles);
+        const prefix = `${mentioned ? "--> MENTIONED FILE" : "// FILE"}: ${file.name}\n`;
+        const maxContentLength = Math.min(mentioned ? 2_000 : 700, remaining - prefix.length - 32);
+        if (maxContentLength <= 0) {
+            omitted += 1;
+            continue;
+        }
+
+        const safeContent = typeof content === "string" ? content : "";
+        const truncated = safeContent.length > maxContentLength
+            ? `${safeContent.slice(0, maxContentLength)}\n...[truncated ${safeContent.length - maxContentLength} chars]`
+            : safeContent;
+        const section = `${prefix}${truncated}`;
+        sections.push(section);
+        remaining -= section.length + 2;
     }
-};
+
+    if (omitted > 0 && remaining > 24) sections.push(`[+${omitted} more files omitted]`);
+    return sections.join("\n\n").slice(0, budget);
+}
+
+function compactChatContent(content: string, maxLength = 3_000): string {
+    if (content.length <= maxLength) return content;
+
+    const marker = `\n...[trimmed ${content.length - maxLength} chars]...\n`;
+    const headLength = Math.max(0, Math.floor((maxLength - marker.length) * 0.65));
+    const tailLength = Math.max(0, maxLength - marker.length - headLength);
+
+    return `${content.slice(0, headLength)}${marker}${content.slice(content.length - tailLength)}`;
+}
+
+function buildCompactChatHistory(messages: Message[]): Array<{ role: Message["role"]; content: string }> {
+    return messages
+        .filter((message) => message.content.trim().length > 0)
+        .slice(-12)
+        .map((message) => ({
+            role: message.role,
+            content: compactChatContent(message.content),
+        }));
+}
 
 // Sub-components extracted to ./chat/
 
@@ -97,16 +203,15 @@ export function AIChatPanel({
     activeFileName,
     allFiles,
     allFileContents,
-    onInsertCode,
     onInsertCodeAtCursor,
     onReplaceFileContent,
     onCreateFile,
-    onSelectFile,
     onReviewDiff,
     onAgentAction,
-    initialInput
+    runtimeErrorLines = [],
+    previewUrl,
 }: AIChatPanelProps) {
-    const { state: agentState, startTask, setThinking, executeTool, finishTool, reset } = useAgentLoop();
+    const { state: agentState, setThinking, executeTool } = useAgentLoop();
     const { toast } = useToast();
     // ... existing messages state ...
     const [messages, setMessages] = useState<Message[]>([
@@ -121,10 +226,18 @@ export function AIChatPanel({
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [selectedModel, setSelectedModel] = useState<string>("google/gemini-2.0-flash");
+    const [reasoningEffort, setReasoningEffort] = useState<"low" | "medium">("low");
+    const [autoFixErrors, setAutoFixErrors] = useState(true);
 
     useEffect(() => {
         const stored = localStorage.getItem("documint_model");
         if (stored) setSelectedModel(stored);
+
+        const storedEffort = localStorage.getItem("documint_reasoning_effort");
+        if (storedEffort === "low" || storedEffort === "medium") setReasoningEffort(storedEffort);
+
+        const storedAutoFix = localStorage.getItem("documint_auto_fix_errors");
+        if (storedAutoFix) setAutoFixErrors(storedAutoFix !== "false");
     }, []);
 
     const handleModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -132,11 +245,28 @@ export function AIChatPanel({
         setSelectedModel(val);
         localStorage.setItem("documint_model", val);
     };
+
+    const handleReasoningEffortChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const val = e.target.value === "medium" ? "medium" : "low";
+        setReasoningEffort(val);
+        localStorage.setItem("documint_reasoning_effort", val);
+    };
+
+    const toggleAutoFixErrors = () => {
+        setAutoFixErrors(prev => {
+            const next = !prev;
+            localStorage.setItem("documint_auto_fix_errors", String(next));
+            return next;
+        });
+    };
     const [appliedBlocks, setAppliedBlocks] = useState<Set<string>>(new Set());
     const [undoStack, setUndoStack] = useState<PendingChange[]>([]);
     const scrollRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const abortController = useRef<AbortController | null>(null);
+    const reportedRuntimeErrors = useRef<Set<string>>(new Set());
+    const lastRuntimeErrorReportAt = useRef(0);
+    const assistantStreamStateRef = useRef<Record<string, AssistantStreamState>>({});
 
     // Apply code to file
     const handleApplyCode = async (code: string, blockId: string, fileName?: string) => {
@@ -160,62 +290,24 @@ export function AIChatPanel({
             return;
         }
 
+        if (!onReplaceFileContent) {
+            toast("Code application is unavailable", "error");
+            return;
+        }
+
         try {
-            // Try smart patch first
-            const patchResult = applyPatch(targetFileContent, code);
-            if (patchResult && patchResult.success && patchResult.patchedCode) {
-                // Push to undo stack
-                setUndoStack(prev => [...prev, {
-                    id: blockId,
-                    fileId: targetFileId,
-                    originalContent: targetFileContent,
-                    newContent: patchResult.patchedCode!,
-                    applied: true,
-                    canUndo: true,
-                    timestamp: Date.now()
-                }]);
-
-                if (onReplaceFileContent) {
-                    await onReplaceFileContent(patchResult.patchedCode, false);
-                    setAppliedBlocks(prev => new Set(prev).add(blockId));
-                    toast("Code applied successfully", "success");
-                }
-            } else {
-                // Patch failed — this is likely full file content, not a patch.
-                // Fall back to direct replace.
-                setUndoStack(prev => [...prev, {
-                    id: blockId,
-                    fileId: targetFileId,
-                    originalContent: targetFileContent,
-                    newContent: code,
-                    applied: true,
-                    canUndo: true,
-                    timestamp: Date.now()
-                }]);
-
-                if (onReplaceFileContent) {
-                    await onReplaceFileContent(code, true);
-                    setAppliedBlocks(prev => new Set(prev).add(blockId));
-                    toast("Code replaced successfully", "success");
-                }
-            }
+            const result = applyCodeBlock(blockId, targetFileId, targetFileContent, code);
+            setUndoStack(prev => [...prev, result.undoEntry]);
+            await onReplaceFileContent(result.content, result.markUnsaved, targetFileId);
+            setAppliedBlocks(prev => new Set(prev).add(blockId));
+            toast(result.message, "success");
         } catch {
-            // Last resort: try direct replace on error too
             try {
-                if (onReplaceFileContent) {
-                    setUndoStack(prev => [...prev, {
-                        id: blockId,
-                        fileId: targetFileId,
-                        originalContent: targetFileContent,
-                        newContent: code,
-                        applied: true,
-                        canUndo: true,
-                        timestamp: Date.now()
-                    }]);
-                    await onReplaceFileContent(code, true);
-                    setAppliedBlocks(prev => new Set(prev).add(blockId));
-                    toast("Code replaced successfully", "success");
-                }
+                const undoEntry = createUndoEntry(blockId, targetFileId, targetFileContent, code);
+                setUndoStack(prev => [...prev, undoEntry]);
+                await onReplaceFileContent(code, true, targetFileId);
+                setAppliedBlocks(prev => new Set(prev).add(blockId));
+                toast("Code replaced successfully", "success");
             } catch {
                 toast("Error applying code", "error");
             }
@@ -230,7 +322,7 @@ export function AIChatPanel({
         try {
             if (onReplaceFileContent) {
                 // Revert to original content
-                await onReplaceFileContent(change.originalContent, false);
+                await onReplaceFileContent(change.originalContent, false, change.fileId);
 
                 // Remove from stack and applied set
                 setUndoStack(prev => prev.filter(c => c.id !== blockId));
@@ -244,14 +336,6 @@ export function AIChatPanel({
             }
         } catch {
             toast("Error undoing changes", "error");
-        }
-    };
-
-    // Insert code at cursor position
-    const handleInsertAtCursor = (code: string) => {
-        if (onInsertCodeAtCursor) {
-            onInsertCodeAtCursor(code);
-            toast("Code inserted at cursor", "success");
         }
     };
 
@@ -275,6 +359,18 @@ export function AIChatPanel({
         }
     }, [onAgentAction, toast]);
 
+    const appendAssistantStep = useCallback((step: NonNullable<Message["thoughtSteps"]>[number]) => {
+        setMessages(prev => {
+            const lastAssistant = [...prev].reverse().find(message => message.role === "assistant");
+            if (!lastAssistant) return prev;
+
+            return prev.map(message => message.id === lastAssistant.id
+                ? { ...message, thoughtSteps: [...(message.thoughtSteps || []), step] }
+                : message
+            );
+        });
+    }, []);
+
     // Slash Commands
     const SLASH_COMMANDS = [
         { label: "/explain", desc: "Explain the selected code", prompt: "Explain the following code in detail:\n" },
@@ -282,6 +378,8 @@ export function AIChatPanel({
         { label: "/refactor", desc: "Refactor for better performance/readability", prompt: "Refactor the following code to improve performance and readability:\n" },
         { label: "/test", desc: "Generate unit tests", prompt: "Generate comprehensive unit tests for the following code:\n" },
         { label: "/docs", desc: "Add JSDoc documentation", prompt: "Add comprehensive JSDoc comments to the following code:\n" },
+        { label: "/build", desc: "Find and fix build/runtime errors", prompt: "Inspect this project for likely build or runtime errors. Fix only the specific issues you find, do not regenerate unrelated files, and continue until the app is runnable or a concrete blocker remains.\n" },
+        { label: "/preview", desc: "Prepare app for live preview", prompt: "Prepare this app for a successful live preview. Check scripts, config, imports, and startup steps. Make targeted fixes only and tell me the exact command to run.\n" },
     ];
 
     const [showSlashMenu, setShowSlashMenu] = useState(false);
@@ -392,6 +490,134 @@ export function AIChatPanel({
         }
     };
 
+    const handleAgentEvent = useCallback((event: AgentEvent, assistantId: string) => {
+        if (event.type === "state_change") {
+            if (event.state === "THINKING") setThinking();
+            else if (event.state === "EXECUTING") executeTool(event.tool || "unknown");
+            return;
+        }
+
+        if (event.type === "thought") {
+            const thoughtText = event.content;
+            if (onAgentAction) onAgentAction(`Thinking: ${thoughtText.slice(0, 30)}...`);
+
+            setMessages(prev => prev.map(m => m.id === assistantId ? {
+                ...m,
+                thoughtSteps: [...(m.thoughtSteps || []), {
+                    id: generateId(),
+                    type: 'thought',
+                    content: thoughtText,
+                    timestamp: Date.now()
+                }]
+            } : m));
+            return;
+        }
+
+        if (event.type === "tool_call") {
+            if (onAgentAction) onAgentAction(`Running ${event.tool}...`);
+
+            setMessages(prev => prev.map(m => m.id === assistantId ? {
+                ...m,
+                thoughtSteps: [...(m.thoughtSteps || []), {
+                    id: generateId(),
+                    type: 'tool_call',
+                    content: `Invoking tool: ${event.tool}`,
+                    toolName: event.tool,
+                    timestamp: Date.now()
+                }]
+            } : m));
+            return;
+        }
+
+        if (event.type === "tool_result") {
+            const resultText = event.result;
+            setMessages(prev => prev.map(m => m.id === assistantId ? {
+                ...m,
+                thoughtSteps: [...(m.thoughtSteps || []), {
+                    id: generateId(),
+                    type: 'tool_result',
+                    content: resultText.slice(0, 200) + (resultText.length > 200 ? "..." : ""),
+                    timestamp: Date.now()
+                }]
+            } : m));
+            return;
+        }
+
+        if (event.type === "command_event") {
+            setMessages(prev => prev.map(m => m.id === assistantId ? {
+                ...m,
+                thoughtSteps: [...(m.thoughtSteps || []), {
+                    id: generateId(),
+                    type: 'command',
+                    content: `${event.command} ${event.args.join(" ")} → ${event.status}${typeof event.exitCode === "number" ? ` (${event.exitCode})` : ""}`,
+                    timestamp: event.timestamp
+                }]
+            } : m));
+            return;
+        }
+
+        if (event.type === "preview_ready") {
+            setMessages(prev => prev.map(m => m.id === assistantId ? {
+                ...m,
+                thoughtSteps: [...(m.thoughtSteps || []), {
+                    id: generateId(),
+                    type: 'preview',
+                    content: `Preview ready${event.port ? ` on port ${event.port}` : ""}: ${event.url}`,
+                    timestamp: event.timestamp
+                }]
+            } : m));
+            return;
+        }
+
+        if (event.type === "error_report") {
+            setMessages(prev => prev.map(m => m.id === assistantId ? {
+                ...m,
+                thoughtSteps: [...(m.thoughtSteps || []), {
+                    id: generateId(),
+                    type: 'error_report',
+                    content: event.summary,
+                    timestamp: event.timestamp
+                }]
+            } : m));
+            return;
+        }
+
+        if (event.type === "response") {
+            const responseText = event.content;
+            if (onAgentAction) onAgentAction(null);
+            const previous = assistantStreamStateRef.current[assistantId] || {
+                content: "",
+                codeBlocks: [],
+                fenceCount: 0,
+                parsedFenceCount: 0,
+            };
+            const content = previous.content + responseText;
+            const fenceCount = countCodeFences(content);
+            const shouldReparse = fenceCount !== previous.parsedFenceCount && fenceCount % 2 === 0;
+            const codeBlocks = shouldReparse ? toStableCodeBlocks(content, assistantId) : previous.codeBlocks;
+            assistantStreamStateRef.current[assistantId] = {
+                content,
+                codeBlocks,
+                fenceCount,
+                parsedFenceCount: shouldReparse ? fenceCount : previous.parsedFenceCount,
+            };
+            setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content, codeBlocks } : m));
+            return;
+        }
+
+        if (event.type === "file_created") {
+            if (onCreateFile && event.fileName) {
+                onCreateFile(event.fileName, event.content || "");
+                toast(`Created ${event.fileName}`, "success");
+            }
+            return;
+        }
+
+        if (event.type === "error") {
+            toast(event.message, "error");
+        }
+    }, [executeTool, onAgentAction, onCreateFile, setThinking, toast]);
+
     // Rendering Helper
     const renderMessage = (msg: Message) => {
         const isAssistant = msg.role === "assistant";
@@ -471,14 +697,14 @@ export function AIChatPanel({
                             block={block}
                             onApply={(code) => handleApplyCode(code, block.id, block.fileName)}
                             onInsertAtCursor={(code) => onInsertCodeAtCursor?.(code)}
-                            onReplace={(code) => onReplaceFileContent?.(code, true)}
+                            onReplace={(code) => onReplaceFileContent?.(code, true, activeFileId)}
                             onCreate={() => onCreateFile?.(block.fileName || "new-file.ts", block.code)}
                             isApplied={appliedBlocks.has(block.id)}
                             canUndo={undoStack.some(c => c.id === block.id)}
                             onUndo={() => handleUndo(block.id)}
                             activeFileName={activeFileName}
                             currentFileSize={activeFileContent?.length}
-                            isNewFile={!allFiles?.some(f => f.name === block.fileName || block.code.includes("import ") && !activeFileId)}
+                            isNewFile={Boolean(block.fileName && !allFiles?.some(f => f.name === block.fileName))}
                             onReviewDiff={onReviewDiff ? (code) => onReviewDiff(activeFileContent || "", code) : undefined}
                         />
                     ))}
@@ -516,27 +742,13 @@ export function AIChatPanel({
         abortController.current = new AbortController();
 
         try {
-            // Prepare context
-            // If user specifically mentioned files, prioritize their content
-            const mentionedFiles = userMsg.match(/@([a-zA-Z0-9_.-]+)/g)?.map(m => m.substring(1)) || [];
-
-            const additionalContext = allFileContents
-                ? Object.entries(allFileContents)
-                    .filter(([id]) => id !== activeFileId)
-                    .map(([id, content]) => {
-                        const file = allFiles?.find(f => f.id === id);
-                        if (!file) return "";
-
-                        // If mentioned, include MORE context
-                        const isMentioned = mentionedFiles.includes(file.name);
-                        const maxLength = isMentioned ? 10000 : 1000;
-                        const prefix = isMentioned ? "--> MENTIONED FILE: " : "// FILE: ";
-                        const safeContent = typeof content === "string" ? content : "";
-
-                        return `${prefix}${file.name}\n${safeContent.slice(0, maxLength)}${safeContent.length > maxLength ? "..." : ""}`;
-                    })
-                    .join("\n\n")
-                : "";
+            const additionalContext = buildAdditionalContext({
+                allFiles,
+                allFileContents,
+                activeFileId,
+                userMessage: userMsg,
+                budget: reasoningEffort === "medium" ? 5_000 : 3_500,
+            });
 
             if (onAgentAction) onAgentAction("RESEARCHING CODEBASE...");
 
@@ -545,14 +757,13 @@ export function AIChatPanel({
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     message: userMsg,
-                    history: messages.map(m => ({
-                        role: m.role,
-                        content: m.content
-                    })),
+                    history: buildCompactChatHistory(messages),
                     contextFileId: activeFileId,
                     contextContent: activeFileContent,
-                    additionalContext: additionalContext.substring(0, 5000),
-                    model: selectedModel
+                    additionalContext,
+                    model: selectedModel,
+                    reasoningEffort,
+                    autoFixErrors
                 }),
                 signal: abortController.current.signal
             });
@@ -591,78 +802,8 @@ export function AIChatPanel({
                     for (const line of lines) {
                         if (!line.trim()) continue;
                         try {
-                            const event = JSON.parse(line);
-
-                            // Dispatch updates based on event type
-                            if (event.type === "state_change") {
-                                if (event.state === "THINKING") setThinking();
-                                else if (event.state === "EXECUTING") executeTool(event.tool || "unknown");
-                                continue;
-                            }
-
-                            if (event.type === "thought") {
-                                const thoughtText = typeof event.content === "string" ? event.content : "";
-                                if (onAgentAction) onAgentAction(`Thinking: ${thoughtText.slice(0, 30)}...`);
-
-                                setMessages(prev => prev.map(m => m.id === assistantId ? {
-                                    ...m,
-                                    thoughtSteps: [...(m.thoughtSteps || []), {
-                                        id: generateId(),
-                                        type: 'thought',
-                                        content: thoughtText,
-                                        timestamp: Date.now()
-                                    }]
-                                } : m));
-
-                            } else if (event.type === "tool_call") {
-                                if (onAgentAction) onAgentAction(`Running ${event.tool}...`);
-
-                                setMessages(prev => prev.map(m => m.id === assistantId ? {
-                                    ...m,
-                                    thoughtSteps: [...(m.thoughtSteps || []), {
-                                        id: generateId(),
-                                        type: 'tool_call',
-                                        content: `Invoking tool: ${event.tool}`,
-                                        toolName: event.tool,
-                                        timestamp: Date.now()
-                                    }]
-                                } : m));
-
-                            } else if (event.type === "tool_result") {
-                                const resultText = typeof event.result === "string" ? event.result : JSON.stringify(event.result ?? "");
-                                setMessages(prev => prev.map(m => m.id === assistantId ? {
-                                    ...m,
-                                    thoughtSteps: [...(m.thoughtSteps || []), {
-                                        id: generateId(),
-                                        type: 'tool_result',
-                                        content: resultText.slice(0, 200) + (resultText.length > 200 ? "..." : ""),
-                                        timestamp: Date.now()
-                                    }]
-                                } : m));
-
-                            } else if (event.type === "response") {
-                                const responseText = typeof event.content === "string" ? event.content : "";
-                                if (onAgentAction) onAgentAction(null);
-                                setMessages(prev => prev.map(m => m.id === assistantId ? {
-                                    ...m,
-                                    content: m.content + responseText,
-                                    codeBlocks: extractCodeBlocks(m.content + responseText).map(block => ({
-                                        ...block,
-                                        id: generateId(),
-                                        fileName: block.filename,
-                                        applied: false,
-                                        timestamp: Date.now()
-                                    }))
-                                } : m));
-                            } else if (event.type === "file_created") {
-                                // Auto-refresh file tree and auto-open the new file (Cursor-like)
-                                if (onCreateFile && event.fileName) {
-                                    onCreateFile(event.fileName, event.content || "");
-                                    toast(`Created ${event.fileName}`, "success");
-                                }
-                            } else if (event.type === "error") {
-                                toast(event.message, "error");
-                            }
+                            const event = parseAgentEvent(line);
+                            if (event) handleAgentEvent(event, assistantId);
 
                         } catch {
                             // Ignore malformed stream chunks and continue processing.
@@ -689,7 +830,63 @@ export function AIChatPanel({
             inputRef.current?.focus();
             if (onAgentAction) onAgentAction(null);
         }
-    }, [input, loading, activeFileId, activeFileContent, allFiles, allFileContents, onAgentAction, toast, showSlashMenu]);
+    }, [input, loading, activeFileId, activeFileContent, allFiles, allFileContents, onAgentAction, messages, selectedModel, reasoningEffort, autoFixErrors, handleAgentEvent]);
+
+    useEffect(() => {
+        if (!autoFixErrors || loading || runtimeErrorLines.length === 0) return;
+
+        const actionableLines = runtimeErrorLines
+            .filter(line => /error|failed|exception|traceback|cannot find|module not found|syntaxerror|typeerror/i.test(line.data))
+            .slice(-30);
+
+        if (actionableLines.length === 0) return;
+
+        const fingerprint = getRuntimeErrorFingerprint(actionableLines);
+        const now = Date.now();
+        if (reportedRuntimeErrors.current.has(fingerprint) || now - lastRuntimeErrorReportAt.current < 45_000) return;
+
+        const controller = new AbortController();
+        reportedRuntimeErrors.current.add(fingerprint);
+        lastRuntimeErrorReportAt.current = now;
+
+        void (async () => {
+            try {
+                const res = await fetch("/api/ide/errors", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ lines: actionableLines, previous: runtimeErrorLines.slice(-60, -30) }),
+                    signal: controller.signal,
+                });
+
+                if (!res.ok) return;
+                const summary = await res.json() as RuntimeErrorSummary;
+                if (!summary.shouldBeFixed || !summary.summary.trim()) return;
+
+                appendAssistantStep({
+                    id: generateId(),
+                    type: "error_report",
+                    content: `Detected runtime errors. Preparing targeted repair: ${summary.summary.slice(0, 280)}${summary.summary.length > 280 ? "..." : ""}`,
+                    timestamp: Date.now(),
+                });
+
+                await handleSend(`Fix these runtime/build errors with targeted changes only. Do not regenerate unrelated files.\n\n${summary.summary}\n\nLikely files:\n${summary.paths.join("\n")}`);
+            } catch (error) {
+                if (error instanceof Error && error.name === "AbortError") return;
+            }
+        })();
+
+        return () => controller.abort();
+    }, [appendAssistantStep, autoFixErrors, handleSend, loading, runtimeErrorLines]);
+
+    useEffect(() => {
+        if (!previewUrl) return;
+        appendAssistantStep({
+            id: generateId(),
+            type: "preview",
+            content: `Preview ready: ${previewUrl}`,
+            timestamp: Date.now(),
+        });
+    }, [appendAssistantStep, previewUrl]);
 
     return (
         <div className="flex flex-col h-full bg-[#0A0A0B] border-l border-white/5 relative">
@@ -707,10 +904,20 @@ export function AIChatPanel({
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <div className="px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500/10 to-yellow-500/10 border border-amber-500/20 text-[10px] font-medium text-amber-500 flex items-center gap-1">
-                        <Crown className="w-3 h-3" />
-                        PRO
-                    </div>
+                    <button
+                        type="button"
+                        onClick={toggleAutoFixErrors}
+                        className={cn(
+                            "px-2 py-0.5 rounded-full border text-[10px] font-medium flex items-center gap-1 transition-colors",
+                            autoFixErrors
+                                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                                : "bg-white/5 border-white/10 text-white/35 hover:text-white/60"
+                        )}
+                        title="Toggle Vibe-style automatic targeted error repair"
+                    >
+                        <Bug className="w-3 h-3" />
+                        Auto-fix {autoFixErrors ? "on" : "off"}
+                    </button>
                     <Button variant="ghost" size="icon" className="h-8 w-8">
                         <MoreHorizontal className="w-4 h-4" />
                     </Button>
@@ -770,7 +977,7 @@ export function AIChatPanel({
                         className="w-full pl-4 pr-12 py-3 bg-[#0a0a0a] border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 resize-none h-[180px] md:h-[100px] custom-scrollbar placeholder:text-white/20 transition-all font-light"
                     />
 
-                    <div className="absolute bottom-3 left-3 flex items-center">
+                    <div className="absolute bottom-3 left-3 flex items-center gap-2">
                         <select
                             value={selectedModel}
                             onChange={handleModelChange}
@@ -782,6 +989,16 @@ export function AIChatPanel({
                                     {model.label} {model.tier === "pro" ? "✨" : ""}
                                 </option>
                             ))}
+                        </select>
+                        <select
+                            value={reasoningEffort}
+                            onChange={handleReasoningEffortChange}
+                            className="bg-black/50 border border-white/10 text-white/70 text-[10px] rounded px-2 py-1 outline-none focus:border-indigo-500/50 appearance-none cursor-pointer hover:bg-black/80 hover:text-white transition-colors custom-scrollbar"
+                            style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff40%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .5rem top 50%', backgroundSize: '.65rem auto', paddingRight: '1.5rem' }}
+                            title="Reasoning effort"
+                        >
+                            <option value="low">Fast</option>
+                            <option value="medium">Deep</option>
                         </select>
                     </div>
 

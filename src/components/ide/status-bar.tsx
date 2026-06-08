@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Zap, Database, CheckCircle2, ShieldCheck, GitBranch, RefreshCw } from "lucide-react";
 import { useToast } from "@/components/toast";
+import { parseGitStatus } from "./shared/ide-constants";
 
 interface IDEStatusBarProps {
     fileCount: number;
@@ -15,22 +16,6 @@ interface IDEStatusBarProps {
     activeFile?: string;
     cursorLine?: number;
     cursorColumn?: number;
-}
-
-function parseGitStatus(rawStatus: string): { branch: string; dirty: boolean } {
-    const lines = rawStatus
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean);
-
-    const head = lines[0] || "";
-    if (!head.startsWith("## ")) {
-        return { branch: "main", dirty: lines.length > 0 };
-    }
-
-    const branch = head.slice(3).split("...")[0]?.trim() || "main";
-    const dirty = lines.length > 1;
-    return { branch, dirty };
 }
 
 export function IDEStatusBar({

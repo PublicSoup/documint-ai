@@ -11,9 +11,12 @@ import {
     Lock,
     Save,
     Play,
+    Hammer,
+    FlaskConical,
     Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { IDEFile } from "./shared/types";
 
 interface IDEToolbarProps {
     showSidebar: boolean;
@@ -29,13 +32,16 @@ interface IDEToolbarProps {
     showLocalTopology: boolean;
     setShowLocalTopology: (val: boolean) => void;
     activeFileId: string | undefined;
-    activeFile: any | undefined;
+    activeFile: IDEFile | undefined;
     fileContents: Record<string, string>;
     replaceFileContent: (fileId: string, content: string, markUnsaved?: boolean) => void;
     unsavedChanges: Record<string, boolean>;
     handleSave: () => void;
     handleRunProject: () => void;
+    handleBuildProject: () => void;
+    handleTestProject: () => void;
     runStatus: string;
+    isRuntimeTaskRunning?: boolean;
     setShowSecretsManager: (val: boolean) => void;
 }
 
@@ -49,14 +55,16 @@ export function IDEToolbar({
     activeFileId, activeFile,
     fileContents, replaceFileContent,
     unsavedChanges,
-    handleSave, handleRunProject,
+    handleSave, handleRunProject, handleBuildProject, handleTestProject,
     runStatus,
+    isRuntimeTaskRunning,
     setShowSecretsManager
 }: IDEToolbarProps) {
     const { toast } = useToast();
     const [isAIImproving, setIsAIImproving] = useState(false);
     const activeFileContent = activeFileId ? fileContents[activeFileId] : undefined;
     const isRunInProgress = runStatus === 'installing' || runStatus === 'starting';
+    const isRuntimeBusy = isRunInProgress || Boolean(isRuntimeTaskRunning);
     const canDownload = Boolean(activeFile && activeFileId && activeFileContent !== undefined);
     const canImproveCode = Boolean(activeFileId && activeFileContent?.trim()) && !isAIImproving;
 
@@ -96,7 +104,7 @@ export function IDEToolbar({
                 replaceFileContent(activeFileId, improvedCode, true);
                 toast("AI improvements applied", "success");
             }
-        } catch (e) {
+        } catch {
             toast("AI analysis failed", "error");
         } finally {
             setIsAIImproving(false);
@@ -154,7 +162,7 @@ export function IDEToolbar({
 
             <button
                 type="button"
-                onClick={() => setShowLocalTopology(!showLocalTopology)}
+                onClick={toggleBoolean(setShowLocalTopology, showLocalTopology)}
                 className={cn("p-1.5 rounded transition-all", showLocalTopology ? "bg-emerald-500/15 text-emerald-400" : "text-emerald-400/40 hover:bg-emerald-500/10 hover:text-emerald-400")}
                 title="Toggle Local Topology"
             >
@@ -205,9 +213,27 @@ export function IDEToolbar({
                 onClick={handleRunProject}
                 className="p-1.5 rounded hover:bg-emerald-500/15 text-emerald-400/70 hover:text-emerald-400 disabled:opacity-30 transition-all"
                 title="Run (Preview)"
-                disabled={isRunInProgress}
+                disabled={isRuntimeBusy}
             >
-                {isRunInProgress ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                {isRuntimeBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+            </button>
+            <button
+                type="button"
+                onClick={handleBuildProject}
+                className="p-1.5 rounded hover:bg-blue-500/15 text-blue-400/70 hover:text-blue-300 disabled:opacity-30 transition-all"
+                title="Build Project"
+                disabled={isRuntimeBusy}
+            >
+                <Hammer className="w-4 h-4" />
+            </button>
+            <button
+                type="button"
+                onClick={handleTestProject}
+                className="p-1.5 rounded hover:bg-violet-500/15 text-violet-400/70 hover:text-violet-300 disabled:opacity-30 transition-all"
+                title="Test Project"
+                disabled={isRuntimeBusy}
+            >
+                <FlaskConical className="w-4 h-4" />
             </button>
         </div>
     );

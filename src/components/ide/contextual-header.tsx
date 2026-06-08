@@ -6,7 +6,9 @@ import {
     Share2,
     Settings2,
     Box,
-    Play
+    Play,
+    Hammer,
+    FlaskConical
 } from "lucide-react";
 
 interface ContextualHeaderProps {
@@ -17,6 +19,8 @@ interface ContextualHeaderProps {
     onShare?: () => void;
     onSettings?: () => void;
     onDeploy?: () => void;
+    onBuild?: () => void;
+    onTest?: () => void;
 }
 
 export function ContextualHeader({
@@ -26,11 +30,13 @@ export function ContextualHeader({
     canShare = true,
     onShare,
     onSettings,
-    onDeploy
+    onDeploy,
+    onBuild,
+    onTest
 }: ContextualHeaderProps) {
     const pathParts = filePath.split('/');
-    const fileName = pathParts.pop();
-    const folderPath = pathParts.join(' / ');
+    const fileName = pathParts[pathParts.length - 1];
+    const folderPath = pathParts.slice(0, -1).join(' / ');
 
     return (
         <div className="h-11 flex-none border-b border-white/[0.04] bg-gradient-to-r from-[#030014]/90 via-[#08002a]/90 to-[#030014]/90 backdrop-blur-xl flex items-center justify-between px-4 z-40">
@@ -79,6 +85,26 @@ export function ContextualHeader({
                 >
                     <Play className="w-3.5 h-3.5" />
                     <span>Run / Preview</span>
+                </button>
+
+                <button
+                    type="button"
+                    onClick={onBuild}
+                    disabled={isDeploying}
+                    className="p-2 rounded-lg hover:bg-blue-500/10 text-blue-300/50 hover:text-blue-300 transition-all active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
+                    title="Build Project"
+                >
+                    <Hammer className="w-3.5 h-3.5" />
+                </button>
+
+                <button
+                    type="button"
+                    onClick={onTest}
+                    disabled={isDeploying}
+                    className="p-2 rounded-lg hover:bg-violet-500/10 text-violet-300/50 hover:text-violet-300 transition-all active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
+                    title="Test Project"
+                >
+                    <FlaskConical className="w-3.5 h-3.5" />
                 </button>
 
                 <div className="w-px h-4 bg-white/[0.06] mx-1" />

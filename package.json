@@ -13,6 +13,7 @@
     "ci:checks": "npm run typecheck && npm run check:api-authz && npm run check:api-no-any"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "^3.0.104",
     "@ai-sdk/google": "^3.0.64",
     "@ai-sdk/react": "^3.0.170",
     "@google/generative-ai": "^0.24.1",

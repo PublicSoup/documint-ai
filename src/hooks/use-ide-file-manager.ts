@@ -1,8 +1,7 @@
-import { useCallback, useMemo, useState } from "react";
-import type { File } from "@prisma/client";
+import { useCallback, useReducer, useRef } from "react";
 import { useToast } from "@/components/toast";
-
-export type IDEFile = File & { content?: string | null };
+import type { IDEFile, IDEFileContentMap, IDEUnsavedMap } from "@/components/ide/shared/types";
+import { getResponseErrorMessage, getStorageLanguageFromFileName } from "@/components/ide/shared/ide-constants";
 
 interface UpsertFileOptions {
     open?: boolean;
@@ -11,184 +10,283 @@ interface UpsertFileOptions {
     markUnsaved?: boolean;
 }
 
+interface IDEFileManagerState {
+    files: IDEFile[];
+    activeFileId?: string;
+    openFiles: string[];
+    fileContents: IDEFileContentMap;
+    unsavedChanges: IDEUnsavedMap;
+    isSaving: boolean;
+}
+
+type IDEFileManagerAction =
+    | { type: "UPSERT_FILE"; file: IDEFile; options: UpsertFileOptions }
+    | { type: "RENAME_FILE"; fileId: string; newName: string }
+    | { type: "REMOVE_FILE"; fileId: string }
+    | { type: "REMOVE_FILES"; fileIds: string[] }
+    | { type: "SELECT_FILE"; fileId: string }
+    | { type: "CLOSE_FILE"; fileId: string }
+    | { type: "SET_FILE_CONTENT"; fileId: string; content: string; markUnsaved?: boolean }
+    | { type: "SET_FILE_UNSAVED"; fileId: string; isUnsaved: boolean }
+    | { type: "SET_SAVING"; isSaving: boolean }
+    | { type: "MARK_FILE_SAVED"; fileId: string; content: string };
+
+function createInitialState(initialFiles: IDEFile[]): IDEFileManagerState {
+    const [firstFile] = initialFiles;
+    const fileContents = initialFiles.reduce<IDEFileContentMap>((acc, file) => {
+        if (typeof file.content === "string") {
+            acc[file.id] = file.content;
+        }
+
+        return acc;
+    }, {});
+
+    return {
+        files: initialFiles,
+        activeFileId: firstFile?.id,
+        openFiles: firstFile ? [firstFile.id] : [],
+        fileContents,
+        unsavedChanges: {},
+        isSaving: false,
+    };
+}
+
+function removeFlag<T>(source: Record<string, T>, key: string): Record<string, T> {
+    const next = { ...source };
+    delete next[key];
+    return next;
+}
+
+function getFallbackActiveFileId(openFiles: string[], closingFileId: string): string | undefined {
+    const remainingOpenFiles = openFiles.filter((id) => id !== closingFileId);
+    return remainingOpenFiles[remainingOpenFiles.length - 1];
+}
+
+function reducer(state: IDEFileManagerState, action: IDEFileManagerAction): IDEFileManagerState {
+    switch (action.type) {
+        case "UPSERT_FILE": {
+            const { file, options } = action;
+            const existingIndex = state.files.findIndex((existingFile) => existingFile.id === file.id);
+            const files = existingIndex === -1
+                ? [...state.files, file]
+                : state.files.map((existingFile, index) => index === existingIndex ? { ...existingFile, ...file } : existingFile);
+
+            const openFiles = options.open && !state.openFiles.includes(file.id)
+                ? [...state.openFiles, file.id]
+                : state.openFiles;
+
+            return {
+                ...state,
+                files,
+                openFiles,
+                activeFileId: options.makeActive ? file.id : state.activeFileId,
+                fileContents: options.initialContent !== undefined
+                    ? { ...state.fileContents, [file.id]: options.initialContent }
+                    : state.fileContents,
+                unsavedChanges: options.markUnsaved
+                    ? { ...state.unsavedChanges, [file.id]: true }
+                    : state.unsavedChanges,
+            };
+        }
+        case "RENAME_FILE":
+            return {
+                ...state,
+                files: state.files.map((file) => file.id === action.fileId
+                    ? { ...file, name: action.newName, language: getStorageLanguageFromFileName(action.newName) }
+                    : file),
+            };
+        case "REMOVE_FILE":
+            return {
+                ...state,
+                files: state.files.filter((file) => file.id !== action.fileId),
+                openFiles: state.openFiles.filter((id) => id !== action.fileId),
+                activeFileId: state.activeFileId === action.fileId
+                    ? getFallbackActiveFileId(state.openFiles, action.fileId)
+                    : state.activeFileId,
+                fileContents: removeFlag(state.fileContents, action.fileId) as IDEFileContentMap,
+                unsavedChanges: removeFlag(state.unsavedChanges, action.fileId) as IDEUnsavedMap,
+            };
+        case "REMOVE_FILES": {
+            const idsToRemove = new Set(action.fileIds);
+            const openFiles = state.openFiles.filter((id) => !idsToRemove.has(id));
+            const fileContents = { ...state.fileContents };
+            const unsavedChanges = { ...state.unsavedChanges };
+
+            idsToRemove.forEach((fileId) => {
+                delete fileContents[fileId];
+                delete unsavedChanges[fileId];
+            });
+
+            return {
+                ...state,
+                files: state.files.filter((file) => !idsToRemove.has(file.id)),
+                openFiles,
+                activeFileId: state.activeFileId && idsToRemove.has(state.activeFileId)
+                    ? openFiles[openFiles.length - 1]
+                    : state.activeFileId,
+                fileContents,
+                unsavedChanges,
+            };
+        }
+        case "SELECT_FILE":
+            return {
+                ...state,
+                activeFileId: action.fileId,
+                openFiles: state.openFiles.includes(action.fileId)
+                    ? state.openFiles
+                    : [...state.openFiles, action.fileId],
+            };
+        case "CLOSE_FILE":
+            return {
+                ...state,
+                openFiles: state.openFiles.filter((id) => id !== action.fileId),
+                activeFileId: state.activeFileId === action.fileId
+                    ? getFallbackActiveFileId(state.openFiles, action.fileId)
+                    : state.activeFileId,
+            };
+        case "SET_FILE_CONTENT":
+            return {
+                ...state,
+                fileContents: { ...state.fileContents, [action.fileId]: action.content },
+                unsavedChanges: action.markUnsaved
+                    ? { ...state.unsavedChanges, [action.fileId]: true }
+                    : state.unsavedChanges,
+            };
+        case "SET_FILE_UNSAVED":
+            return {
+                ...state,
+                unsavedChanges: { ...state.unsavedChanges, [action.fileId]: action.isUnsaved },
+            };
+        case "SET_SAVING":
+            return { ...state, isSaving: action.isSaving };
+        case "MARK_FILE_SAVED":
+            return {
+                ...state,
+                files: state.files.map((file) => file.id === action.fileId
+                    ? { ...file, content: action.content, size: action.content.length }
+                    : file),
+                unsavedChanges: { ...state.unsavedChanges, [action.fileId]: false },
+            };
+        default: {
+            const exhaustive: never = action;
+            return exhaustive;
+        }
+    }
+}
+
 export function useIDEFileManager(initialFiles: IDEFile[]) {
     const { toast } = useToast();
-    const [files, setFiles] = useState(initialFiles);
-    const [activeFileId, setActiveFileId] = useState<string | undefined>(initialFiles[0]?.id);
-    const [openFiles, setOpenFiles] = useState<string[]>(initialFiles.length > 0 ? [initialFiles[0].id] : []);
-    const initialFileContents = useMemo(
-        () => initialFiles.reduce<Record<string, string>>((acc, file) => {
-            if (typeof file.content === "string") {
-                acc[file.id] = file.content;
-            }
-
-            return acc;
-        }, {}),
-        [initialFiles]
-    );
-    const [fileContents, setFileContents] = useState<Record<string, string>>(initialFileContents);
-    const [unsavedChanges, setUnsavedChanges] = useState<Record<string, boolean>>({});
-    const [isSaving, setIsSaving] = useState(false);
+    const [state, dispatch] = useReducer(reducer, initialFiles, createInitialState);
+    const inflightContentLoads = useRef(new Set<string>());
+    const latestStateRef = useRef(state);
+    latestStateRef.current = state;
 
     const setFileUnsavedState = useCallback((fileId: string, isUnsaved: boolean) => {
-        setUnsavedChanges(prev => ({ ...prev, [fileId]: isUnsaved }));
+        dispatch({ type: "SET_FILE_UNSAVED", fileId, isUnsaved });
     }, []);
 
     const upsertFile = useCallback((file: IDEFile, options: UpsertFileOptions = {}) => {
-        const {
-            open = false,
-            makeActive = false,
-            initialContent,
-            markUnsaved = false,
-        } = options;
-
-        setFiles(prev => {
-            const existingIndex = prev.findIndex(existingFile => existingFile.id === file.id);
-            if (existingIndex === -1) {
-                return [...prev, file];
-            }
-
-            const next = [...prev];
-            next[existingIndex] = { ...next[existingIndex], ...file };
-            return next;
-        });
-
-        if (initialContent !== undefined) {
-            setFileContents(prev => ({ ...prev, [file.id]: initialContent }));
-        }
-
-        if (markUnsaved) {
-            setUnsavedChanges(prev => ({ ...prev, [file.id]: true }));
-        }
-
-        if (open) {
-            setOpenFiles(prev => prev.includes(file.id) ? prev : [...prev, file.id]);
-        }
-
-        if (makeActive) {
-            setActiveFileId(file.id);
-        }
+        dispatch({ type: "UPSERT_FILE", file, options });
     }, []);
 
     const renameFile = useCallback((fileId: string, newName: string) => {
-        setFiles(prev => prev.map(file => (
-            file.id === fileId
-                ? { ...file, name: newName, language: newName.split('.').pop() || file.language }
-                : file
-        )));
+        dispatch({ type: "RENAME_FILE", fileId, newName });
     }, []);
 
     const removeFile = useCallback((fileId: string) => {
-        setFiles(prev => prev.filter(file => file.id !== fileId));
-        setOpenFiles(prev => {
-            const next = prev.filter(id => id !== fileId);
-            setActiveFileId(currentActiveFileId => currentActiveFileId === fileId ? next[next.length - 1] : currentActiveFileId);
-            return next;
-        });
-        setFileContents(prev => {
-            const next = { ...prev };
-            delete next[fileId];
-            return next;
-        });
-        setUnsavedChanges(prev => {
-            const next = { ...prev };
-            delete next[fileId];
-            return next;
-        });
+        inflightContentLoads.current.delete(fileId);
+        dispatch({ type: "REMOVE_FILE", fileId });
+    }, []);
+
+    const removeFiles = useCallback((fileIds: string[]) => {
+        fileIds.forEach((fileId) => inflightContentLoads.current.delete(fileId));
+        dispatch({ type: "REMOVE_FILES", fileIds });
     }, []);
 
     const replaceFileContent = useCallback((fileId: string, content: string, markUnsaved = true) => {
-        setFileContents(prev => ({ ...prev, [fileId]: content }));
-        if (markUnsaved) {
-            setFileUnsavedState(fileId, true);
-        }
-    }, [setFileUnsavedState]);
+        dispatch({ type: "SET_FILE_CONTENT", fileId, content, markUnsaved });
+    }, []);
 
     const handleFileSelect = useCallback(async (fileId: string) => {
-        setOpenFiles(prev => prev.includes(fileId) ? prev : [...prev, fileId]);
-        setActiveFileId(fileId);
+        dispatch({ type: "SELECT_FILE", fileId });
 
-        // If content not loaded, fetch it
-        if (!Object.prototype.hasOwnProperty.call(fileContents, fileId)) {
-            try {
-                const res = await fetch(`/api/files/${fileId}/raw`);
-                const data = await res.json();
-                if (data.content !== undefined) {
-                    setFileContents(prev => ({ ...prev, [fileId]: data.content }));
-                } else {
-                    // New/empty file — set empty string so editor shows blank
-                    try {
-                        setFileContents(prev => ({ ...prev, [fileId]: "" }));
-                    } catch (e) {
-                        toast("Failed to set initial file content", "error");
-                        console.error("Failed to set initial file content:", e);
-                    }
-                }
-            } catch (e) {
-                toast("Failed to load file content", "error");
-                console.error("Failed to load file content:", e);
-            }
+        if (Object.prototype.hasOwnProperty.call(latestStateRef.current.fileContents, fileId) || inflightContentLoads.current.has(fileId)) {
+            return;
         }
-    }, [fileContents, toast]);
+
+        inflightContentLoads.current.add(fileId);
+        try {
+            const res = await fetch(`/api/files/${fileId}/raw`, { cache: "no-store" });
+            const data = (await res.json().catch(() => ({}))) as { content?: unknown };
+
+            if (!res.ok) {
+                throw new Error(await getResponseErrorMessage(res, "Failed to load file content"));
+            }
+
+            dispatch({
+                type: "SET_FILE_CONTENT",
+                fileId,
+                content: typeof data.content === "string" ? data.content : "",
+                markUnsaved: false,
+            });
+        } catch (error) {
+            toast(error instanceof Error ? error.message : "Failed to load file content", "error");
+            console.error("Failed to load file content:", error);
+        } finally {
+            inflightContentLoads.current.delete(fileId);
+        }
+    }, [toast]);
 
     const handleCloseFile = useCallback((e: React.MouseEvent, fileId: string) => {
         e.stopPropagation();
-        setOpenFiles(prev => {
-            const newOpen = prev.filter(id => id !== fileId);
-            setActiveFileId(currentActiveFileId => currentActiveFileId === fileId ? newOpen[newOpen.length - 1] : currentActiveFileId);
-            return newOpen;
-        });
+        dispatch({ type: "CLOSE_FILE", fileId });
     }, []);
 
     const handleContentChange = useCallback((val: string | undefined) => {
-        if (activeFileId && val !== undefined) {
-            replaceFileContent(activeFileId, val, true);
+        if (latestStateRef.current.activeFileId && val !== undefined) {
+            replaceFileContent(latestStateRef.current.activeFileId, val, true);
         }
-    }, [activeFileId, replaceFileContent]);
+    }, [replaceFileContent]);
 
     const handleSave = useCallback(async () => {
+        const { activeFileId, fileContents, unsavedChanges } = latestStateRef.current;
         if (!activeFileId || !unsavedChanges[activeFileId]) return;
 
-        setIsSaving(true);
+        dispatch({ type: "SET_SAVING", isSaving: true });
         try {
+            const content = fileContents[activeFileId] ?? "";
             const res = await fetch(`/api/files/${activeFileId}/raw`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ content: fileContents[activeFileId] })
+                body: JSON.stringify({ content })
             });
 
             if (res.ok) {
-                setFiles(prev => prev.map(file => (
-                    file.id === activeFileId
-                        ? {
-                            ...file,
-                            content: fileContents[activeFileId],
-                            size: fileContents[activeFileId]?.length ?? file.size,
-                        }
-                        : file
-                )));
-                setFileUnsavedState(activeFileId, false);
+                dispatch({ type: "MARK_FILE_SAVED", fileId: activeFileId, content });
                 toast("File saved successfully", "success");
             } else {
-                throw new Error("Save failed");
+                throw new Error(await getResponseErrorMessage(res, "Save failed"));
             }
-        } catch (e) {
-            toast("Failed to save changes", "error");
+        } catch (error) {
+            toast(error instanceof Error ? error.message : "Failed to save changes", "error");
         } finally {
-            setIsSaving(false);
+            dispatch({ type: "SET_SAVING", isSaving: false });
         }
-    }, [activeFileId, fileContents, setFileUnsavedState, toast, unsavedChanges]);
+    }, [toast]);
+
+    const { files, activeFileId, openFiles, fileContents, unsavedChanges, isSaving } = state;
 
     return {
-        files, setFiles,
-        activeFileId, setActiveFileId,
-        openFiles, setOpenFiles,
-        fileContents, setFileContents,
-        unsavedChanges, setUnsavedChanges,
-        isSaving, setIsSaving,
+        files,
+        activeFileId,
+        openFiles,
+        fileContents,
+        unsavedChanges,
+        isSaving,
         upsertFile,
         renameFile,
         removeFile,
+        removeFiles,
         replaceFileContent,
         setFileUnsavedState,
         handleFileSelect,

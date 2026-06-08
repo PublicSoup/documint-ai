@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Search, File as FileIcon, CornerDownLeft, Terminal, Keyboard, Settings, Columns, Map, Eye, Sparkles } from "lucide-react";
+import { Search, File as FileIcon, CornerDownLeft, Terminal, Keyboard, Settings, Columns, Map, Eye, Sparkles, Play, Hammer, FlaskConical } from "lucide-react";
 import type { File } from "@prisma/client";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +22,9 @@ interface Command {
 }
 
 const COMMANDS: Command[] = [
+    { id: "run-project", label: "Run / Preview Project", category: "Runtime", icon: <Play className="w-4 h-4" />, shortcut: "Ctrl+Enter" },
+    { id: "build-project", label: "Build Project", category: "Runtime", icon: <Hammer className="w-4 h-4" /> },
+    { id: "test-project", label: "Test Project", category: "Runtime", icon: <FlaskConical className="w-4 h-4" /> },
     { id: "toggle-terminal", label: "Toggle Terminal", category: "View", icon: <Terminal className="w-4 h-4" />, shortcut: "Ctrl+`" },
     { id: "toggle-minimap", label: "Toggle Minimap", category: "View", icon: <Map className="w-4 h-4" /> },
     { id: "toggle-sidebar", label: "Toggle Sidebar", category: "View", icon: <Columns className="w-4 h-4" />, shortcut: "Ctrl+B" },

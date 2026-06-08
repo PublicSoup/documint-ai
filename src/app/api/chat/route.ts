@@ -6,6 +6,8 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { getUserSubscription } from "@/lib/subscription";
 import { runAgent } from "@/lib/agent/engine";
 import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
+import { serializeAgentEvent } from "@/lib/agent/events";
+import { AVAILABLE_MODELS } from "@/lib/ai-models";
 
 export const maxDuration = 300;
 
@@ -24,9 +26,13 @@ const chatRequestSchema = z
         contextContent: z.string().max(50_000).optional(),
         additionalContext: z.string().max(5_000).optional(),
         model: z.string().optional(),
+        reasoningEffort: z.enum(["low", "medium"]).default("low"),
+        autoFixErrors: z.boolean().default(true),
         stream: z.boolean().default(true),
     })
     .strict();
+
+const AVAILABLE_MODEL_IDS = new Set<string>(AVAILABLE_MODELS.map(model => model.id));
 
 export async function POST(req: Request) {
     try {
@@ -39,7 +45,11 @@ export async function POST(req: Request) {
         const rateLimitTier = (subscription.isPro || subscription.isTeam) ? "pro" : "chat";
         await enforceRateLimit(session.user.id, rateLimitTier);
 
-        const { message, history, contextFileId, contextContent, additionalContext, stream, model } = await validateBody(req, chatRequestSchema);
+        const { message, history, contextFileId, contextContent, additionalContext, stream, model, reasoningEffort, autoFixErrors } = await validateBody(req, chatRequestSchema);
+
+        if (model && !AVAILABLE_MODEL_IDS.has(model)) {
+            throw ApiErrors.badRequest("Unsupported AI model selected.");
+        }
 
         const sessionId = crypto.randomUUID(); // Generate a unique session ID for this agent run
 
@@ -59,7 +69,8 @@ export async function POST(req: Request) {
                 contextContent,
                 undefined,
                 history,
-                model
+                model,
+                { reasoningEffort, autoFixErrors }
             );
 
             for await (const event of generator) {
@@ -92,7 +103,7 @@ export async function POST(req: Request) {
                             tool,
                             timestamp: Date.now(),
                         };
-                        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+                        controller.enqueue(encoder.encode(serializeAgentEvent(event)));
                     };
 
                     const generator = runAgent(
@@ -103,17 +114,18 @@ export async function POST(req: Request) {
                         contextContent,
                         sendStateChange,
                         history,
-                        model
+                        model,
+                        { reasoningEffort, autoFixErrors }
                     );
 
                     for await (const event of generator) {
-                        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+                        controller.enqueue(encoder.encode(serializeAgentEvent(event)));
                     }
                     controller.close();
                 } catch (error) {
                     const errorMessage = error instanceof Error ? error.message : "Streaming failed";
                     const event = { type: "error" as const, message: errorMessage };
-                    controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+                    controller.enqueue(encoder.encode(serializeAgentEvent(event)));
                     controller.close();
                 }
             },

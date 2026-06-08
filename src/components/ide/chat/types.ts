@@ -11,7 +11,7 @@ export interface CodeBlock {
 
 export interface ThoughtStep {
     id: string;
-    type: 'thought' | 'tool_call' | 'tool_result' | 'error';
+    type: 'thought' | 'tool_call' | 'tool_result' | 'error' | 'command' | 'preview' | 'error_report';
     content: string;
     toolName?: string;
     timestamp: number;

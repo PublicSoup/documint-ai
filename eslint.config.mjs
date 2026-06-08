@@ -23,6 +23,7 @@ const eslintConfig = defineConfig([
     "coverage/**",
     "dist/**",
     "node-temp/**",
+    "vibe-coding-platform-main/**",
   ]),
 ]);
 

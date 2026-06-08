@@ -3,7 +3,7 @@ import { generateText as aiSDKGenerateText, generateObject, streamText as aiSDKS
 import { z } from "zod";
 import { env } from "./env";
 import { createGateway } from "@ai-sdk/gateway";
-import { getUserApiKey, trackAiUsage } from "./ai-usage";
+import { AiQuotaExceededError, assertAiUsageBudget, getUserApiKey, trackAiUsage } from "./ai-usage";
 
 /**
  * AI Provider Utility - Refactored for Vercel AI SDK (@ai-sdk/google)
@@ -20,6 +20,7 @@ export interface AICompletionOptions {
     temperature?: number;
     maxTokens?: number;
     jsonMode?: boolean;
+    reasoningEffort?: "low" | "medium";
     /** If provided, the user's own API key will be used if available */
     userId?: string;
 }
@@ -57,12 +58,20 @@ function hasSharedAiProviderConfigured(): boolean {
     return Boolean(gatewayProvider || env.GOOGLE_API_KEY);
 }
 
+function isGoogleModel(modelName: string): boolean {
+    return modelName.startsWith("google/") || !modelName.includes("/");
+}
+
 /**
  * Base AI Model selector (uses the shared API key)
  */
 function getModel(modelName: string = "google/gemini-2.0-flash") {
     if (gatewayProvider) {
         return gatewayProvider(modelName);
+    }
+
+    if (!isGoogleModel(modelName)) {
+        throw new Error("Selected model requires AI Gateway. Set AI_GATEWAY_API_KEY or choose a Google model.");
     }
 
     if (!env.GOOGLE_API_KEY) {
@@ -84,7 +93,7 @@ async function getModelForUser(
     modelName: string = "google/gemini-2.0-flash"
 ): Promise<{ model: ReturnType<typeof getModel>; usingOwnKey: boolean }> {
     // Check for BYO API key
-    if (userId) {
+    if (userId && isGoogleModel(modelName)) {
         const userKey = await getUserApiKey(userId);
         if (userKey) {
             const userGenAI = createGoogleGenerativeAI({ apiKey: userKey });
@@ -110,8 +119,8 @@ export async function validateApiKey(apiKey: string): Promise<{ valid: boolean; 
             maxOutputTokens: 1,
         });
         return { valid: true };
-    } catch (e: any) {
-        return { valid: false, error: e?.message || "Invalid API key" };
+    } catch (e: unknown) {
+        return { valid: false, error: e instanceof Error ? e.message : "Invalid API key" };
     }
 }
 
@@ -145,6 +154,15 @@ export async function getAICompletionWithDetailedError(
                 content: safePrompt(m.content)
             }));
 
+        const estimatedInputTokens = Math.ceil(
+            ((systemMessage?.length ?? 0) + chatMessages.reduce((sum, msg) => sum + msg.content.length, 0)) / 4
+        );
+        const reservedOutputTokens = options.maxTokens ?? 8192;
+
+        if (options.userId) {
+            await assertAiUsageBudget(options.userId, estimatedInputTokens + reservedOutputTokens, { isUsingOwnKey: usingOwnKey });
+        }
+
         const response = await aiSDKGenerateText({
             model,
             system: systemMessage,
@@ -155,9 +173,6 @@ export async function getAICompletionWithDetailedError(
         });
 
         if (options.userId) {
-            const estimatedInputTokens = Math.ceil(
-                ((systemMessage?.length ?? 0) + chatMessages.reduce((sum, msg) => sum + msg.content.length, 0)) / 4
-            );
             const estimatedOutputTokens = Math.ceil((response.text?.length ?? 0) / 4);
             const estimatedTotalTokens = estimatedInputTokens + estimatedOutputTokens;
 
@@ -176,7 +191,14 @@ export async function getAICompletionWithDetailedError(
                 model: modelName,
             }
         };
-    } catch (e: any) {
+    } catch (e: unknown) {
+        if (e instanceof AiQuotaExceededError) {
+            return {
+                success: false,
+                error: e.message,
+            };
+        }
+
         const errorMessage = e instanceof Error ? e.message : "Unknown error";
         console.error("[Vercel AI SDK Error]:", errorMessage);
 
@@ -231,12 +253,18 @@ export async function streamTextEndpoint(
     options: AICompletionOptions = {}
 ) {
     const modelName = options.model || "google/gemini-2.0-flash";
-    const { model } = await getModelForUser(options.userId, modelName);
+    const { model, usingOwnKey } = await getModelForUser(options.userId, modelName);
+    const safeUserPrompt = safePrompt(userPrompt);
+    const estimatedInputTokens = Math.ceil((systemPrompt.length + safeUserPrompt.length) / 4);
+
+    if (options.userId) {
+        await assertAiUsageBudget(options.userId, estimatedInputTokens + (options.maxTokens ?? 8192), { isUsingOwnKey: usingOwnKey });
+    }
     
     return aiSDKStreamText({
         model,
         system: systemPrompt,
-        messages: [{ role: 'user', content: safePrompt(userPrompt) }],
+        messages: [{ role: 'user', content: safeUserPrompt }],
         temperature: options.temperature ?? 0.4,
         maxOutputTokens: options.maxTokens ?? 8192,
     });

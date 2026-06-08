@@ -1,14 +1,16 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useMemo, useState, useRef } from "react";
 import { Loader2, ExternalLink, RefreshCw, X, Smartphone, Monitor, Tablet } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 import { RunStatus } from "@/hooks/use-execution-engine";
+import type { RuntimeErrorInfo } from "./shared/types";
 
 interface LivePreviewProps {
     url?: string;
     runStatus?: RunStatus;
+    runtimeError?: RuntimeErrorInfo | null;
     onClose?: () => void;
     onRun?: () => void;
 }
@@ -21,19 +23,28 @@ const VIEWPORT_SIZES: Record<ViewportSize, { width: string; label: string; icon:
     mobile: { width: "375px", label: "Mobile", icon: <Smartphone className="w-3.5 h-3.5" /> },
 };
 
-export function LivePreview({ url, runStatus = 'idle', onClose, onRun }: LivePreviewProps) {
+export function LivePreview({ url, runStatus = 'idle', runtimeError, onClose, onRun }: LivePreviewProps) {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [viewport, setViewport] = useState<ViewportSize>("desktop");
     const [iframeKey, setIframeKey] = useState(0);
     const isRunning = runStatus === 'installing' || runStatus === 'starting';
+    const safeUrl = useMemo(() => {
+        if (!url) return null;
+        try {
+            const parsed = new URL(url);
+            return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : null;
+        } catch {
+            return null;
+        }
+    }, [url]);
 
     const handleRefresh = () => {
-        if (!url) return;
+        if (!safeUrl) return;
         setIframeKey(prev => prev + 1);
     };
 
     const handleOpenExternal = () => {
-        if (url) window.open(url, "_blank");
+        if (safeUrl) window.open(safeUrl, "_blank", "noopener,noreferrer");
     };
 
     return (
@@ -68,18 +79,18 @@ export function LivePreview({ url, runStatus = 'idle', onClose, onRun }: LivePre
                     <button
                         type="button"
                         onClick={handleRefresh}
-                        disabled={!url}
+                        disabled={!safeUrl}
                         className="p-1 text-white/30 hover:text-white/60 transition-colors rounded hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none"
-                        title={url ? "Refresh" : "No preview to refresh"}
+                        title={safeUrl ? "Refresh" : "No preview to refresh"}
                     >
                         <RefreshCw className="w-3.5 h-3.5" />
                     </button>
                     <button
                         type="button"
                         onClick={handleOpenExternal}
-                        disabled={!url}
+                        disabled={!safeUrl}
                         className="p-1 text-white/30 hover:text-white/60 transition-colors rounded hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none"
-                        title={url ? "Open in new tab" : "No preview URL available"}
+                        title={safeUrl ? "Open in new tab" : "No preview URL available"}
                     >
                         <ExternalLink className="w-3.5 h-3.5" />
                     </button>
@@ -97,18 +108,18 @@ export function LivePreview({ url, runStatus = 'idle', onClose, onRun }: LivePre
             </div>
 
             {/* URL bar */}
-            {url && (
+            {safeUrl && (
                 <div className="flex items-center h-7 px-2 bg-[#030014]/50 border-b border-white/[0.04] shrink-0">
                     <div className="flex-1 flex items-center gap-2 bg-white/[0.03] rounded px-2 py-0.5">
                         <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                        <span className="text-[10px] text-white/40 font-mono truncate">{url}</span>
+                        <span className="text-[10px] text-white/40 font-mono truncate">{safeUrl}</span>
                     </div>
                 </div>
             )}
 
             {/* Preview area */}
             <div className="flex-1 flex items-center justify-center bg-[#0a0a0f] overflow-hidden">
-                {(runStatus !== 'ready' && runStatus !== 'idle') || !url ? (
+                {(runStatus !== 'ready' && runStatus !== 'idle') || !safeUrl ? (
                     <div className="flex flex-col items-center gap-4 text-muted-foreground">
                         {runStatus === 'installing' || runStatus === 'starting' ? (
                             <>
@@ -125,9 +136,21 @@ export function LivePreview({ url, runStatus = 'idle', onClose, onRun }: LivePre
                                 <div className="w-16 h-16 rounded-2xl bg-red-600/10 flex items-center justify-center border border-red-500/10">
                                     <X className="w-7 h-7 text-red-400/30" />
                                 </div>
-                                <div className="text-center">
-                                    <p className="text-sm text-red-400/80">Failed to start project</p>
-                                    <p className="text-[10px] text-white/40 mt-1">Check terminal for details</p>
+                                <div className="text-center max-w-[320px] px-4">
+                                    <p className="text-sm text-red-400/80">{runtimeError?.message || 'Failed to start project'}</p>
+                                    <p className="text-[10px] text-white/45 mt-2 leading-relaxed">
+                                        {runtimeError?.hint || 'Check terminal for details'}
+                                    </p>
+                                    {runtimeError?.code && (
+                                        <p className="mt-2 inline-flex rounded bg-red-500/10 px-2 py-1 font-mono text-[9px] text-red-200/70">
+                                            {runtimeError.code}
+                                        </p>
+                                    )}
+                                    {runtimeError?.details && (
+                                        <pre className="mt-2 max-h-24 overflow-auto rounded-lg border border-white/10 bg-black/30 p-2 text-left text-[10px] text-white/45 whitespace-pre-wrap">
+                                            {runtimeError.details}
+                                        </pre>
+                                    )}
                                 </div>
                                 {onRun && (
                                     <button
@@ -172,7 +195,7 @@ export function LivePreview({ url, runStatus = 'idle', onClose, onRun }: LivePre
                         <iframe
                             ref={iframeRef}
                             key={iframeKey}
-                            src={url}
+                            src={safeUrl}
                             className="w-full h-full border-0"
                             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
                             title="Live Preview"

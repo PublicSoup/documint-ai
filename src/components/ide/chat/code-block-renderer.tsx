@@ -37,22 +37,19 @@ export function CodeBlockRenderer({
     block,
     onApply,
     onInsertAtCursor,
-    onReplace,
     onCreate,
     isApplied,
     canUndo,
     onUndo,
-    activeFileName,
     currentFileSize = 0,
     isNewFile = false,
-    originalContent,
     onReviewDiff
 }: CodeBlockRendererProps) {
     const [isExpanded, setIsExpanded] = useState(true);
     const [isCopied, setIsCopied] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
     const [warningMessage, setWarningMessage] = useState<string>("");
-    const lineCount = block.code.split('\\n').length;
+    const lineCount = block.code.split('\n').length;
 
     const handleCopy = async () => {
         const success = await copyToClipboard(block.code);

@@ -3,9 +3,10 @@
 import { useState, useMemo } from "react";
 import { FileCode, Folder, ChevronRight, ChevronDown, Plus, Search, MoreHorizontal, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { File } from "@prisma/client";
 import { ContextMenu, ContextMenuItem } from "./context-menu";
-import { Copy, Trash2, Pencil, Sparkles, Download, FileText, FolderPlus, RefreshCw } from "lucide-react";
+import { Copy, Trash2, Pencil, Sparkles, FileText, FolderPlus, RefreshCw } from "lucide-react";
+import type { FileAction, IDEFileWithDocumentation } from "./shared/types";
+import { normalizeWorkspaceName } from "./shared/ide-constants";
 
 // File icon color mapping by extension
 function getFileIconColor(fileName: string): string {
@@ -31,18 +32,40 @@ function getFileIconColor(fileName: string): string {
 interface TreeNode {
     id: string;
     name: string;
+    path: string;
     type: "file" | "folder";
     children?: TreeNode[];
-    file?: File & { documentation?: any };
+    file?: IDEFileWithDocumentation;
 }
 
 interface EnhancedFileTreeProps {
-    files: (File & { documentation?: any })[];
+    files: IDEFileWithDocumentation[];
     activeFileId?: string;
     onSelect: (fileId: string) => void;
-    onAction?: (action: "ai" | "delete" | "rename" | "new_file" | "new_folder", fileId?: string) => void;
+    onAction?: (action: Extract<FileAction, "ai" | "delete" | "delete_project" | "rename" | "new_file" | "new_folder">, fileId?: string) => void;
     onRefresh?: () => void;
     isRefreshing?: boolean;
+}
+
+function getProjectWorkspaceFromFolderId(nodeId: string): string | null {
+    const parts = normalizeWorkspaceName(nodeId).split("/").filter(Boolean);
+    return parts.length === 2 && parts[0] === "Project" ? parts[1] : null;
+}
+
+function sortTree(nodes: TreeNode[]): TreeNode[] {
+    return nodes
+        .map((node) => ({
+            ...node,
+            children: node.children ? sortTree(node.children) : undefined,
+        }))
+        .sort((a, b) => {
+            if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+            return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+        });
+}
+
+function getFileBaseName(filePath: string): string {
+    return normalizeWorkspaceName(filePath).split("/").pop() || filePath;
 }
 
 export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRefresh, isRefreshing = false }: EnhancedFileTreeProps) {
@@ -51,7 +74,7 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
     const [menu, setMenu] = useState<{ x: number; y: number; nodeId: string; nodeType: "file" | "folder" } | null>(null);
 
     // Build tree structure from flat files
-    const buildTree = (files: File[]): TreeNode[] => {
+    const buildTree = (files: IDEFileWithDocumentation[]): TreeNode[] => {
         const tree: TreeNode[] = [];
         const folderMap = new Map<string, TreeNode>();
 
@@ -66,6 +89,7 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
             const folder: TreeNode = {
                 id: fullPath,
                 name: path,
+                path: fullPath,
                 type: "folder",
                 children: []
             };
@@ -87,7 +111,7 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
         const rootFolder = getOrCreateFolder("Project");
 
         files.forEach(file => {
-            const normalizedName = file.name.endsWith('/') ? file.name.slice(0, -1) : file.name;
+            const normalizedName = normalizeWorkspaceName(file.name.endsWith('/') ? file.name.slice(0, -1) : file.name);
             const pathParts = normalizedName.split('/').filter(Boolean);
             if (pathParts.length === 0) return;
 
@@ -120,6 +144,7 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
             const fileNode: TreeNode = {
                 id: file.id,
                 name: fileName,
+                path: normalizedName,
                 type: "file",
                 file: file
             };
@@ -129,7 +154,7 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
             }
         });
 
-        return tree;
+        return sortTree(tree);
     };
 
     const treeStructure = useMemo(() => buildTree(files), [files]);
@@ -159,6 +184,7 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
 
     const getMenuItems = (nodeId: string, nodeType: "file" | "folder"): ContextMenuItem[] => {
         if (nodeType === "folder") {
+            const workspace = getProjectWorkspaceFromFolderId(nodeId);
             return [
                 {
                     label: "New File",
@@ -175,7 +201,16 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
                     label: "Refresh",
                     icon: RefreshCw,
                     onClick: () => onRefresh?.()
-                }
+                },
+                ...(workspace ? [
+                    { separator: true, label: "" } as ContextMenuItem,
+                    {
+                        label: "Delete Project",
+                        icon: Trash2,
+                        variant: "danger" as const,
+                        onClick: () => onAction?.("delete_project", workspace),
+                    },
+                ] : [])
             ];
         }
 
@@ -198,7 +233,7 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
             {
                 label: "Copy Name",
                 icon: Copy,
-                onClick: () => navigator.clipboard.writeText(file.name)
+                onClick: () => navigator.clipboard.writeText(getFileBaseName(file.name))
             },
             {
                 label: "Copy Path",
@@ -261,6 +296,7 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
                 </div>
             );
         } else {
+            const iconColor = getFileIconColor(node.name);
             return (
                 <div
                     key={node.id}
@@ -280,7 +316,7 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                         <FileCode className={cn(
                             "w-3 h-3 shrink-0 transition-colors",
-                            activeFileId === node.id ? getFileIconColor(node.name) : getFileIconColor(node.name)
+                            iconColor
                         )} />
                         <span className="truncate">{node.name}</span>
                         {node.name.endsWith('.env') && (

@@ -80,7 +80,7 @@ button:hover { background: #5558dd; }`
                     name: "react-app",
                     private: true,
                     type: "module",
-                    scripts: { dev: "vite", build: "vite build" },
+                    scripts: { dev: "vite --host 0.0.0.0", build: "vite build", preview: "vite preview --host 0.0.0.0" },
                     dependencies: { react: "^18.2.0", "react-dom": "^18.2.0" },
                     devDependencies: { "@types/react": "^18.2.0", "@vitejs/plugin-react": "^4.0.0", typescript: "^5.0.0", vite: "^5.0.0" }
                 }, null, 2)
@@ -107,6 +107,29 @@ let items = [
     { id: 1, name: 'Item 1', done: false },
     { id: 2, name: 'Item 2', done: true },
 ];
+
+app.get('/', (req, res) => {
+    res.type('html').send(\`<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Express API</title>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; background: #020617; color: #e2e8f0; }
+        main { max-width: 640px; padding: 2rem; border: 1px solid rgba(148,163,184,.2); border-radius: 16px; background: rgba(15,23,42,.85); }
+        code { color: #86efac; }
+        a { color: #93c5fd; }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>Express API is running 🚀</h1>
+        <p>Try the JSON endpoint: <a href="/api/items"><code>/api/items</code></a></p>
+    </main>
+</body>
+</html>\`);
+});
 
 app.get('/api/items', (req, res) => {
     res.json({ items, count: items.length });

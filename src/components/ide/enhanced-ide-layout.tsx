@@ -9,24 +9,19 @@ import DynamicDiagramViewer from "../dynamic-diagram-viewer";
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 import type { Monaco } from "@monaco-editor/react";
+import type { Terminal as XTerm } from "@xterm/xterm";
 import { Breadcrumbs } from "./breadcrumbs";
 import { KeyboardShortcuts } from "./keyboard-shortcuts";
 import { LivePreview } from "./live-preview";
 import { ProjectTemplates } from "./project-templates";
 import NotificationsBell from "../notifications-bell";
-import { X, Save, Play, Bot, Layout, Maximize2, Columns, Terminal as TerminalIcon, Settings, Sparkles, GitBranch, Files, Search as SearchIcon, Globe, Loader2, Lock, FileText, Share2, Wand2, Zap, Layout as LayoutIcon, SplitSquareVertical, ChevronUp, ChevronDown, Trash2, SplitSquareHorizontal, Download, Keyboard, FolderOpen } from "lucide-react";
+import { X, Maximize2, Terminal as TerminalIcon, Sparkles, GitBranch, Files, Search as SearchIcon, Loader2, FileText, Layout as LayoutIcon, Keyboard, FolderOpen } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import type { File } from "@prisma/client";
 import { cn } from "@/lib/utils";
 import { useToast } from "../toast";
-import { Button } from "../ui/button";
 import { AIChatPanel } from "./ai-chat-panel";
 
-import { WebContainerTerminal as Terminal } from './webcontainer-terminal';
 import { useExecutionEngine } from "@/hooks/use-execution-engine";
-import { RunnerConfigDialog } from "./runner-config-dialog";
-import { ActivityBar } from "./activity-bar";
-import { Sidebar } from "./sidebar";
 import { EditorTabs } from "./editor-tabs";
 import { SecretsManager } from "./secrets-manager";
 import { IDEStatusBar } from "./status-bar";
@@ -42,71 +37,17 @@ import { useIDEFileManager } from "@/hooks/use-ide-file-manager";
 import { useIDEHotkeys } from "@/hooks/use-ide-hotkeys";
 import { IDEToolbar } from "./ide-toolbar";
 import { TerminalPanel } from "./terminal-panel";
-// Auto-detect Monaco language from file name
-function getLanguageFromFileName(fileName: string): string {
-    const ext = fileName.split('.').pop()?.toLowerCase();
-    const map: Record<string, string> = {
-        ts: 'typescript', tsx: 'typescriptreact',
-        js: 'javascript', jsx: 'javascriptreact', mjs: 'javascript', cjs: 'javascript',
-        css: 'css', scss: 'scss', less: 'less',
-        html: 'html', htm: 'html',
-        json: 'json', jsonc: 'json',
-        md: 'markdown', mdx: 'markdown',
-        py: 'python', rb: 'ruby', rs: 'rust', go: 'go', java: 'java',
-        c: 'c', h: 'c', cpp: 'cpp', hpp: 'cpp',
-        cs: 'csharp', php: 'php', sql: 'sql',
-        sh: 'shell', bash: 'shell', zsh: 'shell',
-        yaml: 'yaml', yml: 'yaml',
-        xml: 'xml', svg: 'xml',
-        graphql: 'graphql', gql: 'graphql',
-        dockerfile: 'dockerfile',
-        toml: 'ini', ini: 'ini',
-        env: 'plaintext', txt: 'plaintext', log: 'plaintext',
-    };
-    return map[ext || ''] || 'plaintext';
-}
-
-function slugifyProjectName(name: string): string {
-    const slug = name
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 48);
-
-    return slug || "project";
-}
-
-
-
-interface SubscriptionUsage {
-    tokens?: number;
-}
-
-interface SubscriptionLimits {
-    totalFiles?: number;
-    maxTokens?: number;
-}
-
-interface SubscriptionInfo {
-    plan?: string;
-    usage?: SubscriptionUsage;
-    limits?: SubscriptionLimits;
-}
-
-interface IDEUser {
-    id: string;
-    name?: string | null;
-    email?: string | null;
-}
+import { DeleteProjectDialog } from "./delete-project-dialog";
+import type { IDEFile, IDEUser, SidebarTab, SubscriptionInfo } from "./shared/types";
+import { extractTopLevelFolders, filterFilesByWorkspace, getLanguageFromFileName, getResponseErrorMessage, slugifyProjectName } from "./shared/ide-constants";
 
 interface EnhancedIDELayoutProps {
-    files: (File & { content?: string | null })[];
+    files: IDEFile[];
     user: IDEUser;
     subscription?: SubscriptionInfo;
 }
 
-export default function EnhancedIDELayout({ files: initialFiles, user, subscription }: EnhancedIDELayoutProps) {
+export default function EnhancedIDELayout({ files: initialFiles, subscription }: EnhancedIDELayoutProps) {
     const { toast } = useToast();
     const searchParams = useSearchParams();
     const {
@@ -119,6 +60,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
         upsertFile,
         renameFile,
         removeFile,
+        removeFiles,
         replaceFileContent,
         setFileUnsavedState,
         handleFileSelect,
@@ -126,24 +68,14 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
         handleContentChange,
         handleSave
     } = useIDEFileManager(initialFiles);
-    const [terminalInstance, setTerminalInstance] = useState<any>(null);
+    const [terminalInstance, setTerminalInstance] = useState<XTerm | null>(null);
+    const [envSecrets, setEnvSecrets] = useState<{ key: string; value: string }[]>([]);
     const [activeWorkspace, setActiveWorkspace] = useState("Project");
     const workspaceOptions = useMemo(() => {
-        const topLevelFolders = new Set<string>();
-        files.forEach(file => {
-            const [firstPart] = file.name.replace(/^\/+/, "").split("/");
-            if (firstPart && firstPart !== file.name) {
-                topLevelFolders.add(firstPart);
-            }
-        });
-
-        return ["Project", ...Array.from(topLevelFolders).sort((a, b) => a.localeCompare(b))];
+        return ["Project", ...extractTopLevelFolders(files)];
     }, [files]);
     const visibleFiles = useMemo(() => {
-        if (activeWorkspace === "Project") return files;
-
-        const prefix = `${activeWorkspace}/`;
-        return files.filter(file => file.name.replace(/^\/+/, "").startsWith(prefix));
+        return filterFilesByWorkspace(files, activeWorkspace);
     }, [activeWorkspace, files]);
 
     // Unify WebContainer logic via hook
@@ -154,13 +86,20 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
         isPreviewOpen,
         setIsPreviewOpen,
         run: runProject,
-        mountAll: mountAllFiles
+        build: buildProject,
+        test: testProject,
+        mountAll: mountAllFiles,
+        isRuntimeTaskRunning,
+        runtimeCommands,
+        runtimeLogs,
+        runtimeError
     } = useExecutionEngine({
         files,
         activeFileId,
         fileContents,
         terminalInstance,
-        workspacePrefix: activeWorkspace
+        workspacePrefix: activeWorkspace,
+        envSecrets
     });
 
     // Diff Modal State
@@ -168,42 +107,44 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
     const [diffContent, setDiffContent] = useState({ original: "", modified: "", language: "typescript" });
 
     // Layout State (synced)
-    const { settings, updateSetting, loading: settingsLoading } = useIDESettings();
+    const { settings, updateSetting } = useIDESettings();
     const showSidebar = settings.showSidebar;
-    const setShowSidebar = (val: boolean) => updateSetting("showSidebar", val);
+    const setShowSidebar = useCallback((val: boolean) => updateSetting("showSidebar", val), [updateSetting]);
 
     const activeSidebarTab = settings.activeSidebarTab;
-    const setActiveSidebarTab = (val: "explorer" | "search" | "git") => updateSetting("activeSidebarTab", val);
+    const setActiveSidebarTab = useCallback((val: SidebarTab) => updateSetting("activeSidebarTab", val), [updateSetting]);
 
     const showAIChat = settings.showAIChat;
-    const setShowAIChat = (val: boolean) => updateSetting("showAIChat", val);
+    const setShowAIChat = useCallback((val: boolean) => updateSetting("showAIChat", val), [updateSetting]);
 
     const showAIEditor = settings.showAIEditor;
-    const setShowAIEditor = (val: boolean) => updateSetting("showAIEditor", val);
+    const setShowAIEditor = useCallback((val: boolean) => updateSetting("showAIEditor", val), [updateSetting]);
 
     const showTerminal = settings.showTerminal;
-    const setShowTerminal = (val: boolean) => updateSetting("showTerminal", val);
+    const setShowTerminal = useCallback((val: boolean) => updateSetting("showTerminal", val), [updateSetting]);
 
     const showDocPreview = settings.showDocPreview;
-    const setShowDocPreview = (val: boolean) => updateSetting("showDocPreview", val);
+    const setShowDocPreview = useCallback((val: boolean) => updateSetting("showDocPreview", val), [updateSetting]);
 
     const showLocalTopology = settings.showLocalTopology;
-    const setShowLocalTopology = (val: boolean) => updateSetting("showLocalTopology", val);
+    const setShowLocalTopology = useCallback((val: boolean) => updateSetting("showLocalTopology", val), [updateSetting]);
 
     const [localMermaid, setLocalMermaid] = useState<string>("");
     const editorRef = useRef<SimpleEnhancedEditorRef>(null);
-    const [clickTimeout, setClickTimeout] = useState<NodeJS.Timeout | null>(null);
     const [cursorLine, setCursorLine] = useState(1);
     const [cursorColumn, setCursorColumn] = useState(1);
     const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
     const [terminalMaximized, setTerminalMaximized] = useState(false);
-    const [typesLoaded, setTypesLoaded] = useState(false);
     const [sidebarSearchQuery, setSidebarSearchQuery] = useState("");
 
     const monacoInstanceRef = useRef<Monaco | null>(null);
     const runRequestInFlightRef = useRef(false);
     const [showSecretsManager, setShowSecretsManager] = useState(false);
-    const [envSecrets, setEnvSecrets] = useState<{ key: string; value: string }[]>([]);
+    const [deleteProjectTarget, setDeleteProjectTarget] = useState<string | null>(null);
+    const [isDeletingProject, setIsDeletingProject] = useState(false);
+    const deleteProjectFileCount = useMemo(() => {
+        return deleteProjectTarget ? filterFilesByWorkspace(files, deleteProjectTarget).length : 0;
+    }, [deleteProjectTarget, files]);
 
     // Handle query parameter for auto-opening files
     useEffect(() => {
@@ -222,7 +163,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                 toast(`Opened ${file.name} from Architecture Map`, "success");
             }
         }
-    }, [searchParams, files]); // Added files dependency
+    }, [searchParams, files, handleFileSelect, toast]);
 
     // Fetch local topology for active file
     useEffect(() => {
@@ -246,10 +187,59 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
         setDiffModalOpen(true);
     }, [activeFileId, files]);
 
+    const handleProjectDeleteRequest = useCallback((workspace: string) => {
+        if (workspace === "Project") {
+            toast("Select a concrete project workspace before deleting", "warning");
+            return;
+        }
+
+        setDeleteProjectTarget(workspace);
+    }, [toast]);
+
+    const handleDeleteProject = useCallback(async () => {
+        if (!deleteProjectTarget || isDeletingProject) return;
+
+        setIsDeletingProject(true);
+        try {
+            const res = await fetch(`/api/ide/projects/${encodeURIComponent(deleteProjectTarget)}`, { method: "DELETE" });
+            const data = (await res.json().catch(() => ({}))) as {
+                deletedCount?: number;
+                deletedFileIds?: unknown;
+                message?: string;
+                error?: string;
+            };
+
+            if (!res.ok) {
+                throw new Error(data.message || data.error || "Failed to delete project");
+            }
+
+            const deletedFileIds = Array.isArray(data.deletedFileIds)
+                ? data.deletedFileIds.filter((id): id is string => typeof id === "string")
+                : filterFilesByWorkspace(files, deleteProjectTarget).map((file) => file.id);
+
+            removeFiles(deletedFileIds);
+            if (activeWorkspace === deleteProjectTarget) {
+                setActiveWorkspace("Project");
+            }
+            setDeleteProjectTarget(null);
+
+            if (webContainerBooted) {
+                const remainingFiles = files.filter((file) => !deletedFileIds.includes(file.id));
+                await mountAllFiles(remainingFiles);
+            }
+
+            toast(`Deleted ${deleteProjectTarget} (${data.deletedCount ?? deletedFileIds.length} files)`, "success");
+        } catch (error) {
+            toast(error instanceof Error ? error.message : "Failed to delete project", "error");
+        } finally {
+            setIsDeletingProject(false);
+        }
+    }, [activeWorkspace, deleteProjectTarget, files, isDeletingProject, mountAllFiles, removeFiles, toast, webContainerBooted]);
+
 
 
     const handleRunProject = async () => {
-        if (runRequestInFlightRef.current || runStatus === 'installing' || runStatus === 'starting') return;
+        if (runRequestInFlightRef.current || runStatus === 'installing' || runStatus === 'starting' || isRuntimeTaskRunning) return;
 
         runRequestInFlightRef.current = true;
         setShowTerminal(true);
@@ -278,6 +268,30 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
         }
     };
 
+    const handleRuntimeTask = async (task: "build" | "test") => {
+        if (runRequestInFlightRef.current || runStatus === 'installing' || runStatus === 'starting' || isRuntimeTaskRunning) return;
+
+        runRequestInFlightRef.current = true;
+        setShowTerminal(true);
+
+        try {
+            await (task === "build" ? buildProject() : testProject());
+            toast(`${task === "build" ? "Build" : "Test"} completed`, "success");
+        } catch (error) {
+            toast(error instanceof Error ? error.message : `${task === "build" ? "Build" : "Test"} failed`, "error");
+        } finally {
+            runRequestInFlightRef.current = false;
+        }
+    };
+
+    const handleBuildProject = () => {
+        void handleRuntimeTask("build");
+    };
+
+    const handleTestProject = () => {
+        void handleRuntimeTask("test");
+    };
+
 
 
     
@@ -293,7 +307,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
         onCommandPalette: () => setIsCommandPaletteOpen(true),
         onToggleAIChat: () => setShowAIChat(!showAIChat),
         onToggleTerminal: () => setShowTerminal(!showTerminal)
-    }, [activeFileId, fileContents, unsavedChanges, showSidebar, showAIChat, showTerminal]);
+    });
 
     const activeFile = files.find(f => f.id === activeFileId);
     const sidebarSearchResults = useMemo(() => {
@@ -433,6 +447,15 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                     </option>
                                 ))}
                             </select>
+                            {activeWorkspace !== "Project" && (
+                                <button
+                                    type="button"
+                                    onClick={() => handleProjectDeleteRequest(activeWorkspace)}
+                                    className="mt-2 w-full rounded-md border border-red-500/15 bg-red-500/5 px-2 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider text-red-300/80 transition-colors hover:bg-red-500/10 hover:text-red-200"
+                                >
+                                    Delete Project
+                                </button>
+                            )}
                         </div>
                         {activeSidebarTab === "explorer" && (
                             <FileTreeContainer
@@ -453,6 +476,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 onFileDeleted={(fileId) => {
                                     removeFile(fileId);
                                 }}
+                                onProjectDeleteRequest={handleProjectDeleteRequest}
                             />
                         )}
                         {activeSidebarTab === "search" && (
@@ -516,6 +540,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                     isDeploying={runStatus === 'installing' || runStatus === 'starting'}
                     canShare={Boolean(activeFile)}
                     onDeploy={handleRunProject}
+                    onBuild={handleBuildProject}
+                    onTest={handleTestProject}
                     onShare={async () => {
                         if (activeFile) {
                             await navigator.clipboard.writeText(window.location.href + '?file=' + activeFile.id);
@@ -531,36 +557,14 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
 
                 {/* Tabs & Toolbar */}
                 <div className="flex-none flex items-center justify-between h-10 bg-[#030014] border-b border-white/[0.04] select-none overflow-hidden">
-                    <div className="flex items-center h-full overflow-x-auto custom-scrollbar">
-                        {openFiles.map(fileId => {
-                            // Use dynamic state to find file
-                            const file = files.find(f => f.id === fileId);
-                            if (!file) return null;
-                            const isActive = fileId === activeFileId;
-                            const isUnsaved = unsavedChanges[fileId];
-
-                            return (
-                                <div
-                                    key={fileId}
-                                    onClick={() => handleFileSelect(fileId)}
-                                    className={cn(
-                                        "h-full px-3 flex items-center gap-2 text-xs border-r border-white/[0.04] cursor-pointer transition-all duration-200 min-w-[100px] max-w-[200px] group relative",
-                                        isActive ? "bg-[#030014] text-white" : "bg-[#020010] text-white/40 hover:bg-[#030014]/80 hover:text-white/60"
-                                    )}
-                                >
-                                    {isActive && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-purple-500 to-violet-400" />}
-                                    <span className="truncate">{file.name}</span>
-                                    {isUnsaved && <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 animate-pulse" />}
-                                    <button
-                                        onClick={(e) => handleCloseFile(e, fileId)}
-                                        className={cn("opacity-0 group-hover:opacity-100 p-0.5 rounded-sm hover:bg-white/10", isActive && "opacity-100")}
-                                    >
-                                        <X className="w-3 h-3" />
-                                    </button>
-                                </div>
-                            );
-                        })}
-                    </div>
+                    <EditorTabs
+                        openFiles={openFiles}
+                        files={files}
+                        activeFileId={activeFileId}
+                        unsavedChanges={unsavedChanges}
+                        onFileSelect={handleFileSelect}
+                        onCloseFile={handleCloseFile}
+                    />
 
                     <IDEToolbar
                         showSidebar={showSidebar} setShowSidebar={setShowSidebar}
@@ -573,7 +577,9 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         fileContents={fileContents} replaceFileContent={replaceFileContent}
                         unsavedChanges={unsavedChanges}
                         handleSave={handleSave} handleRunProject={handleRunProject}
+                        handleBuildProject={handleBuildProject} handleTestProject={handleTestProject}
                         runStatus={runStatus}
+                        isRuntimeTaskRunning={isRuntimeTaskRunning}
                         setShowSecretsManager={setShowSecretsManager}
                     />
                 </div>
@@ -642,11 +648,11 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                         });
 
                                         if (res.ok) {
-                                            const data = await res.json();
-                                            const createdFiles = data.files;
+                                            const data = (await res.json()) as { files?: IDEFile[] };
+                                            const createdFiles = data.files || [];
 
                                             // Update state with all new files
-                                            createdFiles.forEach((createdFile: File & { content?: string | null }) => {
+                                            createdFiles.forEach((createdFile) => {
                                                 upsertFile(createdFile, {
                                                     initialContent: createdFile.content || "",
                                                 });
@@ -669,8 +675,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                                 await mountAllFiles([...files, ...createdFiles]);
                                             }
                                         } else {
-                                            const errorData = await res.json();
-                                            toast(errorData.error || "Failed to create template files", "error");
+                                            toast(await getResponseErrorMessage(res, "Failed to create template files"), "error");
                                         }
                                     } catch (e) {
                                         console.error("Failed to batch create template files:", e);
@@ -787,6 +792,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                     <LivePreview
                         url={previewUrl || undefined}
                         runStatus={runStatus}
+                        runtimeError={runtimeError}
                         onClose={() => setIsPreviewOpen(false)}
                         onRun={handleRunProject}
                     />
@@ -802,6 +808,8 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                         activeFileName={activeFile ? activeFile.name : undefined}
                         allFiles={files.map(f => ({ id: f.id, name: f.name, language: f.language }))}
                         allFileContents={fileContents}
+                        runtimeErrorLines={runtimeLogs}
+                        previewUrl={previewUrl}
                         onInsertCode={(code) => {
                             if (activeFileId) {
                                 replaceFileContent(activeFileId, code, true);
@@ -854,7 +862,7 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                                 } else {
                                     toast("Failed to create file", "error");
                                 }
-                            } catch (e) {
+                            } catch {
                                 toast("Error creating file", "error");
                             }
                         }}
@@ -872,8 +880,11 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                 language={diffContent.language}
                 fileName={activeFile?.name}
                 onApply={() => {
+                    if (activeFileId) {
+                        replaceFileContent(activeFileId, diffContent.modified, true);
+                    }
                     setDiffModalOpen(false);
-                    toast("Please click 'Apply' in the chat to confirm changes.");
+                    toast("Diff applied", "success");
                 }}
             />
 
@@ -885,6 +896,9 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                 onRunCommand={(cmdId) => {
                     // Handle command execution
                     switch(cmdId) {
+                        case 'run-project': void handleRunProject(); break;
+                        case 'build-project': handleBuildProject(); break;
+                        case 'test-project': handleTestProject(); break;
                         case 'toggle-terminal': setShowTerminal(!showTerminal); break;
                         case 'toggle-sidebar': setShowSidebar(!showSidebar); break;
                         case 'toggle-minimap': {
@@ -927,6 +941,15 @@ export default function EnhancedIDELayout({ files: initialFiles, user, subscript
                     setEnvSecrets(secrets);
                     toast(`Saved ${secrets.length} environment secret${secrets.length !== 1 ? 's' : ''}`, 'success');
                 }}
+            />
+            <DeleteProjectDialog
+                key={deleteProjectTarget || "delete-project"}
+                open={Boolean(deleteProjectTarget)}
+                workspace={deleteProjectTarget}
+                fileCount={deleteProjectFileCount}
+                isDeleting={isDeletingProject}
+                onOpenChange={(open) => !open && setDeleteProjectTarget(null)}
+                onConfirm={handleDeleteProject}
             />
         </div>
     );

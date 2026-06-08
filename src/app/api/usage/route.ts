@@ -5,6 +5,7 @@ import { getUserSubscription } from "@/lib/subscription";
 import { db } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, ApiErrors } from "@/lib/api-utils";
+import { getUserAiUsage } from "@/lib/ai-usage";
 
 /**
  * GET /api/usage
@@ -24,7 +25,7 @@ export async function GET() {
         const now = new Date();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-        const [filesThisMonth, totalFiles] = await Promise.all([
+        const [filesThisMonth, totalFiles, aiUsage] = await Promise.all([
             db.file.count({
                 where: {
                     userId: session.user.id,
@@ -34,6 +35,7 @@ export async function GET() {
             db.file.count({
                 where: { userId: session.user.id },
             }),
+            getUserAiUsage(session.user.id),
         ]);
 
         const validUntil = subscription.currentPeriodEnd
@@ -63,6 +65,14 @@ export async function GET() {
             cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
             isDevMode: subscription.isDevMode,
             features: subscription.limits.features,
+            aiUsage: {
+                queriesUsed: aiUsage.queryCount,
+                queriesLimit: aiUsage.quota === -1 ? "Unlimited" : aiUsage.quota,
+                tokensUsed: aiUsage.tokenCount,
+                tokensLimit: aiUsage.tokenQuota === -1 ? "Unlimited" : aiUsage.tokenQuota,
+                hasBringYourOwnKey: aiUsage.hasApiKey,
+                billingMode: aiUsage.hasApiKey ? "bring_your_own_key" : "included_plan_allowance",
+            },
             canUpgrade: subscription.plan !== "team",
             upgradePlan: subscription.plan === "free" ? "starter" : subscription.plan === "starter" ? "pro" : "team",
         }, {
