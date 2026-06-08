@@ -35,8 +35,8 @@ const envSchema = z.object({
 
     // Authentication (NextAuth)
     NEXTAUTH_SECRET: z.string().min(32, "NEXTAUTH_SECRET must be at least 32 characters"),
-    NEXTAUTH_URL: z.string().url().default("https://documintai.dev"),
-    NEXT_PUBLIC_APP_URL: z.string().url().default("https://documintai.dev"),
+    NEXTAUTH_URL: z.string().url().default("https://www.documintai.dev"),
+    NEXT_PUBLIC_APP_URL: z.string().url().default("https://www.documintai.dev"),
 
     // OAuth Providers (Optional)
     GOOGLE_CLIENT_ID: z.string().optional(),

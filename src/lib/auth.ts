@@ -65,6 +65,23 @@ function getOAuthImage(profile: unknown, fallback?: string | null): string | nul
     return getProfileString(profile, "picture") ?? getProfileString(profile, "avatar_url") ?? fallback ?? null;
 }
 
+function warnOnNextAuthUrlMismatch(): void {
+    // Best-effort guard: warns (does not throw) if the configured NEXTAUTH_URL
+    // would produce an OAuth callback URI that does not match the request's
+    // actual host. A mismatch here causes Google's "redirect_uri_mismatch"
+    // 400. We can't read request headers from this module, so we just log the
+    // effective callback URL at boot so it can be diffed against the Google
+    // Cloud Console's "Authorized redirect URIs" list.
+    if (process.env.NODE_ENV === "test") return;
+    const base = env.NEXTAUTH_URL.replace(/\/+$/, "");
+    const callbacks = ["google", "github", "gitlab", "auth0"]
+        .map((p) => `${base}/api/auth/callback/${p}`)
+        .join(", ");
+    console.info(`[next-auth] OAuth callback URIs in use: ${callbacks}`);
+}
+
+warnOnNextAuthUrlMismatch();
+
 export const authOptions: NextAuthOptions = {
     secret: env.NEXTAUTH_SECRET,
     session: {
