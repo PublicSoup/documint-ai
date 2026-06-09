@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getFileContent } from "@/lib/files";
@@ -9,6 +10,8 @@ import { requireFeature } from "@/lib/feature-gate";
 import { checkFilePermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
+import { unstable_cache } from "next/cache";
+import { logAudit } from "@/lib/audit-logger";
 
 const DIAGRAM_SYSTEM_PROMPT = `You are a software architect expert in Mermaid.js.
 Your task is to analyze code and generate a diagram in Mermaid syntax.
@@ -17,15 +20,76 @@ IMPORTANT:
 1. Do not include markdown backticks, explanations, or labels.
 2. Use strict newline separation between class definitions and relationships.
 3. Do not put multiple statements on a single line.
-The output starts directly with the diagram type (e.g., classDiagram, sequenceDiagram).`;
+4. Use double quotes around node labels.
+5. Escape any double quotes inside labels with #quot;.
+6. The output starts directly with the diagram type (e.g., classDiagram, sequenceDiagram).`;
 
 const generateDiagramSchema = z.object({
     fileId: z.string().min(1),
     type: z.enum(["class", "sequence", "flowchart", "state", "er"]).default("class"),
 }).strict();
 
+const MAX_DIAGRAM_LENGTH = 50_000;
+
 /**
- * Normalizes and cleans AI-generated Mermaid code to ensure rendering reliability.
+ * Cheap structural sanity check: detect obvious cases where the AI emitted
+ * markdown fences, an explanation, or a partial / truncated Mermaid string.
+ * If we detect that, we throw so the caller can return a clean placeholder.
+ */
+function validateMermaidShape(code: string, type: string): void {
+    const trimmed = code.trim();
+    if (!trimmed) throw new Error("Empty diagram");
+    if (trimmed.length > MAX_DIAGRAM_LENGTH) {
+        throw new Error(`Diagram too long (${trimmed.length} chars, max ${MAX_DIAGRAM_LENGTH})`);
+    }
+    if (trimmed.includes("```")) {
+        throw new Error("Diagram contains markdown fences");
+    }
+
+    // The first non-empty token should match the requested type (case-insensitive).
+    const firstToken = trimmed.split(/\s+/)[0]?.toLowerCase().replace(/^#/, "");
+    if (!firstToken) throw new Error("Diagram has no leading directive");
+
+    const expected: Record<string, string[]> = {
+        class: ["classdiagram"],
+        sequence: ["sequencediagram"],
+        flowchart: ["flowchart", "graph"],
+        state: ["statediagram", "statediagram-v2"],
+        er: ["erdiagram"],
+    };
+    const allowed = expected[type] ?? [];
+    if (!allowed.includes(firstToken)) {
+        throw new Error(`Diagram type mismatch: expected one of [${allowed.join(", ")}], got "${firstToken}"`);
+    }
+
+    // Bracket balance check — counts (, [, { and their closers.
+    const pairs: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
+    const stack: string[] = [];
+    let inString = false;
+    for (let i = 0; i < trimmed.length; i++) {
+        const ch = trimmed[i];
+        if (ch === '"') {
+            // Mermaid doesn't really support escaped quotes inside double-quoted
+            // labels, so we don't try to skip them — just toggle.
+            inString = !inString;
+            continue;
+        }
+        if (inString) continue;
+        if (pairs[ch]) stack.push(pairs[ch]);
+        else if (ch === ")" || ch === "]" || ch === "}") {
+            const expectedClose = stack.pop();
+            if (expectedClose !== ch) {
+                throw new Error(`Unbalanced brackets near offset ${i}`);
+            }
+        }
+    }
+    if (stack.length > 0) {
+        throw new Error(`Unclosed brackets: ${stack.length}`);
+    }
+}
+
+/**
+ * Normalize and clean AI-generated Mermaid code to ensure rendering reliability.
  */
 function normalizeMermaidOutput(code: string, type: z.infer<typeof generateDiagramSchema>["type"]): string {
     let cleanedCode = code.replace(/```mermaid/g, "").replace(/```/g, "").trim();
@@ -57,9 +121,33 @@ function normalizeMermaidOutput(code: string, type: z.infer<typeof generateDiagr
     return cleanedCode;
 }
 
+function shortHash(s: string): string {
+    return createHash("sha256").update(s).digest("hex").slice(0, 16);
+}
+
+/**
+ * Cache the AI output for a few minutes so the same file + type combo
+ * doesn't re-hit Gemini. Cache key is the file id, type, and a content
+ * hash so it auto-invalidates when the file changes.
+ */
+function cachedDiagram(
+    fileId: string,
+    type: string,
+    contentHash: string,
+    producer: () => Promise<string>,
+): Promise<string> {
+    const key = `diagram:${fileId}:${type}:${contentHash}`;
+    return unstable_cache(
+        async () => producer(),
+        [key],
+        { revalidate: 300, tags: [`diagram:${fileId}`, `file:${fileId}`] },
+    )() as Promise<string>;
+}
+
 /**
  * POST /api/diagram/generate
  * Analyzes a file and generates a Mermaid architecture diagram using AI.
+ * Pro/Team only.
  */
 export async function POST(request: NextRequest) {
     const gateError = await requireFeature("diagramGenerator");
@@ -82,19 +170,18 @@ export async function POST(request: NextRequest) {
             return errorResponse(ApiErrors.forbidden("You do not have permission to view this file."));
         }
 
-        // 3. Fetch file and content
+        // 3. Fetch file metadata
         const file = await db.file.findUnique({
             where: { id: fileId },
-            select: { name: true, language: true },
+            select: { name: true, language: true, content: true },
         });
-
         if (!file) {
             return errorResponse(ApiErrors.notFound("File"));
         }
 
         const content = await getFileContent(fileId);
         if (!content) {
-            return errorResponse(ApiErrors.notFound("File content"));
+            return errorResponse(ApiErrors.badRequest("File content is empty — cannot generate a diagram."));
         }
 
         const isJson = file.language === "json" || file.name.endsWith(".json");
@@ -135,11 +222,14 @@ export async function POST(request: NextRequest) {
 
         const userPrompt = `${specificPrompt}\n\n${isJson ? "JSON" : "Code"} to analyze:\n\`\`\`${file.language || "text"}\n${content.slice(0, 12000)}\n\`\`\``;
 
-        // 4. Run AI generation
-        const mermaidCode = await generateText(DIAGRAM_SYSTEM_PROMPT, userPrompt, {
-            temperature: 0.2,
-            maxTokens: 2500,
-            userId: session.user.id,
+        // 4. Run AI generation (cached for 5 minutes).
+        const contentHash = shortHash(content);
+        const mermaidCode = await cachedDiagram(fileId, type, contentHash, async () => {
+            return await generateText(DIAGRAM_SYSTEM_PROMPT, userPrompt, {
+                temperature: 0.2,
+                maxTokens: 2500,
+                userId: session.user.id,
+            });
         });
 
         if (!mermaidCode?.trim()) {
@@ -148,9 +238,23 @@ export async function POST(request: NextRequest) {
 
         const cleanedCode = normalizeMermaidOutput(mermaidCode, type);
 
-        // 5. Audit Log
+        // 5. Validate the cleaned output before returning. This protects the
+        //    client renderer from choking on broken AI output.
         try {
-            const { logAudit } = await import("@/lib/audit-logger");
+            validateMermaidShape(cleanedCode, type);
+        } catch (validationError) {
+            const message = validationError instanceof Error ? validationError.message : "Invalid diagram";
+            return NextResponse.json(
+                {
+                    error: "DIAGRAM_INVALID",
+                    message: `AI produced an invalid Mermaid diagram: ${message}. Please retry.`,
+                },
+                { status: 502 },
+            );
+        }
+
+        // 6. Audit Log (non-blocking)
+        try {
             await logAudit({
                 userId: session.user.id,
                 action: "GENERATE_DIAGRAM",

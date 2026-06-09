@@ -4,7 +4,7 @@ import { WebContainerManager } from "@/lib/web-container";
 import { FileTreeContainer } from "./file-tree-container";
 import ErrorBoundary from "@/components/error-boundary";
 import { SimpleEnhancedEditor, SimpleEnhancedEditorRef } from "./simple-enhanced-editor";
-import DynamicDiagramViewer from "../dynamic-diagram-viewer";
+import { DiagramViewer } from "../diagram-viewer";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
@@ -154,23 +154,32 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
     }, [setShowSidebar]);
 
     useEffect(() => {
-        const fileToOpen = searchParams.get('file');
-        if (fileToOpen) {
-            // Check dynamic files list, not just initial
-            const file = files.find(f => f.id === fileToOpen || f.name === fileToOpen);
-            if (file) {
-                handleFileSelect(file.id);
-                toast(`Opened ${file.name} from Architecture Map`, "success");
-            }
+        // Accept both the new `?fileId=<db-id>` contract (preferred) and
+        // the legacy `?file=<name-or-id>` for backward compatibility.
+        const fileIdParam = searchParams.get('fileId');
+        const fileNameParam = searchParams.get('file');
+        const target = fileIdParam ?? fileNameParam;
+        if (!target) return;
+
+        const file = files.find(f => f.id === target || f.name === target);
+        if (file) {
+            handleFileSelect(file.id);
+            toast(`Opened ${file.name} from Architecture Map`, "success");
         }
     }, [searchParams, files, handleFileSelect, toast]);
 
     // Fetch local topology for active file
     useEffect(() => {
         if (showLocalTopology) {
-            getProjectGraphMermaid().then((code: string | null) => {
-                setLocalMermaid(code || "");
-            });
+            getProjectGraphMermaid()
+                .then((result) => {
+                    if (result.isRealData) {
+                        setLocalMermaid(result.mermaid);
+                    } else {
+                        setLocalMermaid("");
+                    }
+                })
+                .catch(() => setLocalMermaid(""));
         }
     }, [showLocalTopology, activeFileId]);
 
@@ -745,7 +754,7 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
                                 </div>
                             </div>
                             <div className="flex-1 p-4 overflow-hidden relative">
-                                <DynamicDiagramViewer code={localMermaid} type="flowchart" onNodeClick={(filePath) => {
+                                <DiagramViewer code={localMermaid} type="flowchart" onNodeClick={(filePath) => {
                                     // Resolve file path to database ID
                                     const file = files.find(f => f.name === filePath || f.id === filePath || f.name.endsWith(filePath));
                                     if (file) {

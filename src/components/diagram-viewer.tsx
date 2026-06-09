@@ -1,14 +1,17 @@
 "use client";
 
-"use client";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import mermaid from "mermaid";
-import { Loader2, Download, RefreshCcw } from "lucide-react";
+import { Loader2, Download, RefreshCcw, Maximize2, Minimize2, Move } from "lucide-react";
 
 interface DiagramViewerProps {
     code: string;
     type?: string;
     onNodeClick?: (id: string) => void;
+    /** Optional: called when render errors. Useful for the parent to surface a toast. */
+    onError?: (error: string) => void;
+    /** Optional: called once per render with the rendered SVG. */
+    onRendered?: (svg: string) => void;
 }
 
 declare global {
@@ -18,6 +21,51 @@ declare global {
 }
 
 const MAX_DIAGRAM_CHARS = 100_000;
+const ZOOM_MIN = 0.2;
+const ZOOM_MAX = 5;
+const ZOOM_STEP = 1.2;
+
+let mermaidInitPromise: Promise<void> | null = null;
+
+/**
+ * Initialize Mermaid exactly once for the lifetime of the page. Subsequent
+ * re-renders reuse the same configuration. Without this, the initialize
+ * call would re-run every time the `onNodeClick` prop identity changes.
+ */
+function ensureMermaidInitialized(): Promise<void> {
+    if (mermaidInitPromise) return mermaidInitPromise;
+    mermaidInitPromise = (async () => {
+        mermaid.initialize({
+            startOnLoad: false,
+            theme: "dark",
+            themeVariables: {
+                darkMode: true,
+                background: "#0c0c0e",
+                primaryColor: "#3b82f6",
+                primaryTextColor: "#e2e8f0",
+                primaryBorderColor: "#6366f1",
+                lineColor: "#6366f1",
+                secondaryColor: "#10b981",
+                tertiaryColor: "#1e1b4b",
+                edgeLabelBackground: "#1e1b4b",
+                nodeTextColor: "#e2e8f0",
+                clusterBkg: "#1a1a2e",
+                clusterBorder: "#334155",
+                titleColor: "#e2e8f0",
+            },
+            securityLevel: "strict",
+            fontFamily: "'Inter', 'Segoe UI', sans-serif",
+            flowchart: {
+                htmlLabels: false,
+                curve: "basis",
+                padding: 16,
+                nodeSpacing: 40,
+                rankSpacing: 50,
+            },
+        });
+    })();
+    return mermaidInitPromise;
+}
 
 function sanitizeMermaidInput(input: string): string {
     return input
@@ -29,15 +77,9 @@ function sanitizeMermaidInput(input: string): string {
 
 function isSafeSvgUrl(rawValue: string): boolean {
     const value = rawValue.trim().toLowerCase();
-
-    if (!value) {
-        return true;
-    }
-
-    if (value.startsWith("#") || value.startsWith("/")) {
-        return true;
-    }
-
+    if (!value) return true;
+    if (value.startsWith("#") || value.startsWith("/")) return true;
+    if (value.startsWith("data:")) return false; // block data: URIs as a hardening measure
     return value.startsWith("http://") || value.startsWith("https://") || value.startsWith("mailto:") || value.startsWith("tel:");
 }
 
@@ -72,93 +114,43 @@ function sanitizeSvg(svg: string): string {
     return new XMLSerializer().serializeToString(doc);
 }
 
-export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramViewerProps) {
+function decodeMermaidIdArg(raw: string): string {
+    return raw.replace(/#quot;/g, '"');
+}
+
+export function DiagramViewer({ code, type = "class", onNodeClick, onError, onRendered }: DiagramViewerProps) {
     const containerRef = useRef<HTMLDivElement>(null);
+    const innerRef = useRef<HTMLDivElement>(null);
+    const renderIdRef = useRef(0);
     const [svg, setSvg] = useState<string>("");
     const [error, setError] = useState<string | null>(null);
     const [isRendering, setIsRendering] = useState(false);
+    const [isFullscreen, setIsFullscreen] = useState(false);
 
+    const [transform, setTransform] = useState({ k: 1, x: 0, y: 0 });
+    const [isDragging, setIsDragging] = useState(false);
+    const [startPan, setStartPan] = useState({ x: 0, y: 0 });
+
+    // Hook up the global click callback exactly once. We re-read `onNodeClick`
+    // from a ref so the function identity doesn't force a re-init.
+    const onNodeClickRef = useRef(onNodeClick);
     useEffect(() => {
-        mermaid.initialize({
-            startOnLoad: false,
-            theme: "dark",
-            themeVariables: {
-                darkMode: true,
-                background: "#0c0c0e",
-                primaryColor: "#3b82f6",
-                primaryTextColor: "#e2e8f0",
-                primaryBorderColor: "#6366f1",
-                lineColor: "#6366f1",
-                secondaryColor: "#10b981",
-                tertiaryColor: "#1e1b4b",
-                edgeLabelBackground: "#1e1b4b",
-                nodeTextColor: "#e2e8f0",
-                clusterBkg: "#1a1a2e",
-                clusterBorder: "#334155",
-                titleColor: "#e2e8f0",
-            },
-            securityLevel: "strict",
-            fontFamily: "'Inter', 'Segoe UI', sans-serif",
-            flowchart: {
-                htmlLabels: false,
-                curve: "basis",
-                padding: 16,
-                nodeSpacing: 40,
-                rankSpacing: 50,
-            },
-        });
-
-        window.mermaidNodeClick = (id: string) => {
-            if (onNodeClick) onNodeClick(id);
-        };
-
-        return () => {
-            delete window.mermaidNodeClick;
-        };
+        onNodeClickRef.current = onNodeClick;
     }, [onNodeClick]);
 
     useEffect(() => {
-        const autoRepair = (input: string): string => {
-            let fixed = input.trim();
-            if (!fixed.includes("\n") || fixed.split("\n").length < 3) {
-                if (fixed.toLowerCase().startsWith("erdiagram")) {
-                    fixed = fixed
-                        .replace(/^ERDiagram/i, "erDiagram")
-                        .replace(/erDiagram\s*/i, "erDiagram\n")
-                        .replace(/([a-zA-Z0-9_]+)\s*\{/g, "\n$1 {")
-                        .replace(/\}\s*/g, "}\n")
-                        .replace(/\s([a-zA-Z0-9_]+)\s+([\}|o\+\{\.\-]+[-.]{2,}[|o\+\{\.\-]+)/g, "\n$1 $2")
-                        .replace(/\s([a-zA-Z0-9_]+)\s+([-.]+[|o\+\{\.\-]+)/g, "\n$1 $2");
-                } else if (fixed.toLowerCase().startsWith("sequencediagram")) {
-                    fixed = fixed
-                        .replace(/^sequenceDiagram/i, "sequenceDiagram\n")
-                        .replace(/participant /g, "\nparticipant ")
-                        .replace(/(\w+)\s*->/g, "\n$1 ->")
-                        .replace(/(\w+)\s*-->/g, "\n$1 -->")
-                        .replace(/Note /g, "\nNote ");
-                } else if (fixed.toLowerCase().startsWith("gantt")) {
-                    fixed = fixed
-                        .replace(/^gantt/i, "gantt\n")
-                        .replace(/section /g, "\nsection ")
-                        .replace(/task /g, "\ntask ");
-                } else if (fixed.toLowerCase().startsWith("statediagram")) {
-                    fixed = fixed
-                        .replace(/^stateDiagram-v2/i, "stateDiagram-v2\n")
-                        .replace(/^stateDiagram/i, "stateDiagram-v2\n") // Normalize to v2
-                        .replace(/state /g, "\nstate ")
-                        .replace(/-->/g, " --> ");
-                } else {
-                    fixed = fixed
-                        .replace(/classDiagram/i, "classDiagram\n")
-                        .replace(/\} class/g, "}\nclass")
-                        .replace(/\} ([A-Z])/g, "}\n$1")
-                        .replace(/(\w+)\s*-->/g, "\n$1 -->")
-                        .replace(/; /g, "\n");
-                }
-            }
-            return fixed;
+        ensureMermaidInitialized();
+        window.mermaidNodeClick = (id: string) => {
+            onNodeClickRef.current?.(decodeMermaidIdArg(id));
         };
+        return () => {
+            delete window.mermaidNodeClick;
+        };
+    }, []);
 
+    // Render the diagram whenever the source code changes.
+    useEffect(() => {
+        const currentRenderId = ++renderIdRef.current;
         const renderDiagram = async () => {
             if (!code || !containerRef.current) return;
 
@@ -166,31 +158,36 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
             setError(null);
 
             try {
+                await ensureMermaidInitialized();
                 const safeInput = sanitizeMermaidInput(code);
                 const id = `mermaid-${Math.random().toString(36).slice(2, 11)}`;
                 const rendered = await mermaid.render(id, safeInput);
-                setSvg(sanitizeSvg(rendered.svg));
-            } catch {
-                try {
-                    const repaired = autoRepair(sanitizeMermaidInput(code));
-                    const id = `mermaid-retry-${Math.random().toString(36).slice(2, 11)}`;
-                    const rendered = await mermaid.render(id, repaired);
-                    setSvg(sanitizeSvg(rendered.svg));
-                } catch {
-                    setError("Failed to render diagram. Please verify Mermaid syntax (flowchart/sequence/class). ");
-                    setSvg("");
-                }
+
+                // If another render has started in the meantime, drop this one.
+                if (currentRenderId !== renderIdRef.current) return;
+
+                const sanitized = sanitizeSvg(rendered.svg);
+                setSvg(sanitized);
+                setTransform({ k: 1, x: 0, y: 0 });
+                onRendered?.(sanitized);
+            } catch (e) {
+                if (currentRenderId !== renderIdRef.current) return;
+                const message = e instanceof Error ? e.message : "Failed to render diagram";
+                setError(`Failed to render diagram: ${message}`);
+                setSvg("");
+                onError?.(message);
             } finally {
-                setIsRendering(false);
+                if (currentRenderId === renderIdRef.current) {
+                    setIsRendering(false);
+                }
             }
         };
 
         renderDiagram();
-    }, [code, type]);
+    }, [code, onError, onRendered]);
 
-    const handleDownload = () => {
+    const handleDownload = useCallback(() => {
         if (!svg) return;
-
         const blob = new Blob([svg], { type: "image/svg+xml" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -200,48 +197,75 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-    };
+    }, [svg, type]);
 
-    const [transform, setTransform] = useState({ k: 1, x: 0, y: 0 });
-    const [isDragging, setIsDragging] = useState(false);
-    const [startPan, setStartPan] = useState({ x: 0, y: 0 });
+    const handleZoomIn = useCallback(
+        () => setTransform((prev) => ({ ...prev, k: Math.min(prev.k * ZOOM_STEP, ZOOM_MAX) })),
+        [],
+    );
+    const handleZoomOut = useCallback(
+        () => setTransform((prev) => ({ ...prev, k: Math.max(prev.k / ZOOM_STEP, ZOOM_MIN) })),
+        [],
+    );
+    const handleReset = useCallback(() => setTransform({ k: 1, x: 0, y: 0 }), []);
 
-    const handleZoomIn = () => setTransform((prev) => ({ ...prev, k: Math.min(prev.k * 1.2, 5) }));
-    const handleZoomOut = () => setTransform((prev) => ({ ...prev, k: Math.max(prev.k / 1.2, 0.2) }));
-    const handleReset = () => setTransform({ k: 1, x: 0, y: 0 });
+    const handleFitToView = useCallback(() => {
+        const container = containerRef.current;
+        const inner = innerRef.current;
+        if (!container || !inner) return;
 
-    const handleMouseDown = (e: React.MouseEvent) => {
-        setIsDragging(true);
-        setStartPan({ x: e.clientX - transform.x, y: e.clientY - transform.y });
-    };
+        const svgEl = inner.querySelector("svg") as SVGElement | null;
+        if (!svgEl) return;
 
-    const handleMouseMove = (e: React.MouseEvent) => {
-        if (!isDragging) return;
-        setTransform((prev) => ({ ...prev, x: e.clientX - startPan.x, y: e.clientY - startPan.y }));
-    };
+        const containerRect = container.getBoundingClientRect();
+        const svgRect = svgEl.getBoundingClientRect();
+        if (svgRect.width === 0 || svgRect.height === 0) return;
 
-    const handleMouseUp = () => setIsDragging(false);
+        const scaleX = (containerRect.width - 32) / svgRect.width;
+        const scaleY = (containerRect.height - 32) / svgRect.height;
+        const scale = Math.min(scaleX, scaleY, 1); // never upscale beyond 1
+        setTransform({ k: scale, x: 0, y: 0 });
+    }, []);
 
+    const handleMouseDown = useCallback(
+        (e: React.MouseEvent) => {
+            setIsDragging(true);
+            setStartPan({ x: e.clientX - transform.x, y: e.clientY - transform.y });
+        },
+        [transform.x, transform.y],
+    );
+
+    const handleMouseMove = useCallback(
+        (e: React.MouseEvent) => {
+            if (!isDragging) return;
+            setTransform((prev) => ({ ...prev, x: e.clientX - startPan.x, y: e.clientY - startPan.y }));
+        },
+        [isDragging, startPan.x, startPan.y],
+    );
+
+    const handleMouseUp = useCallback(() => setIsDragging(false), []);
+
+    // Mouse-wheel zoom (passive: false so we can preventDefault).
     useEffect(() => {
         const container = containerRef.current;
         if (!container) return;
-
         const onWheel = (e: WheelEvent) => {
             e.preventDefault();
-            const delta = e.deltaY > 0 ? 0.9 : 1.1;
+            const delta = e.deltaY > 0 ? 1 / ZOOM_STEP : ZOOM_STEP;
             setTransform((prev) => ({
                 ...prev,
-                k: Math.max(0.2, Math.min(5, prev.k * delta)),
+                k: Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, prev.k * delta)),
             }));
         };
-
         container.addEventListener("wheel", onWheel, { passive: false });
         return () => container.removeEventListener("wheel", onWheel);
     }, []);
 
+    // Click-to-navigate handler attached at the container level so it works
+    // across pan/zoom transforms. We look up the closest `g.node` and try
+    // several label sources to recover the file id.
     useEffect(() => {
         if (!onNodeClick || !svg) return;
-
         const container = containerRef.current;
         if (!container) return;
 
@@ -250,12 +274,25 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
             const node = target?.closest("g.node");
             if (!node) return;
 
+            // Mermaid emits the node id as the `id` attribute on the wrapping
+            // `<g>`, *and* as a `<title>` element inside it. Try the id first
+            // (which is the safeNodeId we generated server-side), then the
+            // title, then the text content as a last resort.
+            const idAttr = node.getAttribute("id") ?? "";
             const title = node.querySelector("title")?.textContent?.trim();
             const text = node.textContent?.trim();
-            const nodeId = (title || text || node.id || "").trim();
+            const rawId = (idAttr || title || text || "").trim();
 
-            if (nodeId) {
-                onNodeClick(nodeId);
+            if (!rawId) return;
+
+            // The id attribute is a sanitized id like `nABCD_xxx`. We can't
+            // reverse that without a server-side id map, so for click-handler
+            // purposes we forward the title (the file path) when present.
+            // The mermaid click handler we register on each node provides the
+            // raw path via `window.mermaidNodeClick`, so this is only a
+            // fallback.
+            if (title) {
+                onNodeClick(title);
             }
         };
 
@@ -263,12 +300,30 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
         return () => container.removeEventListener("click", onSvgClick);
     }, [onNodeClick, svg]);
 
+    // Fullscreen toggle
+    const toggleFullscreen = useCallback(() => {
+        setIsFullscreen((v) => !v);
+    }, []);
+
+    const containerClasses = useMemo(
+        () =>
+            [
+                "w-full overflow-hidden bg-zinc-900/50 rounded-lg relative",
+                isFullscreen ? "fixed inset-4 z-[9999] h-[calc(100vh-2rem)] shadow-2xl" : "h-[500px]",
+                isDragging ? "cursor-grabbing" : "cursor-grab",
+                "border border-zinc-800",
+            ].join(" "),
+        [isFullscreen, isDragging],
+    );
+
     if (error) {
         return (
             <div className="p-4 border border-red-500/20 bg-red-500/10 rounded-lg text-red-400 text-sm">
                 <p className="font-medium mb-2">Rendering Error</p>
                 <p>{error}</p>
-                <div className="mt-4 p-2 bg-black/30 rounded font-mono text-xs overflow-auto max-h-32">{code}</div>
+                <div className="mt-4 p-2 bg-black/30 rounded font-mono text-xs overflow-auto max-h-32 whitespace-pre">
+                    {code.slice(0, 1000)}
+                </div>
             </div>
         );
     }
@@ -277,14 +332,43 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
         <div className="flex flex-col gap-4">
             <div className="flex justify-between items-center">
                 <div className="flex gap-2">
-                    <button onClick={handleZoomIn} className="p-1.5 bg-zinc-800 rounded hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors" title="Zoom In">
+                    <button
+                        onClick={handleZoomIn}
+                        aria-label="Zoom in"
+                        className="p-1.5 bg-zinc-800 rounded hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+                    >
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" x2="16.65" y1="21" y2="16.65" /><line x1="11" y1="8" x2="11" y2="14" /><line x1="8" y1="11" x2="14" y2="11" /></svg>
                     </button>
-                    <button onClick={handleZoomOut} className="p-1.5 bg-zinc-800 rounded hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors" title="Zoom Out">
+                    <button
+                        onClick={handleZoomOut}
+                        aria-label="Zoom out"
+                        className="p-1.5 bg-zinc-800 rounded hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+                    >
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" x2="16.65" y1="21" y2="16.65" /><line x1="8" y1="11" x2="14" y2="11" /></svg>
                     </button>
-                    <button onClick={handleReset} className="p-1.5 bg-zinc-800 rounded hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors" title="Reset View">
+                    <button
+                        onClick={handleReset}
+                        aria-label="Reset view"
+                        title="Reset view"
+                        className="p-1.5 bg-zinc-800 rounded hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+                    >
                         <RefreshCcw className="w-4 h-4" />
+                    </button>
+                    <button
+                        onClick={handleFitToView}
+                        aria-label="Fit to view"
+                        title="Fit to view"
+                        className="p-1.5 bg-zinc-800 rounded hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+                    >
+                        <Move className="w-4 h-4" />
+                    </button>
+                    <button
+                        onClick={toggleFullscreen}
+                        aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                        title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                        className="p-1.5 bg-zinc-800 rounded hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors"
+                    >
+                        {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
                     </button>
                 </div>
                 <button
@@ -298,19 +382,22 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
             </div>
 
             <div
-                className="w-full overflow-hidden bg-zinc-900/50 rounded-lg h-[500px] relative cursor-grab active:cursor-grabbing border border-zinc-800"
+                className={containerClasses}
                 ref={containerRef}
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
+                data-testid="diagram-canvas"
             >
                 {svg ? (
                     <div
+                        ref={innerRef}
                         dangerouslySetInnerHTML={{ __html: svg }}
-                        className="origin-top-left transition-transform duration-75 ease-out"
+                        className="origin-top-left"
                         style={{
                             transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.k})`,
+                            transformOrigin: "0 0",
                         }}
                     />
                 ) : isRendering ? (
@@ -319,7 +406,9 @@ export function DiagramViewer({ code, type = "class", onNodeClick }: DiagramView
                         Rendering...
                     </div>
                 ) : (
-                    <div className="flex items-center justify-center text-zinc-500 h-full text-sm">No diagram available.</div>
+                    <div className="flex items-center justify-center text-zinc-500 h-full text-sm">
+                        No diagram available.
+                    </div>
                 )}
             </div>
         </div>
