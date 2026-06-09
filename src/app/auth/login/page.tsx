@@ -1,6 +1,6 @@
 "use client";
 
-import { signIn } from "next-auth/react";
+import { getProviders, signIn } from "next-auth/react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -12,20 +12,23 @@ type LoginIntent = "signup" | "trial";
 type LoginPlan = "starter" | "pro" | "team";
 type OAuthProviderId = "google" | "github";
 
+const OAUTH_PROVIDER_LABELS: Record<OAuthProviderId, string> = {
+    google: "Google",
+    github: "GitHub",
+};
+
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
-    OAuthSignin: "Google sign-in could not start. Check the OAuth provider configuration.",
-    OAuthCallback: "Google returned an authentication error. Confirm the production callback URL is configured correctly.",
-    OAuthCreateAccount: "We could not create your Google account. Try again or contact support.",
+    OAuthSignin: "Social sign-in could not start. Check the OAuth provider configuration.",
+    OAuthCallback: "The OAuth provider returned an authentication error. Confirm the production callback URL is configured correctly.",
+    OAuthCreateAccount: "We could not create your social account. Try again or contact support.",
     EmailCreateAccount: "We could not create your account with that email.",
     Callback: "The sign-in callback was rejected. Try again or contact support.",
-    OAuthAccountNotLinked: "This email already exists. Verified Google accounts are now linked automatically; try signing in with Google again.",
-    OAuthEmailNotVerified: "Your Google email must be verified before signing in.",
+    OAuthAccountNotLinked: "This email already exists. Try signing in with the provider you originally used.",
+    OAuthEmailNotVerified: "Your OAuth email must be verified before signing in.",
     AccessDenied: "Access was denied for this sign-in attempt.",
     Configuration: "Authentication is not configured correctly. Please contact support.",
     SessionRequired: "Please sign in to continue.",
 };
-
-const OAUTH_PROVIDER_IDS = ["google", "github"] as const satisfies readonly OAuthProviderId[];
 
 function buildDashboardHref(params: { intent: LoginIntent; plan: LoginPlan | null; source: string | null }): string {
     const query = new URLSearchParams();
@@ -55,6 +58,7 @@ export default function LoginPage() {
     const [plan, setPlan] = useState<LoginPlan | null>(null);
     const [source, setSource] = useState<string | null>(null);
     const [authError, setAuthError] = useState<string | null>(null);
+    const [oauthLoading, setOauthLoading] = useState<OAuthProviderId | null>(null);
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -85,8 +89,28 @@ export default function LoginPage() {
         [intent, plan, source],
     );
 
-    const handleOAuthSignIn = (providerId: OAuthProviderId) => {
-        void signIn(providerId, { callbackUrl: dashboardHref });
+    const handleOAuthSignIn = async (providerId: OAuthProviderId) => {
+        if (loading || oauthLoading) return;
+
+        const providerLabel = OAUTH_PROVIDER_LABELS[providerId];
+        setAuthError(null);
+        setOauthLoading(providerId);
+
+        try {
+            const providers = await getProviders();
+
+            if (!providers?.[providerId]) {
+                toast(`${providerLabel} sign-in is not configured yet. Please contact support.`, "error");
+                setOauthLoading(null);
+                return;
+            }
+
+            await signIn(providerId, { callbackUrl: dashboardHref, redirect: true });
+        } catch (error) {
+            console.error(error);
+            toast(`Unable to start ${providerLabel} sign-in. Please try again.`, "error");
+            setOauthLoading(null);
+        }
     };
 
     /* ... handlers ... */
@@ -219,6 +243,7 @@ export default function LoginPage() {
                         <Button
                             type="button"
                             variant="outline"
+                            disabled={loading || oauthLoading !== null}
                             onClick={() => handleOAuthSignIn("google")}
                             className="h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
                         >
@@ -228,17 +253,18 @@ export default function LoginPage() {
                                 <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
                                 <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
                             </svg>
-                            Sign in with Google
+                            {oauthLoading === "google" ? "Redirecting to Google..." : "Sign in with Google"}
                         </Button>
 
                         <Button
                             type="button"
                             variant="outline"
+                            disabled={loading || oauthLoading !== null}
                             onClick={() => handleOAuthSignIn("github")}
                             className="h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white rounded-xl gap-2 font-medium"
                         >
                             <Github className="w-4 h-4" />
-                            Sign in with GitHub
+                            {oauthLoading === "github" ? "Redirecting to GitHub..." : "Sign in with GitHub"}
                         </Button>
                     </div>
 
