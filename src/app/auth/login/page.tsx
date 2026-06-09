@@ -1,16 +1,16 @@
 "use client";
 
-import { getProviders, signIn } from "next-auth/react";
+import { signIn } from "next-auth/react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Sparkles, Github, ArrowRight, Mail, Lock } from "lucide-react";
 import { useToast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
+import { consumeQueuedOAuthProvider, startOAuthRedirect, type OAuthProviderId } from "@/lib/oauth-redirect";
 
 type LoginIntent = "signup" | "trial";
 type LoginPlan = "starter" | "pro" | "team";
-type OAuthProviderId = "google" | "github";
 
 const OAUTH_PROVIDER_LABELS: Record<OAuthProviderId, string> = {
     google: "Google",
@@ -66,23 +66,32 @@ export default function LoginPage() {
         const rawPlan = params.get("plan");
         const rawSource = params.get("source")?.trim();
         const error = params.get("error");
+        const nextIntent = rawIntent === "trial" ? "trial" : "signup";
+        const nextPlan = rawPlan === "starter" || rawPlan === "pro" || rawPlan === "team" ? rawPlan : null;
+        const nextSource = rawSource && rawSource.length <= 80 && /^[a-z0-9_\-]+$/i.test(rawSource)
+            ? rawSource
+            : null;
 
-        setIntent(rawIntent === "trial" ? "trial" : "signup");
-
-        if (rawPlan === "starter" || rawPlan === "pro" || rawPlan === "team") {
-            setPlan(rawPlan);
-        } else {
-            setPlan(null);
-        }
-
-        if (rawSource && rawSource.length <= 80 && /^[a-z0-9_\-]+$/i.test(rawSource)) {
-            setSource(rawSource);
-        } else {
-            setSource(null);
-        }
-
+        setIntent(nextIntent);
+        setPlan(nextPlan);
+        setSource(nextSource);
         setAuthError(error ? AUTH_ERROR_MESSAGES[error] || `Authentication failed: ${error}` : null);
-    }, []);
+
+        const queuedProvider = consumeQueuedOAuthProvider();
+
+        if (queuedProvider && !error) {
+            setOauthLoading(queuedProvider);
+            void startOAuthRedirect(queuedProvider, buildDashboardHref({
+                intent: nextIntent,
+                plan: nextPlan,
+                source: nextSource,
+            })).catch((oauthError) => {
+                console.error(oauthError);
+                toast(`Unable to start ${OAUTH_PROVIDER_LABELS[queuedProvider]} sign-in. Please try again.`, "error");
+                setOauthLoading(null);
+            });
+        }
+    }, [toast]);
 
     const dashboardHref = useMemo(
         () => buildDashboardHref({ intent, plan, source }),
@@ -97,15 +106,7 @@ export default function LoginPage() {
         setOauthLoading(providerId);
 
         try {
-            const providers = await getProviders();
-
-            if (!providers?.[providerId]) {
-                toast(`${providerLabel} sign-in is not configured yet. Please contact support.`, "error");
-                setOauthLoading(null);
-                return;
-            }
-
-            await signIn(providerId, { callbackUrl: dashboardHref, redirect: true });
+            await startOAuthRedirect(providerId, dashboardHref);
         } catch (error) {
             console.error(error);
             toast(`Unable to start ${providerLabel} sign-in. Please try again.`, "error");

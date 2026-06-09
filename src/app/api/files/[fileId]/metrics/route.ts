@@ -80,7 +80,7 @@ const getCachedFileMetrics = cache(
 
 export async function GET(
     _request: NextRequest,
-    { params }: { params: Promise<{ id: string }> }
+    { params }: { params: Promise<{ fileId: string }> }
 ) {
     try {
         const session = await getServerSession(authOptions);
@@ -88,11 +88,11 @@ export async function GET(
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const { id } = await params;
+        const { fileId } = await params;
 
         // Verify access: file belongs to user or user is team member
         const file = await db.file.findUnique({
-            where: { id },
+            where: { id: fileId },
             select: {
                 userId: true,
                 teamId: true,
@@ -116,14 +116,14 @@ export async function GET(
             return NextResponse.json({ error: "Forbidden" }, { status: 403 });
         }
 
-        const data = await getCachedFileMetrics(id);
+        const data = await getCachedFileMetrics(fileId);
         if (!data) {
             return NextResponse.json({ error: "File not found" }, { status: 404 });
         }
 
         return NextResponse.json(data);
     } catch (error) {
-        console.error("[GET /api/files/[id]/metrics]", error);
+        console.error("[GET /api/files/[fileId]/metrics]", error);
         return NextResponse.json(
             { error: "Failed to compute metrics" },
             { status: 500 }

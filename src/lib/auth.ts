@@ -2,11 +2,8 @@ import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import GitHubProvider from "next-auth/providers/github";
-import { db } from "./db";
-import { compare } from "bcryptjs";
 import { env } from "./env";
 import { z } from "zod";
-import { logAudit } from "./audit-logger";
 
 function getAuthLoggerMetadata(metadata: unknown): Record<string, unknown> | undefined {
     if (metadata instanceof Error) {
@@ -120,6 +117,7 @@ export const authOptions: NextAuthOptions = {
             },
             async authorize(credentials) {
                 const { getClientIP, enforceRateLimit } = await import("./rate-limit");
+                const { logAudit } = await import("./audit-logger");
                 const clientIp = await getClientIP();
                 await enforceRateLimit(clientIp, "auth-ip");
 
@@ -172,6 +170,7 @@ export const authOptions: NextAuthOptions = {
                 // DEV BYPASS: Allow login without DB if in dev mode or DB is down
 
 
+                const { db } = await import("./db");
                 const user = await db.user.findUnique({
                     where: {
                         email: trimmedEmail
@@ -206,6 +205,7 @@ export const authOptions: NextAuthOptions = {
 
                 let isPasswordValid = false;
                 try {
+                    const { compare } = await import("bcryptjs");
                     isPasswordValid = await compare(password, user.password);
                 } catch (error) {
                     await logAudit({
@@ -269,6 +269,7 @@ export const authOptions: NextAuthOptions = {
             if (image) updateData.image = image;
 
             try {
+                const { db } = await import("./db");
                 const dbUser = await db.user.upsert({
                     where: { email },
                     update: updateData,
@@ -321,6 +322,7 @@ export const authOptions: NextAuthOptions = {
                 const email = normalizeEmail(user?.email ?? token.email);
 
                 if (email) {
+                    const { db } = await import("./db");
                     const dbUser = await db.user.findUnique({
                         where: { email },
                         select: { id: true, role: true },

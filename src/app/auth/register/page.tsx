@@ -4,13 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Sparkles, Github, ArrowRight, User, Mail, Lock } from "lucide-react";
-import { getProviders, signIn } from "next-auth/react";
 import { useToast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
+import { consumeQueuedOAuthProvider, startOAuthRedirect, type OAuthProviderId } from "@/lib/oauth-redirect";
 
 type RegistrationIntent = "signup" | "trial";
 type RegistrationPlan = "starter" | "pro" | "team";
-type OAuthProviderId = "google" | "github";
 
 const OAUTH_PROVIDER_LABELS: Record<OAuthProviderId, string> = {
     google: "Google",
@@ -26,6 +25,17 @@ const INTENT_SUBTITLE: Record<RegistrationIntent, string> = {
     signup: "Set up your account to get started",
     trial: "Create your account and launch a guided trial onboarding flow",
 };
+
+function buildDashboardCallbackUrl(params: { intent: RegistrationIntent; plan: RegistrationPlan | null; source: string | null }): string {
+    const callbackQuery = new URLSearchParams();
+    if (params.intent === "trial") callbackQuery.set("intent", params.intent);
+    if (params.plan) callbackQuery.set("plan", params.plan);
+    if (params.source) callbackQuery.set("source", params.source);
+
+    return callbackQuery.toString().length > 0
+        ? `/dashboard?${callbackQuery.toString()}`
+        : "/dashboard";
+}
 
 export default function RegisterPage() {
     const { toast } = useToast();
@@ -44,31 +54,34 @@ export default function RegisterPage() {
         const rawIntent = params.get("intent");
         const rawPlan = params.get("plan");
         const rawSource = params.get("source")?.trim().toLowerCase();
+        const nextIntent = rawIntent === "trial" ? "trial" : "signup";
+        const nextPlan = rawPlan === "starter" || rawPlan === "pro" || rawPlan === "team" ? rawPlan : null;
+        const nextSource = rawSource && rawSource.length <= 80 && /^[a-z0-9_\-]+$/.test(rawSource)
+            ? rawSource
+            : null;
 
-        setIntent(rawIntent === "trial" ? "trial" : "signup");
+        setIntent(nextIntent);
+        setPlan(nextPlan);
+        setSource(nextSource);
 
-        if (rawPlan === "starter" || rawPlan === "pro" || rawPlan === "team") {
-            setPlan(rawPlan);
-        } else {
-            setPlan(null);
+        const queuedProvider = consumeQueuedOAuthProvider();
+
+        if (queuedProvider) {
+            setOauthLoading(queuedProvider);
+            void startOAuthRedirect(queuedProvider, buildDashboardCallbackUrl({
+                intent: nextIntent,
+                plan: nextPlan,
+                source: nextSource,
+            })).catch((oauthError) => {
+                console.error(oauthError);
+                toast(`Unable to start ${OAUTH_PROVIDER_LABELS[queuedProvider]} sign-up. Please try again.`, "error");
+                setOauthLoading(null);
+            });
         }
-
-        if (rawSource && rawSource.length <= 80 && /^[a-z0-9_\-]+$/.test(rawSource)) {
-            setSource(rawSource);
-        } else {
-            setSource(null);
-        }
-    }, []);
+    }, [toast]);
 
     const callbackUrl = useMemo(() => {
-        const callbackQuery = new URLSearchParams();
-        if (intent === "trial") callbackQuery.set("intent", intent);
-        if (plan) callbackQuery.set("plan", plan);
-        if (source) callbackQuery.set("source", source);
-
-        return callbackQuery.toString().length > 0
-            ? `/dashboard?${callbackQuery.toString()}`
-            : "/dashboard";
+        return buildDashboardCallbackUrl({ intent, plan, source });
     }, [intent, plan, source]);
 
     const handleOAuthSignUp = async (providerId: OAuthProviderId) => {
@@ -78,15 +91,7 @@ export default function RegisterPage() {
         setOauthLoading(providerId);
 
         try {
-            const providers = await getProviders();
-
-            if (!providers?.[providerId]) {
-                toast(`${providerLabel} sign-up is not configured yet. Please contact support.`, "error");
-                setOauthLoading(null);
-                return;
-            }
-
-            await signIn(providerId, { callbackUrl, redirect: true });
+            await startOAuthRedirect(providerId, callbackUrl);
         } catch (error) {
             console.error(error);
             toast(`Unable to start ${providerLabel} sign-up. Please try again.`, "error");
