@@ -45,7 +45,7 @@ export default function ForgotPasswordPage() {
             <div className="absolute top-0 left-0 p-32 bg-indigo-500/10 blur-[100px] rounded-full pointer-events-none" />
 
             <div className="w-full max-w-md p-8 relative z-10">
-                <Link href="/auth/signin" className="inline-flex items-center text-sm text-white/50 hover:text-white mb-8 transition-colors">
+                <Link href="/auth/login" className="inline-flex items-center text-sm text-white/50 hover:text-white mb-8 transition-colors">
                     <ArrowLeft className="w-4 h-4 mr-2" />
                     Back to Sign In
                 </Link>

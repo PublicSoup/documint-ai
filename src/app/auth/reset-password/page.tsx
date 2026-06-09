@@ -47,7 +47,7 @@ function ResetPasswordForm() {
 
             if (res.ok) {
                 setSuccess(true);
-                setTimeout(() => router.push("/auth/signin"), 3000);
+                setTimeout(() => router.push("/auth/login"), 3000);
             } else {
                 setError(data.error || "Failed to reset password");
             }
@@ -81,7 +81,7 @@ function ResetPasswordForm() {
                 <p className="text-white/60 mb-6">
                     Your password has been successfully updated. Redirecting you to sign in...
                 </p>
-                <Link href="/auth/signin">
+                <Link href="/auth/login">
                     <Button className="w-full bg-green-600 hover:bg-green-700">Sign In Now</Button>
                 </Link>
             </div>
@@ -152,7 +152,7 @@ export default function ResetPasswordPage() {
             <div className="absolute bottom-0 right-0 p-32 bg-purple-500/10 blur-[100px] rounded-full pointer-events-none" />
 
             <div className="w-full max-w-md p-8 relative z-10">
-                <Link href="/auth/signin" className="inline-flex items-center text-sm text-white/50 hover:text-white mb-8 transition-colors">
+                <Link href="/auth/login" className="inline-flex items-center text-sm text-white/50 hover:text-white mb-8 transition-colors">
                     <ArrowLeft className="w-4 h-4 mr-2" />
                     Back to Sign In
                 </Link>

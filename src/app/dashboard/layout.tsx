@@ -1,12 +1,22 @@
+import { getServerSession } from "next-auth";
+import { redirect } from "next/navigation";
+
 import { ChatWidget } from "@/components/chat-widget";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { SiteFooter } from "@/components/site-footer";
+import { authOptions } from "@/lib/auth";
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
     children,
 }: {
     children: React.ReactNode;
 }) {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+        redirect("/auth/login");
+    }
+
     return (
         <div className="min-h-screen bg-transparent relative">
             <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-black/0 to-black/0 pointer-events-none -z-10" />
