@@ -5,39 +5,109 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { revalidatePath } from "next/cache";
-import { unstable_cache as cache } from 'next/cache';
+import { unstable_cache as cache } from "next/cache";
+import { computeFileMetrics } from '@/lib/file-insights';
 import { File, Prisma } from "@prisma/client";
 
-// Reconstructed based on usage in src/app/dashboard/page.tsx
+export type PriorityAction = {
+  id: string;
+  fileId: string;
+  label: string;
+  priority: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+};
+
+export type Hotspot = File & {
+  riskScore: number;
+  isDocumented: boolean;
+};
+
+type PriorityActionsResult = {
+  actions: PriorityAction[];
+  hotspots: Hotspot[];
+};
+
 export const getPriorityActions = cache(
-  async (userId: string, teamId?: string) => {
-    console.log(`[Cache] Fetching priority actions for teamId: ${teamId || 'personal'}`);
-    // This is a placeholder implementation. The actual logic would involve complex analysis.
+  async (userId: string, teamId?: string): Promise<PriorityActionsResult> => {
     const whereClause = teamId ? { teamId } : { userId, teamId: null };
 
-    // Placeholder data - in a real scenario, this would query for code quality issues, etc.
-    const hotspots = await db.file.findMany({
-        where: {
-            ...whereClause,
-            // Some logic to find "hotspots", e.g. low documentation score
+    // Fetch files WITH content for real metrics computation
+    const files = await db.file.findMany({
+      where: whereClause,
+      include: {
+        documentation: {
+          select: { status: true, verifiedAt: true },
         },
-        take: 5,
-        orderBy: {
-            // Some logic for ordering
-            updatedAt: 'asc'
-        }
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 100,
     });
 
+    const actions: PriorityAction[] = [];
+    const hotspots: Hotspot[] = [];
+
+    for (const file of files) {
+      const content = file.content || "";
+      const metrics = computeFileMetrics(content, file.language || "plaintext");
+      const hasDoc =
+        !!file.documentation &&
+        (file.documentation.status === "APPROVED" ||
+          file.documentation.status === "REVIEW");
+      const isStale =
+        !!file.documentation?.verifiedAt &&
+        Date.now() - file.documentation.verifiedAt.getTime() > 30 * 24 * 60 * 60 * 1000;
+
+      // Priority actions: high-risk files without docs, or stale docs
+      if (!hasDoc && metrics.riskScore > 50) {
+        actions.push({
+          id: `action-${file.id}-missing-doc`,
+          fileId: file.id,
+          label: `Generate documentation for ${file.name} (risk: ${metrics.riskScore})`,
+          priority: metrics.riskScore > 80 ? "CRITICAL" : "HIGH",
+        });
+      } else if (isStale) {
+        actions.push({
+          id: `action-${file.id}-stale-doc`,
+          fileId: file.id,
+          label: `Documentation is stale for ${file.name} (30+ days)`,
+          priority: "MEDIUM",
+        });
+      }
+
+      if (metrics.todoCount >= 3) {
+        actions.push({
+          id: `action-${file.id}-todos`,
+          fileId: file.id,
+          label: `${metrics.todoCount} TODO/FIXME items in ${file.name}`,
+          priority: metrics.todoCount >= 5 ? "HIGH" : "MEDIUM",
+        });
+      }
+
+      // Hotspots: all files with risk > 30
+      if (metrics.riskScore > 30 || !hasDoc) {
+        hotspots.push({
+          ...file,
+          riskScore: metrics.riskScore,
+          isDocumented: hasDoc,
+        } as Hotspot);
+      }
+    }
+
+    // Sort actions by priority
+    const priorityOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+    actions.sort(
+      (a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]
+    );
+
+    // Sort hotspots by risk descending, take top 8
+    hotspots.sort((a, b) => b.riskScore - a.riskScore);
+
     return {
-      actions: [
-        { id: "1", fileId: "placeholder-file-1", label: "Review outdated documentation in api/route.ts", priority: "CRITICAL" },
-        { id: "2", fileId: "placeholder-file-2", label: "Refactor complex component: <PaymentForm>", priority: "HIGH" },
-      ],
-      hotspots: hotspots.map((f: File) => ({ ...f, riskScore: Math.floor(Math.random() * 50) + 50, isDocumented: Math.random() > 0.5 }))
+      actions: actions.slice(0, 10),
+      hotspots: hotspots.slice(0, 8),
     };
   },
-  ['priority-actions'], // Cache key prefix
-  { revalidate: 60 } // Revalidate every 60 seconds
+  ["priority-actions"],
+  { revalidate: 60 }
 );
 
 // --- NEW 'createTeam' ACTION ---

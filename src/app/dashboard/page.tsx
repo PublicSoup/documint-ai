@@ -57,8 +57,13 @@ import { GlobalSearch } from "@/components/global-search";
 import { TrackedLink } from "@/components/marketing/tracked-link";
 import { CodebasesView } from "@/components/codebases/codebases-view";
 import { getPriorityActions } from "./actions";
+import type { PriorityAction, Hotspot } from "./actions";
 import { Network, Sparkles, BrainCircuit, Fingerprint } from "lucide-react";
 import { File, Prisma } from "@prisma/client";
+import { CommandCenter } from "@/components/dashboard/command-center";
+import { CommandCenterSkeleton } from "@/components/dashboard/command-center-skeleton";
+import { FileInsightsSidebar } from "@/components/dashboard/file-insights-sidebar";
+import { Suspense } from "react";
 
 interface TeamMembership {
     teamId: string;
@@ -76,11 +81,6 @@ interface TeamConfig {
     lockApproved?: boolean;
     [key: string]: unknown;
 }
-
-type Hotspot = File & {
-    riskScore: number;
-    isDocumented: boolean;
-};
 
 export default async function DashboardPage(props: {
     searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
@@ -160,9 +160,9 @@ export default async function DashboardPage(props: {
             db.file.findMany({
                 where: whereClause,
                 take: 50,
-                orderBy: {
-                    createdAt: "desc",
-                },
+    orderBy: {
+                        updatedAt: "desc",
+                    },
                 include: {
                     documentation: true,
                 },
@@ -267,7 +267,9 @@ export default async function DashboardPage(props: {
 
     return (
         <div className="space-y-8 animate-fade-in pb-20">
-            <OnboardingChecklist onboardingContext={{ intent: onboardingIntent, plan: onboardingPlan, source: onboardingSource }} />
+            {totalFilesCount === 0 && (
+                <OnboardingChecklist onboardingContext={{ intent: onboardingIntent, plan: onboardingPlan, source: onboardingSource }} />
+            )}
 
             {onboardingIntent === "trial" && !(subscription.isPro || subscription.isTeam) && (
                 <Card className="border-primary/25 bg-primary/10">
@@ -450,17 +452,27 @@ export default async function DashboardPage(props: {
                                 <DashboardEmptyState teamId={teamId} isPro={subscription.isPro || subscription.isTeam} />
                             ) : selectedDocId && selectedFile ? (
                                 parsedDoc ? (
-                                    <div className="h-[750px] rounded-3xl overflow-hidden glass border border-white/5 shadow-2xl relative">
-                                        <DocEditor
-                                            fileId={selectedFile.id}
-                                            fileName={selectedFile.name}
-                                            fileLanguage={selectedFile.language}
-                                            initialContent={parsedDoc}
-                                            currentUser={{ id: session!.user.id, name: session!.user.name || "User", role: userRole }}
-                                            isPublic={!!selectedFile.documentation?.isPublic}
-                                            isPro={subscription.isPro || subscription.isTeam}
-                                            lockApproved={parsedDoc.lockApproved}
-                                        />
+                                            <div className="flex gap-4 items-start" key={selectedFile.id}>
+                                        {/* Doc Editor (main) */}
+                                        <div className="flex-1 h-[750px] rounded-3xl overflow-hidden glass border border-white/5 shadow-2xl relative">
+                                            <DocEditor
+                                                fileId={selectedFile.id}
+                                                fileName={selectedFile.name}
+                                                fileLanguage={selectedFile.language}
+                                                initialContent={parsedDoc}
+                                                currentUser={{ id: session!.user.id, name: session!.user.name || "User", role: userRole }}
+                                                isPublic={!!selectedFile.documentation?.isPublic}
+                                                isPro={subscription.isPro || subscription.isTeam}
+                                                lockApproved={parsedDoc.lockApproved}
+                                            />
+                                        </div>
+                                        {/* File Insights Sidebar */}
+                                        <div className="w-[340px] flex-none h-[750px] rounded-3xl glass border border-white/5 shadow-2xl overflow-hidden bg-black/20">
+                                            <FileInsightsSidebar
+                                                fileId={selectedFile.id}
+                                                teamId={teamId}
+                                            />
+                                        </div>
                                     </div>
                                 ) : (
                                     <Card className="h-[400px] flex items-center justify-center bg-red-500/5 border-red-500/10">
@@ -473,61 +485,78 @@ export default async function DashboardPage(props: {
                                     </Card>
                                 )
                             ) : (
-                                <div className="h-[700px] flex items-center justify-center glass-card rounded-[2.5rem] border-white/5 relative overflow-hidden group">
-                                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-primary/10 blur-[100px] rounded-full group-hover:scale-125 transition-transform duration-1000" />
-
-                                    <div className="text-center relative z-10 px-8 max-w-xl">
-                                        <div className="w-24 h-24 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center mx-auto mb-8 shadow-2xl transform rotate-3 group-hover:rotate-0 transition-transform duration-500">
-                                            <FileText className="w-10 h-10 text-white/20" />
-                                        </div>
-                                        <h2 className="text-4xl font-black text-white mb-4 tracking-tighter">Command Center</h2>
-                                        <p className="text-muted-foreground mb-12 text-lg">
-                                            Select a file from your explorer to begin deep analysis. DocuMint AI will provide refactoring suggestions, complexity scores, and instant documentation.
-                                        </p>
-
-                                        <div className="grid grid-cols-2 gap-4 text-left">
-                                            <div className="p-5 rounded-2xl bg-white/5 border border-white/10 hover:border-primary/40 transition-colors cursor-pointer group/item">
-                                                <div className="flex items-center gap-3 mb-3">
-                                                    <div className="p-2 rounded-lg bg-primary/20 text-primary group-hover/item:scale-110 transition-transform">
-                                                        <TrendingUp className="w-5 h-5" />
-                                                    </div>
-                                                    <span className="font-bold text-white tracking-tight">Code Insights</span>
-                                                </div>
-                                                <p className="text-xs text-muted-foreground leading-relaxed">Complexity scores, maintenance ratings, and technical debt analysis.</p>
-                                            </div>
-                                            <div className="p-5 rounded-2xl bg-white/5 border border-white/10 hover:border-purple-500/40 transition-colors cursor-pointer group/item">
-                                                <div className="flex items-center gap-3 mb-3">
-                                                    <div className="p-2 rounded-lg bg-purple-500/20 text-purple-400 group-hover/item:scale-110 transition-transform">
-                                                        <Zap className="w-5 h-5" />
-                                                    </div>
-                                                    <span className="font-bold text-white tracking-tight">AI Suggest</span>
-                                                </div>
-                                                <p className="text-xs text-muted-foreground leading-relaxed">Context-aware suggestions for improving code quality and performance.</p>
-                                            </div>
-                                        </div>
-
-                                        <div className="mt-12 flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                                            <Database className="w-3 h-3" />
-                                            <span>{totalFilesCount} files in workspace</span>
-                                        </div>
-                                    </div>
-                                </div>
+                                <Suspense fallback={<CommandCenterSkeleton />}>
+                                    <CommandCenter
+                                        teamId={teamId}
+                                        files={typedFiles.map(f => ({
+                                            id: f.id,
+                                            name: f.name,
+                                            language: f.language,
+                                            size: f.size,
+                                            createdAt: f.createdAt,
+                                            updatedAt: f.createdAt,
+                                            documentation: f.documentation ? {
+                                                content: f.documentation.content,
+                                                verifiedAt: f.documentation.verifiedAt,
+                                                status: f.documentation.status,
+                                            } : null,
+                                        }))}
+                                        priorityActions={priorityActions}
+                                        hotspots={hotspots}
+                                        subscription={{ isPro: subscription.isPro, isTeam: subscription.isTeam }}
+                                        totalFilesCount={totalFilesCount}
+                                        verifiedDocsCount={verifiedDocsCount}
+                                    />
+                                </Suspense>
                             )}
 
-                            {/* Secondary Insights Row — hidden when the unified
-                                Codebases view (codebasesViewFlag) replaces it. */}
+                            {/* Secondary Insights Row — Documentation Health + Quick Stats */}
                             {!selectedDocId && !codebasesViewFlag && typedFiles.length > 0 && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <Card className="glass-card border-white/5 p-6">
+                                        <div className="flex items-center justify-between mb-6">
+                                            <CardTitle className="text-sm font-bold flex items-center gap-2">
+                                                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                                                Documentation Health
+                                            </CardTitle>
+                                            <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">Live</span>
+                                        </div>
+                                        <div className="space-y-4">
+                                            <div className="flex items-center gap-4">
+                                                <div className="text-3xl font-black text-white">{totalFilesCount}</div>
+                                                <div>
+                                                    <div className="text-xs text-white/50">Total Files</div>
+                                                    <div className="text-xs text-white/30">{verifiedDocsCount} documented</div>
+                                                </div>
+                                            </div>
+                                            <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                                                <div
+                                                    className="h-full bg-emerald-500 rounded-full"
+                                                    style={{ width: `${totalFilesCount > 0 ? (verifiedDocsCount / totalFilesCount) * 100 : 0}%` }}
+                                                />
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <Link
+                                                    href={teamId ? `/dashboard/analytics?teamId=${teamId}` : "/dashboard/analytics"}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 text-[10px] font-bold text-white/40 hover:bg-white/10 hover:text-white/60 transition-colors"
+                                                >
+                                                    <BarChart3 className="w-3 h-3" />
+                                                    View Analytics
+                                                </Link>
+                                            </div>
+                                        </div>
+                                    </Card>
+
                                     <Card className="glass-card border-white/5 p-6">
                                         <div className="flex items-center justify-between mb-6">
                                             <CardTitle className="text-sm font-bold flex items-center gap-2">
                                                 <Activity className="w-4 h-4 text-orange-400" />
                                                 Hotspot Analysis
                                             </CardTitle>
-                                            <span className="text-[10px] text-muted-foreground uppercase tracking-widest">Beta</span>
+                                            <span className="text-[10px] text-orange-400 font-bold uppercase tracking-widest">Live</span>
                                         </div>
-                                        <div className="space-y-4">
-                                            {hotspots.length > 0 ? hotspots.map((f: Hotspot, i: number) => (
+                                        <div className="space-y-3">
+                                            {hotspots.length > 0 ? hotspots.slice(0, 5).map((f: Hotspot, i: number) => (
                                                 <Link
                                                     key={i}
                                                     href={`/dashboard?${teamId ? `teamId=${teamId}&` : ""}docId=${f.id}`}
@@ -536,7 +565,7 @@ export default async function DashboardPage(props: {
                                                     <div className="flex items-center gap-3">
                                                         <div className={cn(
                                                             "w-1.5 h-1.5 rounded-full",
-                                                            f.riskScore > 70 ? "bg-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" : "bg-orange-400"
+                                                            f.riskScore > 70 ? "bg-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" : f.riskScore > 40 ? "bg-amber-400" : "bg-emerald-400"
                                                         )} />
                                                         <span className="text-sm text-white/70 group-hover:text-white transition-colors truncate max-w-[180px]">{f.name}</span>
                                                     </div>
@@ -550,22 +579,11 @@ export default async function DashboardPage(props: {
                                                     </div>
                                                 </Link>
                                             )) : (
-                                                <p className="text-xs text-zinc-600 italic">Project too small for hotspot analysis.</p>
+                                                <div className="flex items-center gap-2 text-emerald-400">
+                                                    <Check className="w-3.5 h-3.5" />
+                                                    <span className="text-xs font-bold">No hotspots detected</span>
+                                                </div>
                                             )}
-                                        </div>
-                                    </Card>
-
-                                    <Card className="glass-card border-white/5 p-6">
-                                        <div className="flex items-center justify-between mb-6">
-                                            <CardTitle className="text-sm font-bold flex items-center gap-2">
-                                                <Github className="w-4 h-4 text-white" />
-                                                Sync Status
-                                            </CardTitle>
-                                            <span className="text-[10px] text-green-400 font-bold uppercase tracking-widest">Live</span>
-                                        </div>
-                                        <div className="flex flex-col items-center justify-center h-20">
-                                            <Github className="w-8 h-8 text-white/10 mb-2" />
-                                            <p className="text-xs text-muted-foreground text-center">Connect a repository to<br />enable sync tracking.</p>
                                         </div>
                                     </Card>
                                 </div>
