@@ -15,7 +15,6 @@ interface FileLike {
     id: string;
     name: string;
     language?: string | null;
-    [key: string]: unknown;
 }
 
 /**

@@ -18,6 +18,10 @@ export interface GraphStats {
     totalNodes: number;
     totalEdges: number;
     truncated: boolean;
+    renderTruncated?: boolean;
+    renderedNodes?: number;
+    renderedEdges?: number;
+    skippedFiles?: number;
     types: Record<"component" | "hook" | "lib" | "api" | "page" | "unknown", number>;
     riskBuckets: { high: number; med: number; low: number };
     bytesScanned: number;
@@ -36,6 +40,7 @@ export interface GraphFileSummary {
 export interface RealGraphResponse {
     isRealData: true;
     mermaid: string;
+    nodeMap?: Record<string, string>;
     stats: GraphStats;
     files: GraphFileSummary[];
 }

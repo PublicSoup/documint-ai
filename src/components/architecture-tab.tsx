@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
     AlertCircle,
@@ -21,12 +21,11 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ProBadge } from "@/components/ui/pro-badge";
 import {
-    getProjectGraphMermaid,
-    createDemoProject,
-    type GraphFetchResult,
     type GraphFileSummary,
     type GraphStats,
 } from "@/app/dashboard/client-actions";
+import { SAMPLE_ARCHITECTURE_DIAGRAM } from "@/components/architecture/sample-diagram";
+import { useProjectGraph } from "@/components/architecture/use-project-graph";
 
 const DiagramViewer = dynamic(
     () => import("@/components/diagram-viewer").then((mod) => mod.DiagramViewer),
@@ -65,49 +64,6 @@ const FILTER_OPTIONS: Array<{ value: FilterType; label: string; icon: string }> 
     { value: "unknown", label: "Other", icon: "📦" },
 ];
 
-const SAMPLE_DIAGRAM = `flowchart TB
-    subgraph Frontend["🎨 Frontend"]
-        direction TB
-        Dashboard["📊 Dashboard"]
-        IDE["💻 Cloud IDE"]
-        Auth["🔐 Auth Pages"]
-    end
-
-    subgraph Backend["⚙️ Backend API"]
-        direction TB
-        AuthAPI["Auth API"]
-        FilesAPI["Files API"]
-        AgentAPI["AI Agent API"]
-        AuditAPI["Audit API"]
-    end
-
-    subgraph Services["🔧 Core Services"]
-        direction TB
-        AIProvider["Gemini AI"]
-        Storage["Supabase Storage"]
-        Database["PostgreSQL"]
-    end
-
-    Dashboard --> FilesAPI
-    Dashboard --> AuditAPI
-    IDE --> AgentAPI
-    IDE --> FilesAPI
-    Auth --> AuthAPI
-
-    AuthAPI --> Database
-    FilesAPI --> Storage
-    FilesAPI --> Database
-    AgentAPI --> AIProvider
-    AuditAPI --> Database
-
-    classDef frontend fill:#3b82f6,stroke:#1d4ed8,color:#fff
-    classDef backend fill:#10b981,stroke:#059669,color:#fff
-    classDef services fill:#f59e0b,stroke:#d97706,color:#fff
-
-    class Dashboard,IDE,Auth frontend
-    class AuthAPI,FilesAPI,AgentAPI,AuditAPI backend
-    class AIProvider,Storage,Database services`;
-
 interface ArchitectureTabProps {
     teamId?: string;
 }
@@ -115,97 +71,26 @@ interface ArchitectureTabProps {
 export function ArchitectureTab({ teamId }: ArchitectureTabProps) {
     const router = useRouter();
 
-    // Last *successful* response. We keep this on screen while a refresh
-    // is in flight so the UI doesn't blink empty between requests.
-    const [graph, setGraph] = useState<GraphFetchResult | null>(null);
-    const [isRefreshing, setIsRefreshing] = useState(true);
-    const [loadingDemo, setLoadingDemo] = useState(false);
+    const {
+        graph,
+        isRefreshing,
+        loadingDemo,
+        renderError,
+        setRenderError,
+        toast,
+        refreshGraph,
+        loadDemoProject,
+    } = useProjectGraph(teamId);
+
     const [filter, setFilter] = useState<FilterState>(DEFAULT_FILTER);
     const [showFilters, setShowFilters] = useState(false);
-    const [renderError, setRenderError] = useState<string | null>(null);
-    const [toast, setToast] = useState<{ kind: "success" | "error"; message: string } | null>(null);
-
-    // Track the active AbortController so team switches cancel in-flight requests.
-    const inflightRef = useRef<AbortController | null>(null);
-
-    const fetchGraph = useCallback(
-        async (mode: "initial" | "refresh" = "initial") => {
-            // Cancel any previous request.
-            inflightRef.current?.abort();
-            const controller = new AbortController();
-            inflightRef.current = controller;
-
-            setIsRefreshing(true);
-            setRenderError(null);
-            try {
-                const result = await getProjectGraphMermaid(teamId, {
-                    fresh: mode === "refresh",
-                    signal: controller.signal,
-                });
-                // The server response is the source of truth. If the request
-                // was aborted by a newer call, ignore it.
-                if (controller.signal.aborted) return;
-                setGraph(result);
-            } catch (e) {
-                if (controller.signal.aborted) return;
-                const message = e instanceof Error ? e.message : "Failed to load graph";
-                setGraph({
-                    isRealData: false,
-                    code: "UNKNOWN",
-                    message,
-                    statusCode: 0,
-                });
-            } finally {
-                if (!controller.signal.aborted) {
-                    setIsRefreshing(false);
-                }
-            }
-        },
-        [teamId],
-    );
-
-    useEffect(() => {
-        fetchGraph("initial");
-        return () => inflightRef.current?.abort();
-    }, [fetchGraph]);
-
-    const handleLoadDemo = useCallback(async () => {
-        setLoadingDemo(true);
-        try {
-            const result = await createDemoProject(teamId);
-            if (result.success) {
-                const created = result.createdFileIds.length;
-                setToast({
-                    kind: "success",
-                    message: created > 0
-                        ? `Seeded ${created} demo files — refreshing graph.`
-                        : (result.message ?? "Demo files already present — refreshing graph."),
-                });
-                await fetchGraph("refresh");
-            } else {
-                setToast({
-                    kind: "error",
-                    message: result.message ?? "Failed to load demo project",
-                });
-            }
-        } catch (e) {
-            const message = e instanceof Error ? e.message : "Failed to load demo project";
-            setToast({ kind: "error", message });
-        } finally {
-            setLoadingDemo(false);
-        }
-    }, [teamId, fetchGraph]);
-
-    // Auto-dismiss the toast.
-    useEffect(() => {
-        if (!toast) return;
-        const t = setTimeout(() => setToast(null), 5000);
-        return () => clearTimeout(t);
-    }, [toast]);
 
     const isRealData = graph?.isRealData === true;
     const stats: GraphStats | null = isRealData ? graph.stats : null;
-    const files: GraphFileSummary[] = isRealData ? graph.files : [];
+    const files = useMemo<GraphFileSummary[]>(
+        () => (graph?.isRealData === true ? graph.files : []),
+        [graph],
+    );
 
     // Apply the filter UI to the *server* response: we use the file
     // summaries to build a type-prefix Mermaid `flowchart` substring that
@@ -228,7 +113,7 @@ export function ArchitectureTab({ teamId }: ArchitectureTabProps) {
         });
     }, [files, filter]);
 
-    const mermaidCode = isRealData ? graph.mermaid : SAMPLE_DIAGRAM;
+    const mermaidCode = isRealData ? graph.mermaid : SAMPLE_ARCHITECTURE_DIAGRAM;
 
     const handleNodeClick = useCallback(
         (filePath: string) => {
@@ -267,7 +152,7 @@ export function ArchitectureTab({ teamId }: ArchitectureTabProps) {
                             <ProBadge />
                         </h3>
                         <p className="text-sm text-muted-foreground">
-                            Live visualization of your project's component and dependency graph.
+                            Live visualization of your project&apos;s component and dependency graph.
                         </p>
                     </div>
                 </div>
@@ -280,6 +165,11 @@ export function ArchitectureTab({ teamId }: ArchitectureTabProps) {
                             <span className="bg-purple-500/10 text-purple-300 border border-purple-500/20 px-2 py-1 rounded">
                                 {stats.totalEdges} edges
                             </span>
+                            {typeof stats.skippedFiles === "number" && stats.skippedFiles > 0 && (
+                                <span className="bg-zinc-500/10 text-zinc-300 border border-zinc-500/20 px-2 py-1 rounded">
+                                    {stats.skippedFiles} skipped
+                                </span>
+                            )}
                             {stats.riskBuckets.high > 0 && (
                                 <span className="bg-rose-500/10 text-rose-300 border border-rose-500/20 px-2 py-1 rounded">
                                     {stats.riskBuckets.high} high-risk
@@ -296,7 +186,7 @@ export function ArchitectureTab({ teamId }: ArchitectureTabProps) {
                         variant="outline"
                         size="sm"
                         className="gap-2"
-                        onClick={() => fetchGraph("refresh")}
+                        onClick={() => refreshGraph("refresh")}
                         disabled={isRefreshing}
                         aria-label="Refresh graph"
                     >
@@ -362,7 +252,7 @@ export function ArchitectureTab({ teamId }: ArchitectureTabProps) {
                                 size="sm"
                                 variant="outline"
                                 className="gap-2 border-amber-500/30 text-amber-300 hover:bg-amber-500/20"
-                                onClick={handleLoadDemo}
+                                onClick={loadDemoProject}
                                 disabled={loadingDemo}
                             >
                                 {loadingDemo ? (
@@ -394,7 +284,17 @@ export function ArchitectureTab({ teamId }: ArchitectureTabProps) {
                     <AlertDescription>
                         This diagram is auto-generated from your actual source code. Node border
                         color indicates risk (green=low, amber=med, red=high). Click a node to open
-                        it in the Cloud IDE.
+                        it in the Cloud IDE. {stats?.renderedNodes ?? stats?.totalNodes} files and {stats?.renderedEdges ?? stats?.totalEdges} dependencies are currently rendered.
+                    </AlertDescription>
+                </Alert>
+            )}
+
+            {isRealData && stats?.renderTruncated && (
+                <Alert className="bg-amber-500/10 border-amber-500/20 text-amber-300">
+                    <AlertTriangle className="w-4 h-4" />
+                    <AlertTitle>Large Project View</AlertTitle>
+                    <AlertDescription>
+                        This project is larger than the interactive renderer limit, so the graph is showing the most connected and highest-risk files first.
                     </AlertDescription>
                 </Alert>
             )}
@@ -419,7 +319,7 @@ export function ArchitectureTab({ teamId }: ArchitectureTabProps) {
                         )}
                         {filter.search && (
                             <span className="text-[10px] font-mono text-muted-foreground bg-white/5 px-2 py-1 rounded">
-                                "{filter.search}"
+                                {`"${filter.search}"`}
                             </span>
                         )}
                         {filter.minRisk > 0 && (
@@ -496,6 +396,7 @@ export function ArchitectureTab({ teamId }: ArchitectureTabProps) {
                 <DiagramViewer
                     code={mermaidCode}
                     type="flowchart"
+                    nodeMap={isRealData ? graph.nodeMap : undefined}
                     onError={setRenderError}
                     onNodeClick={handleNodeClick}
                 />

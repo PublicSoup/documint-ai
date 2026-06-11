@@ -4,12 +4,13 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getFileContent } from "@/lib/files";
 import { buildProjectGraph, GraphNode, ProjectGraph } from "@/lib/graph/project-graph";
-import { projectGraphToMermaid } from "@/lib/graph/mermaid-adapter";
+import { projectGraphToMermaidResult } from "@/lib/graph/mermaid-adapter";
 import { checkTeamPermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, ApiErrors } from "@/lib/api-utils";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
+import { isGraphableSourcePath, normalizeProjectPath } from "@/lib/project-files";
 
 const querySchema = z.object({
     teamId: z.string().trim().min(1).max(100).optional(),
@@ -34,11 +35,16 @@ interface GraphFileSummary {
 interface GraphResponse {
     isRealData: true;
     mermaid: string;
+    nodeMap: Record<string, string>;
     stats: {
         totalFilesScanned: number;
         totalNodes: number;
         totalEdges: number;
         truncated: boolean;
+        renderTruncated: boolean;
+        renderedNodes: number;
+        renderedEdges: number;
+        skippedFiles: number;
         types: Record<GraphNode["type"], number>;
         riskBuckets: RiskBucket;
         bytesScanned: number;
@@ -115,13 +121,29 @@ export async function GET(request: NextRequest) {
         // 2. Load content for each file (DB inline, or storage fallback).
         const files: Array<{ path: string; content: string }> = [];
         const errors: GraphResponse["stats"]["errors"] = [];
+        const pathToFileId = new Map<string, string>();
         let bytesScanned = 0;
         let truncated = false;
+        let skippedFiles = 0;
 
         for (const file of dbFiles) {
             if (files.length >= MAX_FILES || bytesScanned >= MAX_TOTAL_BYTES) {
                 truncated = true;
                 break;
+            }
+
+            const normalizedPath = normalizeProjectPath(file.name);
+            if (!normalizedPath || !isGraphableSourcePath(normalizedPath, file.language)) {
+                skippedFiles++;
+                continue;
+            }
+
+            // Files are ordered newest-first. If a user uploaded the same path
+            // multiple times, keep the latest record so node click-through opens
+            // the currently relevant file instead of an older duplicate.
+            if (pathToFileId.has(normalizedPath)) {
+                skippedFiles++;
+                continue;
             }
 
             try {
@@ -132,7 +154,8 @@ export async function GET(request: NextRequest) {
                 }
                 const content = safeTruncate(raw, MAX_CONTENT_PER_FILE);
                 bytesScanned += content.length;
-                files.push({ path: file.name, content });
+                pathToFileId.set(normalizedPath, file.id);
+                files.push({ path: normalizedPath, content });
             } catch (e: unknown) {
                 const reason = e instanceof Error ? e.message : "fetch failed";
                 errors.push({ fileId: file.id, name: file.name, reason });
@@ -141,7 +164,7 @@ export async function GET(request: NextRequest) {
 
         // 3. Build the graph and convert to Mermaid.
         const graph: ProjectGraph = await buildProjectGraph(files);
-        const mermaid = projectGraphToMermaid(graph);
+        const renderedGraph = projectGraphToMermaidResult(graph);
 
         // 4. Aggregate stats.
         const types: Record<GraphNode["type"], number> = {
@@ -155,7 +178,7 @@ export async function GET(request: NextRequest) {
             const bucket = classifyRisk(node.riskScore);
             riskBuckets[bucket]++;
             summary.push({
-                id: node.id,
+                id: pathToFileId.get(node.id) ?? node.id,
                 name: node.id,
                 type: node.type,
                 riskScore: node.riskScore,
@@ -166,12 +189,17 @@ export async function GET(request: NextRequest) {
 
         const response: GraphResponse = {
             isRealData: true,
-            mermaid,
+            mermaid: renderedGraph.mermaid,
+            nodeMap: renderedGraph.nodeMap,
             stats: {
                 totalFilesScanned: files.length,
                 totalNodes: graph.nodes.size,
                 totalEdges: graph.edges.length,
-                truncated,
+                truncated: truncated || renderedGraph.truncated,
+                renderTruncated: renderedGraph.truncated,
+                renderedNodes: renderedGraph.renderedNodes,
+                renderedEdges: renderedGraph.renderedEdges,
+                skippedFiles,
                 types,
                 riskBuckets,
                 bytesScanned,

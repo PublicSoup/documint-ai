@@ -1,641 +1,189 @@
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { getUserSubscription } from "@/lib/subscription";
 import { redirect } from "next/navigation";
-import { db } from "@/lib/db";
-import {
-    Plus,
-    Database,
-    Github,
-    Crown,
-    BarChart3,
-    TrendingUp,
-    AlertCircle,
-    FileText,
-    FolderTree,
-    Code2,
-    Zap,
-    Activity,
-    Clock,
-    ShieldCheck,
-    ShieldAlert,
-    Search,
-    ChevronRight,
-    Terminal,
-    Lock,
-    Check,
-    ArrowRight
-} from "lucide-react";
-import Link from "next/link";
-import { cn } from "@/lib/utils";
-import FileUpload from "@/components/file-upload";
-import DocEditor from "@/components/doc-editor";
-import UsageMeter from "@/components/usage-meter";
-import GitHubImport from "@/components/github-import";
-import ReadmeGenerator from "@/components/readme-generator";
-import ChangelogGenerator from "@/components/changelog-generator";
-import TeamSwitcher from "@/components/team-switcher";
-import { DashboardFileTree } from "@/components/dashboard-file-tree";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DashboardEmptyState } from "@/components/dashboard-empty-state";
-import { OnboardingChecklist } from "@/components/onboarding-checklist";
-import AuditLogViewer from "@/components/audit-log-viewer";
-import { EnterpriseFeatureGate } from "@/components/enterprise-feature-gate";
-import { ArchitectureTab } from "@/components/architecture-tab";
+import { Activity, Lock, Network, ShieldAlert, ShieldCheck } from "lucide-react";
+
+import { getPriorityActions } from "./actions";
 import AnalyticsDashboard from "@/components/analytics-dashboard";
-import { TeamProjectOverview } from "@/components/analytics/team-overview";
-import { TeamLeaderboard } from "@/components/team-leaderboard";
-import { TeamWeeklyReview } from "@/components/analytics/weekly-review";
 import { TeamReviewQueue } from "@/components/analytics/review-queue";
 import { TeamScorecard } from "@/components/analytics/team-scorecard";
 import { TeamSecurityAudit } from "@/components/analytics/team-security-audit";
-import { TeamAIAudit } from "@/components/team-ai-audit";
-import { CodeHealthIndex } from "@/components/analytics/health-index";
+import { TeamWeeklyReview } from "@/components/analytics/weekly-review";
+import { ArchitectureTab } from "@/components/architecture-tab";
+import AuditLogViewer from "@/components/audit-log-viewer";
+import { DashboardOverviewTab } from "@/components/dashboard/overview-tab";
+import { TrialBanner } from "@/components/dashboard/trial-banner";
+import { EnterpriseFeatureGate } from "@/components/enterprise-feature-gate";
 import { GlobalSearch } from "@/components/global-search";
-import { TrackedLink } from "@/components/marketing/tracked-link";
-import { CodebasesView } from "@/components/codebases/codebases-view";
-import { getPriorityActions } from "./actions";
-import type { PriorityAction, Hotspot } from "./actions";
-import { Network, Sparkles, BrainCircuit, Fingerprint } from "lucide-react";
-import { File, Prisma } from "@prisma/client";
-import { CommandCenter } from "@/components/dashboard/command-center";
-import { CommandCenterSkeleton } from "@/components/dashboard/command-center-skeleton";
-import { FileInsightsSidebar } from "@/components/dashboard/file-insights-sidebar";
-import { Suspense } from "react";
+import { OnboardingChecklist } from "@/components/onboarding-checklist";
+import { TeamAIAudit } from "@/components/team-ai-audit";
+import { TeamLeaderboard } from "@/components/team-leaderboard";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { authOptions } from "@/lib/auth";
+import {
+  getDashboardFileStats,
+  getSelectedDashboardDocument,
+  resolveDashboardScope,
+} from "@/lib/dashboard/data";
+import {
+  getOnboardingContext,
+  getProjectViewMode,
+  getSearchParam,
+  isCodebasesViewEnabled,
+} from "@/lib/dashboard/params";
+import type { DashboardFileStats, DashboardSearchParams } from "@/lib/dashboard/types";
+import { getUserSubscription } from "@/lib/subscription";
 
-interface TeamMembership {
-    teamId: string;
-    role: string;
-    team: {
-        id: string;
-        name: string;
-        slug: string;
-        plan: string;
-        updatedAt: Date;
-    };
-}
+const EMPTY_FILE_STATS: DashboardFileStats = {
+  totalFilesCount: 0,
+  verifiedDocsCount: 0,
+  files: [],
+};
 
-interface TeamConfig {
-    lockApproved?: boolean;
-    [key: string]: unknown;
-}
-
-export default async function DashboardPage(props: {
-    searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<DashboardSearchParams>;
 }) {
-    const searchParams = await props.searchParams;
-    const session = await getServerSession(authOptions);
+  const params = await searchParams;
+  const session = await getServerSession(authOptions);
 
-    const onboardingIntentRaw = Array.isArray(searchParams?.intent) ? searchParams.intent[0] : searchParams?.intent;
-    const onboardingPlanRaw = Array.isArray(searchParams?.plan) ? searchParams.plan[0] : searchParams?.plan;
-    const onboardingSourceRaw = Array.isArray(searchParams?.source) ? searchParams.source[0] : searchParams?.source;
+  if (!session?.user?.id) redirect("/auth/login");
 
-    const onboardingIntent = onboardingIntentRaw === "trial" ? "trial" : "signup";
-    const onboardingPlan = onboardingPlanRaw === "starter" || onboardingPlanRaw === "pro" || onboardingPlanRaw === "team"
-        ? onboardingPlanRaw
-        : null;
-    const onboardingSource = onboardingSourceRaw && /^[a-z0-9_\-]{1,80}$/i.test(onboardingSourceRaw)
-        ? onboardingSourceRaw
-        : null;
+  const userId = session.user.id;
+  const selectedDocId = getSearchParam(params, "docId");
+  const requestedTeamId = getSearchParam(params, "teamId");
+  const initialProjectView = getProjectViewMode(getSearchParam(params, "view"));
+  const onboarding = getOnboardingContext(params);
+  const codebasesViewEnabled = isCodebasesViewEnabled(params);
+  const defaultTab = getSearchParam(params, "tab") === "architecture" ? "architecture" : "overview";
 
-    if (!session) {
-        redirect("/auth/login");
-    }
+  const [subscription, scope] = await Promise.all([
+    getUserSubscription(userId).catch(() => ({ isPro: false, isTeam: false, plan: "free" })),
+    resolveDashboardScope(userId, requestedTeamId),
+  ]);
 
-    if (!session.user?.id) {
-        console.error("Dashboard Error: Session exists but user ID is missing", session);
-        throw new Error("User ID missing from session");
-    }
+  if (scope.invalidTeamRequest) redirect("/dashboard");
 
-    // Fail-safe data fetching
-    let subscription = { isPro: false, isTeam: false, plan: "free" };
-    try {
-        subscription = await getUserSubscription(session.user.id);
-    } catch (e) {
-        console.error("Failed to fetch subscription:", e);
-    }
+  const fileStats = await getDashboardFileStats(scope.where, selectedDocId).catch(() => EMPTY_FILE_STATS);
+  const { selectedFile, parsedDoc } = await getSelectedDashboardDocument({
+    files: fileStats.files,
+    selectedDocId,
+    teamId: scope.teamId,
+    userId,
+  });
 
-    // Fetch user teams
-    let memberships: TeamMembership[] = [];
-    let teams: TeamMembership["team"][] = [];
-    try {
-        memberships = await db.teamMember.findMany({
-            where: { userId: session.user.id },
-            include: { team: true }
-        });
-        teams = memberships.map(m => m.team);
-    } catch (e) {
-        console.error("Failed to fetch teams:", e);
-    }
+  const priorityData = await getPriorityActions(userId, scope.teamId).catch(() => ({ actions: [], hotspots: [] }));
+  const isPaid = subscription.isPro || subscription.isTeam;
 
-    // Determine context (Personal vs Team)
-    const teamId = searchParams?.teamId as string | undefined;
-    let whereClause: Prisma.FileWhereInput = { userId: session.user.id, teamId: null };
-    let userRole = "OWNER"; // Default for personal files
+  return (
+    <div className="space-y-8 animate-fade-in pb-20">
+      {fileStats.totalFilesCount === 0 && <OnboardingChecklist onboardingContext={onboarding} />}
+      <TrialBanner onboarding={onboarding} isPaid={isPaid} />
 
-    if (teamId) {
-        const membership = memberships.find(m => m.teamId === teamId);
-        if (membership) {
-            whereClause = { teamId };
-            userRole = membership.role;
-        }
-    }
-
-    // Fetch dashboard data in parallel to reduce TTFB.
-    let totalFilesCount = 0;
-    let verifiedDocsCount = 0;
-    let files: FileWithDocs[] = [];
-
-    try {
-        const [totalFiles, verifiedDocs, fetchedFiles] = await Promise.all([
-            db.file.count({ where: whereClause }),
-            db.documentation.count({
-                where: {
-                    file: whereClause,
-                    verifiedAt: { not: null },
-                },
-            }),
-            db.file.findMany({
-                where: whereClause,
-                take: 50,
-    orderBy: {
-                        updatedAt: "desc",
-                    },
-                include: {
-                    documentation: true,
-                },
-            }),
-        ]);
-
-        totalFilesCount = totalFiles;
-        verifiedDocsCount = verifiedDocs;
-        files = fetchedFiles;
-    } catch (e) {
-        console.error("Failed to fetch dashboard data:", e);
-    }
-
-    interface FileWithDocs {
-        id: string;
-        name: string;
-        language: string;
-        size: number;
-        createdAt: Date;
-        documentation: {
-            content: string;
-            verifiedAt?: Date | null;
-            verifiedById?: string | null;
-            isPublic: boolean;
-            status: string;
-            metadata?: any;
-        } | null;
-    }
-
-    const typedFiles = files as unknown as FileWithDocs[];
-
-    // Fetch Priority Actions and Hotspots (cached for 60s in server action)
-    let priorityActions: Awaited<ReturnType<typeof getPriorityActions>>["actions"] = [];
-    let hotspots: Awaited<ReturnType<typeof getPriorityActions>>["hotspots"] = [];
-    try {
-        const priorityData = await getPriorityActions(session.user.id, teamId);
-        priorityActions = priorityData.actions;
-        hotspots = priorityData.hotspots;
-    } catch (e) {
-        console.error("Failed to fetch priority actions:", e);
-    }
-
-    const selectedDocId = searchParams?.docId;
-
-    // Feature flag: unified Codebases view (replaces the Command Center
-    // placeholder + Sync Status stub). Defaults to OFF until validated in
-    // production; enable with `?codebasesView=v2` on the dashboard URL.
-    const codebasesViewFlag = (() => {
-        const raw = Array.isArray(searchParams?.codebasesView)
-            ? searchParams.codebasesView[0]
-            : searchParams?.codebasesView;
-        return raw === "v2" || raw === "1" || raw === "true";
-    })();
-
-    let selectedFile = null;
-    let parsedDoc = null;
-
-    if (selectedDocId) {
-        selectedFile = typedFiles.find(f => f.id === selectedDocId as string);
-        if (selectedFile && selectedFile.documentation) {
-            // Fetch team policy if applicable
-            let lockApproved = false;
-            if (teamId) {
-                const teamConfig = await db.integration.findFirst({
-                    where: { teamId, type: "TEAM_CONFIG" }
-                });
-                if ((teamConfig?.config as any)?.lockApproved) {
-                    lockApproved = true;
-                }
-            }
-
-            // Audit Logging - View Doc
-            try {
-                const { logAudit } = await import("@/lib/audit-logger");
-                await logAudit({
-                    userId: session.user.id,
-                    action: "VIEW_DOCS",
-                    entity: "Documentation",
-                    entityId: selectedFile.id, // documentation id or file id, using file id for consistency in lookup
-                    details: { name: selectedFile.name }
-                });
-            } catch (e) { }
-
-            try {
-                parsedDoc = JSON.parse(selectedFile.documentation.content);
-                if (parsedDoc) {
-                    parsedDoc.verifiedAt = selectedFile.documentation.verifiedAt ? new Date(selectedFile.documentation.verifiedAt).toISOString() : null;
-                    parsedDoc.verifiedById = selectedFile.documentation.verifiedById;
-                    parsedDoc.status = selectedFile.documentation.status;
-                    parsedDoc.lockApproved = lockApproved;
-
-                    // Metadata for drift awareness
-                    const meta = (selectedFile.documentation.metadata as any) || {};
-                    parsedDoc.hasProposedChanges = !!meta.proposedContent;
-                    parsedDoc.proposedAt = meta.proposedAt;
-                }
-            } catch (e) {
-                console.error("Failed to parse doc content", e);
-            }
-        }
-    }
-
-    return (
-        <div className="space-y-8 animate-fade-in pb-20">
-            {totalFilesCount === 0 && (
-                <OnboardingChecklist onboardingContext={{ intent: onboardingIntent, plan: onboardingPlan, source: onboardingSource }} />
+      <Tabs defaultValue={defaultTab} className="space-y-6">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <TabsList className="bg-white/5 border border-white/5">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="health" className="group">
+              <span className="flex items-center gap-2">
+                <Activity className="w-4 h-4" />
+                Project Health
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="audit" className="group">
+              <span className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4" />
+                Audit Logs
+                {!isPaid && <Lock className="w-3 h-3 text-amber-500/70" />}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="architecture" className="group">
+              <span className="flex items-center gap-2">
+                <Network className="w-4 h-4" />
+                Architecture
+                {!isPaid && <Lock className="w-3 h-3 text-amber-500/70" />}
+              </span>
+            </TabsTrigger>
+            {scope.teamId && (
+              <TabsTrigger value="security" className="group">
+                <span className="flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4" />
+                  Security Audit
+                </span>
+              </TabsTrigger>
             )}
+          </TabsList>
 
-            {onboardingIntent === "trial" && !(subscription.isPro || subscription.isTeam) && (
-                <Card className="border-primary/25 bg-primary/10">
-                    <CardContent className="p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                        <div>
-                            <p className="text-xs uppercase tracking-[0.16em] text-primary font-black">Trial onboarding</p>
-                            <p className="text-sm text-white/80 mt-1">
-                                Complete billing setup to unlock your Pro trial workspace features.
-                            </p>
-                        </div>
-                        <TrackedLink
-                            href={`/dashboard/billing${onboardingSource ? `?source=${encodeURIComponent(onboardingSource)}` : ""}`}
-                            eventName="trial_upgrade_cta_click"
-                            location="dashboard_trial_banner_upgrade"
-                            variant="trial_intent_v1"
-                        >
-                            <Button size="sm" className="bg-primary hover:bg-primary/90 text-white">
-                                Start Pro Trial <ArrowRight className="w-4 h-4 ml-2" />
-                            </Button>
-                        </TrackedLink>
-                    </CardContent>
-                </Card>
-            )}
-
-            <Tabs defaultValue="overview" className="space-y-6">
-                <div className="flex items-center justify-between">
-                    <TabsList className="bg-white/5 border border-white/5">
-                        <TabsTrigger value="overview">Overview</TabsTrigger>
-                        <TabsTrigger value="health" className="group">
-                            <span className="flex items-center gap-2">
-                                <Activity className="w-4 h-4" />
-                                Project Health
-                            </span>
-                        </TabsTrigger>
-                        <TabsTrigger value="audit" className="group">
-                            <span className="flex items-center gap-2">
-                                <ShieldCheck className="w-4 h-4" />
-                                Audit Logs
-                                {(!subscription.isTeam && !subscription.isPro) && (
-                                    <Lock className="w-3 h-3 text-amber-500/70" />
-                                )}
-                            </span>
-                        </TabsTrigger>
-                        <TabsTrigger value="architecture" className="group">
-                            <span className="flex items-center gap-2">
-                                <Network className="w-4 h-4" />
-                                Architecture
-                                {(!subscription.isTeam && !subscription.isPro) && (
-                                    <Lock className="w-3 h-3 text-amber-500/70" />
-                                )}
-                            </span>
-                        </TabsTrigger>
-                        {teamId && (
-                            <TabsTrigger value="security" className="group">
-                                <span className="flex items-center gap-2">
-                                    <ShieldAlert className="w-4 h-4" />
-                                    Security Audit
-                                </span>
-                            </TabsTrigger>
-                        )}
-                    </TabsList>
-
-                    <GlobalSearch teamId={teamId} />
-                </div>
-
-                <TabsContent value="overview" className="space-y-6 animate-in fade-in-50 duration-500">
-                    {/* Executive Insights Row */}
-                    <TeamProjectOverview teamId={teamId} />
-
-                    {/* Quick Launch Row */}
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
-                        {/* Cloud IDE Quick Launch */}
-                        <Card className="lg:col-span-4 bg-primary/10 border-primary/20 relative overflow-hidden group cursor-pointer hover:bg-primary/20 transition-all shadow-2xl shadow-primary/10">
-                            <Link href="/code" className="absolute inset-0 z-10" />
-                            <div className="absolute top-[-20%] right-[-10%] w-32 h-32 bg-primary/30 blur-3xl rounded-full group-hover:scale-150 transition-transform duration-700" />
-                            <CardContent className="p-6 flex flex-col justify-between h-full relative z-20">
-                                <div className="flex justify-between items-start">
-                                    <div className="w-12 h-12 rounded-xl bg-primary text-white flex items-center justify-center shadow-lg">
-                                        <Terminal className="w-6 h-6" />
-                                    </div>
-                                    <div className="px-2 py-1 rounded bg-primary/20 text-[10px] font-bold text-primary tracking-widest uppercase">PRO FEATURE</div>
-                                </div>
-                                <div>
-                                    <h3 className="text-xl font-bold text-white mb-1">Cloud Web IDE</h3>
-                                    <p className="text-xs text-white/60">Launch your intelligent development environment instantly.</p>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                        {/* Left Sidebar: Control Panel */}
-                        <div className="lg:col-span-4 space-y-6">
-                            <Card className="glass-card border-white/5 overflow-hidden">
-                                <CardHeader className="pb-4">
-                                    <CardTitle className="text-sm font-bold flex items-center gap-2">
-                                        <Plus className="w-4 h-4 text-primary" />
-                                        Workspace Actions
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent className="space-y-4 p-4 pt-0">
-                                    <div className="grid grid-cols-1 gap-3">
-                                        <FileUpload teamId={teamId} isPro={subscription.isPro || subscription.isTeam} />
-                                        <GitHubImport />
-                                    </div>
-
-                                    {/* AI Priority Queue */}
-                                    <div className="p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 space-y-3">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 flex items-center gap-2">
-                                                <Sparkles className="w-3 h-3" />
-                                                AI Priority Queue
-                                            </span>
-                                            <span className="text-[10px] bg-indigo-500 text-white px-1.5 rounded-full font-bold">{priorityActions.length}</span>
-                                        </div>
-                                        <div className="space-y-2">
-                                            {priorityActions.length > 0 ? priorityActions.map(action => (
-                                                <Link
-                                                    key={action.id}
-                                                    href={`/dashboard?${teamId ? `teamId=${teamId}&` : ""}docId=${action.fileId}`}
-                                                    className="text-[11px] text-white/60 hover:text-white transition-colors cursor-pointer flex items-center gap-2 group"
-                                                >
-                                                    <div className={cn(
-                                                        "w-1 h-1 rounded-full group-hover:scale-125 transition-transform",
-                                                        action.priority === "CRITICAL" ? "bg-rose-500 animate-pulse" : "bg-amber-400"
-                                                    )} />
-                                                    <span className="truncate">{action.label}</span>
-                                                </Link>
-                                            )) : (
-                                                <p className="text-[10px] text-zinc-600 italic">No critical issues detected.</p>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div className="pt-4 border-t border-white/5 space-y-2">
-                                        <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest px-2">Current Context</p>
-                                        <TeamSwitcher teams={teams} currentTeamId={teamId} />
-                                        <UsageMeter />
-                                    </div>
-                                </CardContent>
-                            </Card>
-
-                            <Card className="glass-card border-white/5 flex flex-col h-[500px] overflow-hidden">
-                                <CardHeader className="pb-2 border-b border-white/5 shrink-0">
-                                    <CardTitle className="text-sm font-bold flex items-center gap-2">
-                                        <FolderTree className="w-4 h-4 text-blue-400" />
-                                        Project Explorer
-                                    </CardTitle>
-                                </CardHeader>
-                                <CardContent className="flex-1 p-0 overflow-hidden">
-                                    <DashboardFileTree
-                                        files={typedFiles}
-                                        selectedFileId={selectedDocId as string | undefined}
-                                        teamId={teamId}
-                                    />
-                                </CardContent>
-                                {typedFiles.length > 0 && (
-                                    <div className="p-4 border-t border-white/5 bg-black/40 space-y-3 shrink-0">
-                                        <ReadmeGenerator fileIds={typedFiles.map(f => f.id)} />
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <ChangelogGenerator fileIds={typedFiles.map(f => f.id)} />
-                                            <Link href={teamId ? `/dashboard/analytics?teamId=${teamId}` : "/dashboard/analytics"} className="w-full">
-                                                <Button variant="ghost" size="sm" className="w-full justify-start text-[10px] h-9 hover:bg-white/5">
-                                                    <BarChart3 className="w-3 h-3 mr-2 text-purple-400" />
-                                                    Analytics
-                                                </Button>
-                                            </Link>
-                                        </div>
-                                    </div>
-                                )}
-                            </Card>
-                        </div>
-
-                        {/* Right Content: Main Viewport */}
-                        <div className="lg:col-span-8 flex flex-col gap-6">
-                            {codebasesViewFlag ? (
-                                <CodebasesView teamId={teamId ?? null} />
-                            ) : typedFiles.length === 0 ? (
-                                <DashboardEmptyState teamId={teamId} isPro={subscription.isPro || subscription.isTeam} />
-                            ) : selectedDocId && selectedFile ? (
-                                parsedDoc ? (
-                                            <div className="flex gap-4 items-start" key={selectedFile.id}>
-                                        {/* Doc Editor (main) */}
-                                        <div className="flex-1 h-[750px] rounded-3xl overflow-hidden glass border border-white/5 shadow-2xl relative">
-                                            <DocEditor
-                                                fileId={selectedFile.id}
-                                                fileName={selectedFile.name}
-                                                fileLanguage={selectedFile.language}
-                                                initialContent={parsedDoc}
-                                                currentUser={{ id: session!.user.id, name: session!.user.name || "User", role: userRole }}
-                                                isPublic={!!selectedFile.documentation?.isPublic}
-                                                isPro={subscription.isPro || subscription.isTeam}
-                                                lockApproved={parsedDoc.lockApproved}
-                                            />
-                                        </div>
-                                        {/* File Insights Sidebar */}
-                                        <div className="w-[340px] flex-none h-[750px] rounded-3xl glass border border-white/5 shadow-2xl overflow-hidden bg-black/20">
-                                            <FileInsightsSidebar
-                                                fileId={selectedFile.id}
-                                                teamId={teamId}
-                                            />
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <Card className="h-[400px] flex items-center justify-center bg-red-500/5 border-red-500/10">
-                                        <div className="text-center space-y-3 p-8">
-                                            <AlertCircle className="w-12 h-12 text-red-400 mx-auto animate-pulse" />
-                                            <h3 className="text-xl font-bold text-white">Corruption Detected</h3>
-                                            <p className="text-muted-foreground text-sm max-w-xs">AI response format in database is invalid. Try regenerating the documentation.</p>
-                                            <Button variant="outline" size="sm" className="mt-4">Regenerate Now</Button>
-                                        </div>
-                                    </Card>
-                                )
-                            ) : (
-                                <Suspense fallback={<CommandCenterSkeleton />}>
-                                    <CommandCenter
-                                        teamId={teamId}
-                                        files={typedFiles.map(f => ({
-                                            id: f.id,
-                                            name: f.name,
-                                            language: f.language,
-                                            size: f.size,
-                                            createdAt: f.createdAt,
-                                            updatedAt: f.createdAt,
-                                            documentation: f.documentation ? {
-                                                content: f.documentation.content,
-                                                verifiedAt: f.documentation.verifiedAt,
-                                                status: f.documentation.status,
-                                            } : null,
-                                        }))}
-                                        priorityActions={priorityActions}
-                                        hotspots={hotspots}
-                                        subscription={{ isPro: subscription.isPro, isTeam: subscription.isTeam }}
-                                        totalFilesCount={totalFilesCount}
-                                        verifiedDocsCount={verifiedDocsCount}
-                                    />
-                                </Suspense>
-                            )}
-
-                            {/* Secondary Insights Row — Documentation Health + Quick Stats */}
-                            {!selectedDocId && !codebasesViewFlag && typedFiles.length > 0 && (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <Card className="glass-card border-white/5 p-6">
-                                        <div className="flex items-center justify-between mb-6">
-                                            <CardTitle className="text-sm font-bold flex items-center gap-2">
-                                                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                                                Documentation Health
-                                            </CardTitle>
-                                            <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">Live</span>
-                                        </div>
-                                        <div className="space-y-4">
-                                            <div className="flex items-center gap-4">
-                                                <div className="text-3xl font-black text-white">{totalFilesCount}</div>
-                                                <div>
-                                                    <div className="text-xs text-white/50">Total Files</div>
-                                                    <div className="text-xs text-white/30">{verifiedDocsCount} documented</div>
-                                                </div>
-                                            </div>
-                                            <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-                                                <div
-                                                    className="h-full bg-emerald-500 rounded-full"
-                                                    style={{ width: `${totalFilesCount > 0 ? (verifiedDocsCount / totalFilesCount) * 100 : 0}%` }}
-                                                />
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <Link
-                                                    href={teamId ? `/dashboard/analytics?teamId=${teamId}` : "/dashboard/analytics"}
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 text-[10px] font-bold text-white/40 hover:bg-white/10 hover:text-white/60 transition-colors"
-                                                >
-                                                    <BarChart3 className="w-3 h-3" />
-                                                    View Analytics
-                                                </Link>
-                                            </div>
-                                        </div>
-                                    </Card>
-
-                                    <Card className="glass-card border-white/5 p-6">
-                                        <div className="flex items-center justify-between mb-6">
-                                            <CardTitle className="text-sm font-bold flex items-center gap-2">
-                                                <Activity className="w-4 h-4 text-orange-400" />
-                                                Hotspot Analysis
-                                            </CardTitle>
-                                            <span className="text-[10px] text-orange-400 font-bold uppercase tracking-widest">Live</span>
-                                        </div>
-                                        <div className="space-y-3">
-                                            {hotspots.length > 0 ? hotspots.slice(0, 5).map((f: Hotspot, i: number) => (
-                                                <Link
-                                                    key={i}
-                                                    href={`/dashboard?${teamId ? `teamId=${teamId}&` : ""}docId=${f.id}`}
-                                                    className="flex items-center justify-between group cursor-pointer"
-                                                >
-                                                    <div className="flex items-center gap-3">
-                                                        <div className={cn(
-                                                            "w-1.5 h-1.5 rounded-full",
-                                                            f.riskScore > 70 ? "bg-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" : f.riskScore > 40 ? "bg-amber-400" : "bg-emerald-400"
-                                                        )} />
-                                                        <span className="text-sm text-white/70 group-hover:text-white transition-colors truncate max-w-[180px]">{f.name}</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        {f.isDocumented ? (
-                                                            <div className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 text-[8px] font-black uppercase">Docs</div>
-                                                        ) : (
-                                                            <div className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 text-[8px] font-black uppercase">Missing</div>
-                                                        )}
-                                                        <span className="text-[10px] font-bold text-zinc-500">{f.riskScore}</span>
-                                                    </div>
-                                                </Link>
-                                            )) : (
-                                                <div className="flex items-center gap-2 text-emerald-400">
-                                                    <Check className="w-3.5 h-3.5" />
-                                                    <span className="text-xs font-bold">No hotspots detected</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </Card>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </TabsContent>
-
-                <TabsContent value="health" className="space-y-6 animate-in fade-in-50 duration-500">
-                    {teamId && <TeamScorecard teamId={teamId} />}
-                    {teamId && <TeamAIAudit teamId={teamId} />}
-
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                        <div className="lg:col-span-8 space-y-6">
-                            <AnalyticsDashboard teamId={teamId} />
-                            {teamId && <TeamReviewQueue teamId={teamId} />}
-                        </div>
-                        {teamId && (
-                            <div className="lg:col-span-4 space-y-6">
-                                <TeamWeeklyReview teamId={teamId} />
-                                <TeamLeaderboard teamId={teamId} />
-                            </div>
-                        )}
-                    </div>
-                </TabsContent>
-
-                <TabsContent value="audit" className="space-y-4 animate-in fade-in-50 duration-500">
-                    <EnterpriseFeatureGate
-                        isPro={subscription.isTeam || subscription.isPro}
-                        featureName="Audit Logs"
-                        description="Track every verification, export, and modification with bank-grade compliance logging."
-                    >
-                        <AuditLogViewer />
-                    </EnterpriseFeatureGate>
-                </TabsContent>
-
-                <TabsContent value="architecture" className="space-y-4 animate-in fade-in-50 duration-500">
-                    <EnterpriseFeatureGate
-                        isPro={subscription.isTeam || subscription.isPro}
-                        featureName="Architecture Diagram"
-                        description="Visualize your entire project structure, dependencies, and data flow in real-time."
-                    >
-                        <ArchitectureTab teamId={teamId} />
-                    </EnterpriseFeatureGate>
-                </TabsContent>
-
-                {teamId && (
-                    <TabsContent value="security" className="space-y-6 animate-in fade-in-50 duration-500">
-                        <TeamSecurityAudit teamId={teamId} />
-                    </TabsContent>
-                )}
-            </Tabs>
+          <GlobalSearch teamId={scope.teamId} />
         </div>
-    );
+
+        <TabsContent value="overview">
+          <DashboardOverviewTab
+            teamId={scope.teamId}
+            teams={scope.teams}
+            files={fileStats.files}
+            selectedDocId={selectedDocId}
+            selectedFile={selectedFile}
+            parsedDoc={parsedDoc}
+            initialProjectView={initialProjectView}
+            currentUser={{
+              id: userId,
+              name: session.user.name || "User",
+              role: scope.userRole,
+            }}
+            isPro={isPaid}
+            priorityActions={priorityData.actions}
+            hotspots={priorityData.hotspots}
+            totalFilesCount={fileStats.totalFilesCount}
+            verifiedDocsCount={fileStats.verifiedDocsCount}
+            codebasesViewEnabled={codebasesViewEnabled}
+          />
+        </TabsContent>
+
+        <TabsContent value="health" className="space-y-6 animate-in fade-in-50 duration-500">
+          {scope.teamId && <TeamScorecard teamId={scope.teamId} />}
+          {scope.teamId && <TeamAIAudit teamId={scope.teamId} />}
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-8 space-y-6">
+              <AnalyticsDashboard teamId={scope.teamId} />
+              {scope.teamId && <TeamReviewQueue teamId={scope.teamId} />}
+            </div>
+            {scope.teamId && (
+              <div className="lg:col-span-4 space-y-6">
+                <TeamWeeklyReview teamId={scope.teamId} />
+                <TeamLeaderboard teamId={scope.teamId} />
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="audit" className="space-y-4 animate-in fade-in-50 duration-500">
+          <EnterpriseFeatureGate
+            isPro={isPaid}
+            featureName="Audit Logs"
+            description="Track every verification, export, and modification with compliance-grade logging."
+          >
+            <AuditLogViewer />
+          </EnterpriseFeatureGate>
+        </TabsContent>
+
+        <TabsContent value="architecture" className="space-y-4 animate-in fade-in-50 duration-500">
+          <EnterpriseFeatureGate
+            isPro={isPaid}
+            featureName="Architecture Diagram"
+            description="Visualize your project structure, dependencies, and data flow in real time."
+          >
+            <ArchitectureTab teamId={scope.teamId} />
+          </EnterpriseFeatureGate>
+        </TabsContent>
+
+        {scope.teamId && (
+          <TabsContent value="security" className="space-y-6 animate-in fade-in-50 duration-500">
+            <TeamSecurityAudit teamId={scope.teamId} />
+          </TabsContent>
+        )}
+      </Tabs>
+    </div>
+  );
 }

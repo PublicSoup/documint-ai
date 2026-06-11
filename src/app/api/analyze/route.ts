@@ -12,6 +12,12 @@ import { uploadFile } from "@/lib/supabase/storage";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, ApiErrors } from "@/lib/api-utils";
 import { checkTeamPermission } from "@/lib/permissions";
+import {
+    detectLanguageFromPath,
+    isTextSourcePath,
+    normalizeProjectPath,
+    safeStorageKeyForProjectPath,
+} from "@/lib/project-files";
 
 const analyzeSchema = z.object({
     teamId: z.string().trim().min(1).max(100).optional(),
@@ -94,7 +100,19 @@ export async function POST(req: NextRequest) {
         }
 
         for (const file of files) {
-            const name = file.name;
+            const rawName = file.name;
+            const name = normalizeProjectPath(rawName);
+            if (!name || !isTextSourcePath(name)) {
+                results.push({
+                    fileId: "error",
+                    name: rawName,
+                    qualityScore: 0,
+                    securityInsights: ["Unsupported or unsafe project path"],
+                    status: "error",
+                });
+                continue;
+            }
+
             const extension = name.split(".").pop()?.toLowerCase() || "";
 
             try {
@@ -117,7 +135,7 @@ export async function POST(req: NextRequest) {
                 const analysisResult = analyzeCodeQuality(content, entities, extension);
 
                 // 5. Cloud Storage Persistance
-                const storagePath = `${userId}/${Date.now()}-${name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+                const storagePath = safeStorageKeyForProjectPath(userId, name);
                 const uploadedPath = await uploadFile(storagePath, content);
 
                 if (!uploadedPath) {
@@ -130,7 +148,7 @@ export async function POST(req: NextRequest) {
                         data: {
                             name,
                             storagePath: uploadedPath,
-                            language: extension,
+                            language: detectLanguageFromPath(name) || extension,
                             size: file.size,
                             userId: userId,
                             teamId: teamId || null,

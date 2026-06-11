@@ -16,6 +16,8 @@
  * syntax that the dashboard's Architecture tab renders with `mermaid.render`.
  */
 
+import { getProjectPathExtension, isGraphableSourcePath, normalizeProjectPath } from "@/lib/project-files";
+
 export type NodeType = "component" | "hook" | "lib" | "api" | "page" | "unknown";
 
 export interface GraphNode {
@@ -36,8 +38,10 @@ export interface ProjectGraph {
     edges: Array<{ from: string; to: string }>;
 }
 
-const EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
-const EXCLUDE_DIRS = ["node_modules", ".next", ".git", "dist", "build", "out", ".turbo"];
+const RESOLVABLE_EXTENSIONS = [
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts",
+    ".json", ".css", ".scss", ".sass", ".less", ".mdx",
+];
 const MAX_IMPORTS_PER_NODE = 50;
 
 // Risk thresholds (kept in sync with mermaid-adapter.ts).
@@ -63,7 +67,7 @@ function stableHash(input: string): string {
  * `page`).
  */
 export function classifyFileType(filePath: string): NodeType {
-    const segments = filePath.split("/").filter(Boolean);
+    const segments = filePath.toLowerCase().split("/").filter(Boolean);
     const last = segments[segments.length - 1] ?? "";
     const lowerLast = last.toLowerCase();
 
@@ -77,7 +81,7 @@ export function classifyFileType(filePath: string): NodeType {
 
     // 2. API routes — either an `api/` segment in the path, or a file named
     //    `route.ts` / `route.js`. The latter also catches `app/foo/route.ts`.
-    if (segments.includes("api")) return "api";
+    if (segments.includes("api") || filePath.toLowerCase().includes("/pages/api/")) return "api";
     if (lowerLast === "route.ts" || lowerLast === "route.js" ||
         lowerLast === "route.tsx" || lowerLast === "route.jsx") {
         return "api";
@@ -85,17 +89,18 @@ export function classifyFileType(filePath: string): NodeType {
 
     // 3. Hooks — a `hooks` segment, or filename starting with `use`.
     if (segments.includes("hooks") || segments.includes("hook")) return "hook";
-    if (/^use[A-Z0-9]/.test(lowerLast)) return "hook";
+    if (/^use[a-z0-9]/i.test(lowerLast)) return "hook";
 
     // 4. Library / utilities / services.
     if (segments.includes("lib") || segments.includes("libs") ||
         segments.includes("utils") || segments.includes("services") ||
-        segments.includes("shared") || segments.includes("helpers")) {
+        segments.includes("shared") || segments.includes("helpers") ||
+        segments.includes("config") || segments.includes("constants")) {
         return "lib";
     }
 
     // 5. Components — but exclude the `ui/` subfolder which holds primitives.
-    if (segments.includes("components") || segments.includes("component")) {
+    if (segments.includes("components") || segments.includes("component") || segments.includes("ui")) {
         const compIdx = segments.lastIndexOf("components");
         if (compIdx === -1 || segments[compIdx + 1] !== "ui") {
             return "component";
@@ -109,27 +114,110 @@ export function classifyFileType(filePath: string): NodeType {
  * Try to resolve an import path to a known file in the graph.
  * Handles missing extensions and barrel exports (index.ts).
  */
-function resolveImportPath(allKeys: string[], importPath: string): string | undefined {
-    if (allKeys.includes(importPath)) return importPath;
+function resolveImportPath(allKeys: Set<string>, importPath: string): string | undefined {
+    const normalized = normalizeProjectPath(importPath);
+    if (!normalized) return undefined;
+    if (allKeys.has(normalized)) return normalized;
 
-    for (const ext of EXTENSIONS) {
-        const withExt = importPath + ext;
-        if (allKeys.includes(withExt)) return withExt;
+    for (const ext of RESOLVABLE_EXTENSIONS) {
+        const withExt = normalized + ext;
+        if (allKeys.has(withExt)) return withExt;
     }
 
     // Barrel export: import from directory → resolve to index.ts/tsx/js
-    for (const ext of EXTENSIONS) {
-        const indexPath = importPath + "/index" + ext;
-        if (allKeys.includes(indexPath)) return indexPath;
+    for (const ext of RESOLVABLE_EXTENSIONS) {
+        const indexPath = normalized + "/index" + ext;
+        if (allKeys.has(indexPath)) return indexPath;
     }
 
     return undefined;
 }
 
-function shouldSkipDir(filePath: string): boolean {
-    return EXCLUDE_DIRS.some((dir) =>
-        filePath === dir || filePath.startsWith(dir + "/") || filePath.includes("/" + dir + "/"),
-    );
+function inferPackageName(files: Array<{ path: string; content: string }>): string | null {
+    const packageJson = files.find((file) => file.path.endsWith("package.json"));
+    if (!packageJson) return null;
+    try {
+        const parsed = JSON.parse(packageJson.content) as { name?: unknown };
+        return typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : null;
+    } catch {
+        return null;
+    }
+}
+
+function inferAliasCandidates(files: Array<{ path: string; content: string }>): Map<string, string[]> {
+    const aliases = new Map<string, string[]>([
+        ["@/", ["src/", ""]],
+        ["~/", ["src/", ""]],
+        ["#", ["src/", ""]],
+    ]);
+
+    for (const configName of ["tsconfig.json", "jsconfig.json"]) {
+        const config = files.find((file) => file.path.endsWith(configName));
+        if (!config) continue;
+        try {
+            const parsed = JSON.parse(config.content) as {
+                compilerOptions?: { baseUrl?: unknown; paths?: Record<string, string[]> };
+            };
+            const baseUrl = typeof parsed.compilerOptions?.baseUrl === "string"
+                ? parsed.compilerOptions.baseUrl.replace(/^\.\/?/, "").replace(/\/$/, "")
+                : "";
+            const paths = parsed.compilerOptions?.paths ?? {};
+            for (const [aliasPattern, targets] of Object.entries(paths)) {
+                const aliasPrefix = aliasPattern.replace(/\*.*$/, "");
+                if (!aliasPrefix) continue;
+                const roots = targets
+                    .map((target) => `${baseUrl ? `${baseUrl}/` : ""}${target.replace(/\*.*$/, "")}`)
+                    .map((target) => target.replace(/^\.\/?/, ""));
+                aliases.set(aliasPrefix, Array.from(new Set([...(aliases.get(aliasPrefix) ?? []), ...roots])));
+            }
+        } catch {
+            // Ignore malformed project configs; graph generation should degrade gracefully.
+        }
+    }
+
+    return aliases;
+}
+
+function resolveBareOrAliasImport(
+    allKeys: Set<string>,
+    importPath: string,
+    aliases: Map<string, string[]>,
+    packageName: string | null,
+): string | undefined {
+    for (const [alias, roots] of aliases) {
+        if (!importPath.startsWith(alias)) continue;
+        const suffix = importPath.slice(alias.length);
+        for (const root of roots) {
+            const candidate = `${root}${suffix}`.replace(/^\/+/, "");
+            const target = resolveImportPath(allKeys, candidate);
+            if (target) return target;
+        }
+    }
+
+    if (packageName && importPath.startsWith(`${packageName}/`)) {
+        return resolveImportPath(allKeys, importPath.slice(packageName.length + 1));
+    }
+
+    return undefined;
+}
+
+function resolveRelativeImport(allKeys: Set<string>, importerDir: string, importPath: string): string | undefined {
+    const parts = importerDir ? importerDir.split("/") : [];
+    for (const seg of importPath.split("/")) {
+        if (seg === "..") parts.pop();
+        else if (seg !== ".") parts.push(seg);
+    }
+    return resolveImportPath(allKeys, parts.join("/"));
+}
+
+function resolveFuzzyImport(allKeys: string[], importPath: string): string | undefined {
+    const cleanImp = importPath.replace(/^[@.\/~#]+/, "");
+    if (!cleanImp || cleanImp.length < 3) return undefined;
+
+    return allKeys.find((key) => {
+        const keyWithoutExt = key.replace(/\.[^/.]+$/, "");
+        return key.endsWith(cleanImp) || keyWithoutExt.endsWith(cleanImp);
+    });
 }
 
 /**
@@ -143,63 +231,52 @@ export async function buildProjectGraph(files: Array<{ path: string; content: st
     };
 
     // 1. Parse all files into nodes.
+    const normalizedFiles = files
+        .map((file) => ({ ...file, path: normalizeProjectPath(file.path) ?? "" }))
+        .filter((file) => file.path && isGraphableSourcePath(file.path));
+
     for (const file of files) {
-        if (shouldSkipDir(file.path)) continue;
+        const normalizedPath = normalizeProjectPath(file.path);
+        if (!normalizedPath || !isGraphableSourcePath(normalizedPath)) continue;
 
         try {
-            const node = parseFile(file.path, file.content ?? "");
-            graph.nodes.set(file.path, node);
+            const node = parseFile(normalizedPath, file.content ?? "");
+            graph.nodes.set(normalizedPath, node);
         } catch (e) {
             const reason = e instanceof Error ? e.message : String(e);
-            console.warn(`[project-graph] Failed to parse ${file.path}: ${reason}`);
+            console.warn(`[project-graph] Failed to parse ${normalizedPath}: ${reason}`);
         }
     }
 
     // 2. Build edges with smart import resolution.
     const allKeys = Array.from(graph.nodes.keys());
+    const allKeySet = new Set(allKeys);
+    const aliases = inferAliasCandidates(normalizedFiles);
+    const packageName = inferPackageName(normalizedFiles);
+    const seenEdges = new Set<string>();
 
     for (const [id, node] of graph.nodes) {
         const importerDir = id.includes("/") ? id.split("/").slice(0, -1).join("/") : "";
 
         for (const imp of node.imports) {
             // Skip node_modules / external packages.
-            if (!imp.startsWith(".") && !imp.startsWith("@/") && !imp.startsWith("~") && !imp.startsWith("#")) {
-                continue;
-            }
-
             let target: string | undefined;
 
-            // Strategy 1: Resolve @/ alias (Next.js convention → maps to src/).
-            if (imp.startsWith("@/")) {
-                const aliasPath = imp.replace(/^@\//, "src/");
-                target = resolveImportPath(allKeys, aliasPath);
-            }
+            // Strategy 1: Resolve relative imports (./foo, ../bar).
+            if (imp.startsWith(".")) target = resolveRelativeImport(allKeySet, importerDir, imp);
 
-            // Strategy 2: Resolve relative imports (./foo, ../bar).
-            if (!target && imp.startsWith(".")) {
-                const parts = importerDir.split("/");
-                const impParts = imp.split("/");
+            // Strategy 2: Resolve project aliases and package self-imports.
+            if (!target) target = resolveBareOrAliasImport(allKeySet, imp, aliases, packageName);
 
-                const resolvedParts = [...parts];
-                for (const seg of impParts) {
-                    if (seg === "..") resolvedParts.pop();
-                    else if (seg !== ".") resolvedParts.push(seg);
-                }
-                const resolvedPath = resolvedParts.join("/");
-                target = resolveImportPath(allKeys, resolvedPath);
-            }
-
-            // Strategy 3: Fuzzy suffix match (fallback).
-            if (!target) {
-                const cleanImp = imp.replace(/^[@\.\/~#]+/, "");
-                target = allKeys.find((k) => {
-                    const kWithoutExt = k.replace(/\.[^/.]+$/, "");
-                    return k.endsWith(cleanImp) || kWithoutExt.endsWith(cleanImp);
-                });
-            }
+            // Strategy 3: Fuzzy suffix match for partially uploaded projects.
+            if (!target) target = resolveFuzzyImport(allKeys, imp);
 
             if (target && target !== id) {
-                graph.edges.push({ from: id, to: target });
+                const edgeKey = `${id}->${target}`;
+                if (!seenEdges.has(edgeKey)) {
+                    seenEdges.add(edgeKey);
+                    graph.edges.push({ from: id, to: target });
+                }
             }
         }
     }
@@ -218,8 +295,9 @@ function parseFile(filePath: string, content: string): GraphNode {
     // Strip comments for more accurate metric calculation.
     const cleanContent = content.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "");
 
-    // Robust regex for ESM imports (handles multiline and mixed styles).
-    const importRegex = /import\s+(?:[\s\S]*?)\s+from\s+['"]([^'"]+)['"]/g;
+    // Robust regexes for common dependency declarations. This deliberately
+    // avoids full AST parsing so graph generation remains cheap and resilient.
+    const importRegex = /import\s+(?:type\s+)?(?:[\s\S]*?)\s+from\s+['"]([^'"]+)['"]/g;
     let match: RegExpExecArray | null;
     while ((match = importRegex.exec(cleanContent)) !== null) {
         imports.push(match[1]);
@@ -228,6 +306,28 @@ function parseFile(filePath: string, content: string): GraphNode {
     const sideEffectImportRegex = /import\s+['"]([^'"]+)['"]/g;
     while ((match = sideEffectImportRegex.exec(cleanContent)) !== null) {
         if (!imports.includes(match[1])) imports.push(match[1]);
+    }
+
+    const exportFromRegex = /export\s+(?:type\s+)?(?:[\s\S]*?)\s+from\s+['"]([^'"]+)['"]/g;
+    while ((match = exportFromRegex.exec(cleanContent)) !== null) {
+        imports.push(match[1]);
+    }
+
+    const requireRegex = /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g;
+    while ((match = requireRegex.exec(cleanContent)) !== null) {
+        imports.push(match[1]);
+    }
+
+    const dynamicImportRegex = /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g;
+    while ((match = dynamicImportRegex.exec(cleanContent)) !== null) {
+        imports.push(match[1]);
+    }
+
+    if ([".css", ".scss", ".sass", ".less"].includes(getProjectPathExtension(filePath))) {
+        const cssImportRegex = /@import\s+(?:url\()?['"]([^'"]+)['"]/g;
+        while ((match = cssImportRegex.exec(cleanContent)) !== null) {
+            imports.push(match[1]);
+        }
     }
 
     // Capture named and default exports.

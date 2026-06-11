@@ -1,4 +1,13 @@
 import { ProjectGraph, GraphNode, RISK_HIGH, RISK_MED } from "./project-graph";
+import { isGraphableSourcePath } from "@/lib/project-files";
+
+export interface MermaidGraphResult {
+    mermaid: string;
+    nodeMap: Record<string, string>;
+    renderedNodes: number;
+    renderedEdges: number;
+    truncated: boolean;
+}
 
 /**
  * Maximum number of nodes that the adapter will render. Larger graphs are
@@ -84,10 +93,7 @@ function pathSalt(filePath: string): string {
  * Files like `"use client";` or single-line directives should be skipped.
  */
 function isValidSourceFile(filePath: string): boolean {
-    if (filePath.startsWith('"') || filePath.startsWith("'")) return false;
-    if (filePath.includes("use client") || filePath.includes("use server")) return false;
-    if (!/\.\w+$/.test(filePath)) return false;
-    return true;
+    return isGraphableSourcePath(filePath);
 }
 
 function rankKey(node: GraphNode, edgeCount: number): number {
@@ -106,8 +112,9 @@ function rankKey(node: GraphNode, edgeCount: number): number {
  *  - Click handlers that call back into the React viewer with the file path.
  *  - A "summary" node that links to the top 3 hub files.
  */
-export function projectGraphToMermaid(graph: ProjectGraph): string {
+export function projectGraphToMermaidResult(graph: ProjectGraph): MermaidGraphResult {
     let mermaid = "flowchart TD\n";
+    const nodeMap: Record<string, string> = {};
 
     // Dark-mode optimized color palette.
     mermaid += "    classDef component fill:#1e3a5f,stroke:#3b82f6,stroke-width:2px,color:#93c5fd,rx:8,ry:8\n";
@@ -133,9 +140,15 @@ export function projectGraphToMermaid(graph: ProjectGraph): string {
     }
 
     if (folderGroups.size === 0) {
-        return `flowchart TD
+        return {
+            mermaid: `flowchart TD
     empty["📭 No source files found"]:::unknown
-    empty --- hint["Upload .ts, .tsx, .js files to see your architecture"]:::unknown`;
+    empty --- hint["Upload project source files to see your architecture"]:::unknown`,
+            nodeMap,
+            renderedNodes: 0,
+            renderedEdges: 0,
+            truncated: false,
+        };
     }
 
     // Compute degree per node so we can rank for truncation.
@@ -201,6 +214,7 @@ export function projectGraphToMermaid(graph: ProjectGraph): string {
             mermaid += `        ${safeId}["${sanitizeLabel(label)}"]:::${node.type}\n`;
             mermaid += `        class ${safeId} risk${bucket.charAt(0).toUpperCase() + bucket.slice(1)}\n`;
             mermaid += `        click ${safeId} call mermaidNodeClick("${sanitizeClickArg(id)}")\n`;
+            nodeMap[safeId] = id;
         }
         mermaid += `    end\n\n`;
     }
@@ -250,5 +264,15 @@ export function projectGraphToMermaid(graph: ProjectGraph): string {
         }
     }
 
-    return mermaid;
+    return {
+        mermaid,
+        nodeMap,
+        renderedNodes: renderedIds.size,
+        renderedEdges: edgeCount,
+        truncated,
+    };
+}
+
+export function projectGraphToMermaid(graph: ProjectGraph): string {
+    return projectGraphToMermaidResult(graph).mermaid;
 }

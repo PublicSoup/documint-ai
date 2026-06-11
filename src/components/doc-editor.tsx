@@ -1,19 +1,19 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "./toast";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import CodeArchaeology from "./code-archaeology";
 import CommentsSection from "./comments-section";
 import DocumentationTemplates from "./documentation-templates";
 import DocSuggestions from "./doc-suggestions";
 import { VerifiedBadge } from "./verified-badge";
 import { VersionHistory } from "./version-history";
-import { FileText, Edit2, Play, Users, Sparkles, Download, GitBranch, Github, Shovel, Loader2, Workflow, Globe, Save, X, RefreshCw, Headphones, ShieldCheck, Lock, Activity, Check, Trash2, History, Zap } from "lucide-react";
+import { FileText, Edit2, Play, Users, Sparkles, Download, GitBranch, Github, Shovel, Loader2, Workflow, Globe, Save, X, RefreshCw, Headphones, ShieldCheck, Lock, Activity, Check, Trash2, History, Zap, Code2, type LucideIcon } from "lucide-react";
 import { useDocActions } from "@/hooks/use-doc-actions";
 import { GithubModal } from "./doc-editor/github-modal";
 import { DiagramModal } from "./doc-editor/diagram-modal";
@@ -29,6 +29,82 @@ const DiagramViewer = dynamic(() => import("./diagram-viewer").then(mod => mod.D
         </div>
     )
 });
+
+export type ProjectViewMode = "docs" | "archaeology" | "code" | "deep-audit" | "history";
+
+const PROJECT_VIEW_MODE_VALUES = new Set<ProjectViewMode>([
+    "docs",
+    "archaeology",
+    "code",
+    "deep-audit",
+    "history",
+]);
+
+const PROJECT_VIEW_NAV: Array<{
+    mode: ProjectViewMode;
+    label: string;
+    description: string;
+    icon: LucideIcon;
+    accent: string;
+}> = [
+    { mode: "docs", label: "Documentation", description: "Approved narrative", icon: FileText, accent: "text-blue-300" },
+    { mode: "code", label: "Source", description: "Live source view", icon: Code2, accent: "text-emerald-300" },
+    { mode: "history", label: "History", description: "Version audit", icon: History, accent: "text-sky-300" },
+    { mode: "archaeology", label: "Archaeology", description: "Legacy signals", icon: Shovel, accent: "text-amber-300" },
+    { mode: "deep-audit", label: "Deep Analysis", description: "Risk & topology", icon: ShieldCheck, accent: "text-purple-300" },
+];
+
+function normalizeProjectViewMode(value: string | null | undefined): ProjectViewMode {
+    if (value === "standard") return "docs";
+    return value && PROJECT_VIEW_MODE_VALUES.has(value as ProjectViewMode)
+        ? (value as ProjectViewMode)
+        : "docs";
+}
+
+function ProjectViewSwitcher({
+    mode,
+    isPro,
+    onChange,
+}: {
+    mode: ProjectViewMode;
+    isPro: boolean;
+    onChange: (mode: ProjectViewMode) => void;
+}) {
+    return (
+        <div className="w-full rounded-2xl border border-white/10 bg-black/30 p-1 shadow-inner shadow-black/20">
+            <div className="grid grid-cols-2 gap-1 md:grid-cols-3 2xl:grid-cols-5">
+                {PROJECT_VIEW_NAV.map(({ mode: itemMode, label, description, icon: Icon, accent }) => {
+                    const active = mode === itemMode;
+                    const gated = itemMode === "deep-audit" && !isPro;
+
+                    return (
+                        <button
+                            key={itemMode}
+                            type="button"
+                            aria-pressed={active}
+                            onClick={() => onChange(itemMode)}
+                            className={cn(
+                                "group rounded-xl border px-3 py-2 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+                                active
+                                    ? "border-primary/40 bg-primary/15 text-white shadow-lg shadow-primary/10"
+                                    : "border-transparent text-white/50 hover:border-white/10 hover:bg-white/[0.04] hover:text-white/80"
+                            )}
+                        >
+                            <span className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest">
+                                <Icon className={cn("h-3.5 w-3.5", active ? accent : "text-white/30 group-hover:text-white/60")} />
+                                {label}
+                                {gated && <Lock className="h-3 w-3 text-amber-400/80" />}
+                            </span>
+                            <span className="mt-1 block truncate text-[10px] text-white/30">
+                                {description}
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
 
 export interface DocEntity {
     type: string;
@@ -66,10 +142,13 @@ interface DocEditorProps {
     isPublic: boolean;
     isPro: boolean;
     lockApproved?: boolean;
+    initialMode?: ProjectViewMode;
 }
 
-export default function DocEditor({ fileId, fileName, fileLanguage, initialContent, currentUser, isPublic: initialPublicState, isPro, lockApproved = false }: DocEditorProps) {
+export default function DocEditor({ fileId, fileName, fileLanguage, initialContent, currentUser, isPublic: initialPublicState, isPro, lockApproved = false, initialMode = "docs" }: DocEditorProps) {
     const router = useRouter();
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
     const { toast } = useToast();
     const [isEditing, setIsEditing] = useState(false);
     const [content, setContent] = useState<DocContent>(initialContent);
@@ -86,8 +165,8 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
     const [showPersonaModal, setShowPersonaModal] = useState(false);
     const [personaExplanation, setPersonaExplanation] = useState<{ persona: string; text: string } | null>(null);
 
-    // View Mode
-    const [mode, setMode] = useState<"standard" | "archaeology" | "code" | "deep-audit" | "history">("standard");
+    // Project view mode is URL-backed so navigation, refreshes, and shared links stay deterministic.
+    const [mode, setMode] = useState<ProjectViewMode>(() => initialMode);
 
     // GitHub Import State
     const [showGithubModal, setShowGithubModal] = useState(false);
@@ -103,7 +182,6 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
 
     // Translation State
     const [currentLang, setCurrentLang] = useState("English");
-    const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
 
     // Code View State
     const [rawContent, setRawContent] = useState<string | null>(null);
@@ -116,6 +194,46 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
     const [isSavingCode, setIsSavingCode] = useState(false);
     const [historyLoaded, setHistoryLoaded] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const projectStats = useMemo(() => [
+        {
+            label: "Quality",
+            value: typeof content.qualityScore === "number" ? `${content.qualityScore}/100` : "N/A",
+            tone: typeof content.qualityScore === "number" && content.qualityScore >= 80 ? "text-emerald-300" : "text-amber-300",
+        },
+        {
+            label: "LOC",
+            value: content.metadata?.linesOfCode?.toLocaleString() ?? "—",
+            tone: "text-blue-300",
+        },
+        {
+            label: "Entities",
+            value: content.entities?.length.toLocaleString() ?? "0",
+            tone: "text-purple-300",
+        },
+    ], [content.entities?.length, content.metadata?.linesOfCode, content.qualityScore]);
+
+    const teamId = searchParams.get("teamId");
+    const analyticsHref = teamId ? `/dashboard/analytics?teamId=${encodeURIComponent(teamId)}` : "/dashboard/analytics";
+
+    useEffect(() => {
+        const nextMode = normalizeProjectViewMode(searchParams.get("view"));
+        setMode((previous) => previous === nextMode ? previous : nextMode);
+    }, [searchParams]);
+
+    const handleModeChange = useCallback((nextMode: ProjectViewMode) => {
+        setMode(nextMode);
+
+        const nextParams = new URLSearchParams(searchParams.toString());
+        if (nextMode === "docs") {
+            nextParams.delete("view");
+        } else {
+            nextParams.set("view", nextMode);
+        }
+
+        const query = nextParams.toString();
+        router.replace(`${pathname}${query ? `?${query}` : ""}`, { scroll: false });
+    }, [pathname, router, searchParams]);
 
     useEffect(() => {
         if (mode === 'code') {
@@ -132,7 +250,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
 
                     if (res.status === 402 || res.status === 403) {
                         toast("Code View is a Pro feature. Please upgrade.", "error");
-                        setMode("standard");
+                        handleModeChange("docs");
                         // Optional: Redirect to billing or show upgrade modal
                         if (confirm("Code View is available on Pro & Team plans. Upgrade now?")) {
                             router.push("/dashboard/billing");
@@ -161,7 +279,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
             }
             setHistoryLoaded(true);
         }
-    }, [mode, fileId, rawContent, initialContent, historyLoaded]);
+    }, [mode, fileId, rawContent, initialContent, historyLoaded, handleModeChange, router, toast]);
 
     const handleSendChat = async () => {
         if (!chatInput.trim() || sendingChat) return;
@@ -331,11 +449,13 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
 
 
     return (
-        <div className="glass-card p-6 min-h-[500px]">
+        <div className="glass-card p-6 min-h-[500px] border border-white/10 bg-black/20 shadow-2xl shadow-black/20">
             {/* Header */}
-            <div className="border-b border-white/10 pb-4 mb-6 flex justify-between items-start">
+            <div className="mb-6 rounded-3xl border border-white/10 bg-gradient-to-br from-white/[0.07] via-white/[0.03] to-primary/[0.04] p-5 shadow-xl shadow-black/20">
+                <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
                 <div>
-                    <h2 className="text-2xl font-bold text-white">{fileName}</h2>
+                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-primary/80">Enterprise Project View</p>
+                    <h2 className="mt-1 text-2xl font-black tracking-tight text-white">{fileName}</h2>
                     <div className="flex gap-2 mt-2 flex-wrap">
                         <span className="px-2 py-1 bg-white/5 border-white/10/10 text-white/70 text-xs rounded uppercase font-bold">{fileLanguage}</span>
                         <VerifiedBadge
@@ -365,53 +485,51 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                             </span>
                         )}
                     </div>
+                    <div className="mt-4 grid grid-cols-3 gap-2 max-w-md">
+                        {projectStats.map((stat) => (
+                            <div key={stat.label} className="rounded-xl border border-white/10 bg-black/25 px-3 py-2">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-white/30">{stat.label}</p>
+                                <p className={cn("mt-1 text-sm font-black", stat.tone)}>{stat.value}</p>
+                            </div>
+                        ))}
+                    </div>
                 </div>
-                <div className="flex gap-2">
-                    <button
-                        onClick={() => setMode(mode === "code" ? "standard" : "code")}
-                        className={`px-3 py-2 text-sm font-medium rounded-lg flex items-center gap-2 border transition-colors ${mode === "code"
-                            ? "bg-green-500/20 text-green-300 border-green-500/30"
-                            : "bg-white/5 border-white/10/10 text-white/70 border-white/10 hover:bg-white/5 border-white/10/20"
-                            }`}
-                        title={mode === "code" ? "Return to docs" : "View source code"}
+                <div className="flex max-w-full flex-wrap items-center justify-start gap-2 xl:justify-end">
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-9 border border-white/10 bg-white/5 text-[10px] font-black uppercase tracking-widest text-white/60 hover:bg-white/10 hover:text-white"
+                        onClick={() => router.push("/code")}
                     >
-                        <FileText className="w-4 h-4" />
-                        Code
-                    </button>
-                    <button
-                        onClick={() => setMode(mode === "history" ? "standard" : "history")}
-                        className={`px-3 py-2 text-sm font-medium rounded-lg flex items-center gap-2 border transition-colors ${mode === "history"
-                            ? "bg-blue-500/20 text-blue-300 border-blue-500/30"
-                            : "bg-white/5 border-white/10/10 text-white/70 border-white/10 hover:bg-white/5 border-white/10/20"
-                            }`}
-                        title={mode === "history" ? "Return to docs" : "View version history"}
+                        <Code2 className="mr-2 h-3.5 w-3.5 text-primary" />
+                        Open IDE
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-9 border border-white/10 bg-white/5 text-[10px] font-black uppercase tracking-widest text-white/60 hover:bg-white/10 hover:text-white"
+                        onClick={() => router.push(analyticsHref)}
                     >
-                        <History className="w-4 h-4" />
-                        History
-                    </button>
-                    <button
-                        onClick={() => setMode(mode === "standard" ? "archaeology" : "standard")}
-                        className={`px-3 py-2 text-sm font-medium rounded-lg flex items-center gap-2 border transition-colors ${mode === "archaeology"
-                            ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
-                            : "bg-white/5 border-white/10/10 text-white/70 border-white/10 hover:bg-white/5 border-white/10/20"
-                            }`}
-                        title={mode === "archaeology" ? "Return to standard view" : "Analyze code history and fossils"}
+                        <Activity className="mr-2 h-3.5 w-3.5 text-purple-300" />
+                        Analytics
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-9 border border-white/10 bg-white/5 text-[10px] font-black uppercase tracking-widest text-white/60 hover:bg-white/10 hover:text-white"
+                        onClick={() => {
+                            const nextParams = new URLSearchParams(searchParams.toString());
+                            nextParams.delete("docId");
+                            nextParams.delete("view");
+                            const query = nextParams.toString();
+                            router.push(`${pathname}${query ? `?${query}` : ""}`);
+                        }}
                     >
-                        <Shovel className="w-4 h-4" />
-                        {mode === "archaeology" ? "Exit Excavation" : "Archaeology"}
-                    </button>
-                    <button
-                        onClick={() => setMode(mode === "deep-audit" ? "standard" : "deep-audit")}
-                        className={`px-3 py-2 text-sm font-medium rounded-lg flex items-center gap-2 border transition-colors ${mode === "deep-audit"
-                            ? "bg-purple-500/20 text-purple-300 border-purple-500/30"
-                            : "bg-white/5 border-white/10/10 text-white/70 border-white/10 hover:bg-white/5 border-white/10/20"
-                            }`}
-                        title={mode === "deep-audit" ? "Return to docs" : "Deep Security & Architectural Audit"}
-                    >
-                        <ShieldCheck className="w-4 h-4" />
-                        {!isPro && <Lock className="w-3 h-3 text-amber-500" />}
-                        {mode === "deep-audit" ? "Exit Audit" : "Deep Analysis"}
-                    </button>
+                        Workspace
+                    </Button>
                     {!isEditing && (
                         <>
                             <button
@@ -630,6 +748,11 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                         </button>
                     )}
                 </div>
+                </div>
+
+                <div className="mt-5 border-t border-white/10 pt-4">
+                    <ProjectViewSwitcher mode={mode} isPro={isPro} onChange={handleModeChange} />
+                </div>
             </div>
 
             {/* Drift Awareness Banner */}
@@ -787,7 +910,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                             fileId={fileId}
                             onRollback={(newContent) => {
                                 setContent(newContent);
-                                setMode("standard");
+                                handleModeChange("docs");
                             }}
                         />
                     </div>
@@ -917,7 +1040,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                             Upgrade to Pro
                                         </button>
                                         <button
-                                            onClick={() => setMode("standard")}
+                                            onClick={() => handleModeChange("docs")}
                                             className="text-sm text-zinc-500 hover:text-white transition-colors"
                                         >
                                             Maybe later
@@ -1204,7 +1327,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
 
             {/* Smart Suggestions - Pro Feature */}
             {
-                !isEditing && mode === "standard" && (
+                !isEditing && mode === "docs" && (
                     <div className="mt-8" id="smart-suggestions">
                         <DocSuggestions 
                             fileId={fileId} 
@@ -1216,7 +1339,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
 
             {/* Comments Section */}
             {
-                !isEditing && mode === "standard" && (
+                !isEditing && mode === "docs" && (
                     <CommentsSection fileId={fileId} />
                 )
             }

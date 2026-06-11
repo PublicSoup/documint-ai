@@ -2,7 +2,7 @@
 
 import { useCallback, useState, useRef } from "react";
 import { useDropzone } from "react-dropzone";
-import { UploadCloud, File as FileIcon, X, FolderOpen, Zap, CheckCircle2, AlertCircle, Loader2, Sparkles, Shield, Cpu, FileText } from "lucide-react";
+import { UploadCloud, File as FileIcon, X, FolderOpen, Zap, CheckCircle2, AlertCircle, Sparkles, Shield, Cpu, FileText } from "lucide-react";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { useRouter } from "next/navigation";
 import { Button } from "./ui/button";
@@ -14,6 +14,17 @@ const SUPPORTED_EXTENSIONS = [
     ".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".cs", ".cpp", ".c", ".rb", ".php",
     ".html", ".css", ".json", ".md", ".sql", ".sh", ".yaml", ".yml", ".xml", ".h", ".hpp", ".swift", ".kt", ".dart"
 ];
+
+function getUploadPath(file: File): string {
+    return file.webkitRelativePath || file.name;
+}
+
+interface UploadComplexityMetrics {
+    cyclomaticComplexity?: number;
+    nestingDepth?: number;
+}
+
+const directoryInputProps: Record<string, string> = { webkitdirectory: "", directory: "" };
 
 interface FileUploadProps {
     teamId?: string;
@@ -33,7 +44,7 @@ export default function FileUpload({ teamId, isPro = false, customTrigger }: Fil
         score: number;
         status: "success" | "error";
         securityInsights?: string[];
-        complexity?: any;
+        complexity?: UploadComplexityMetrics;
         dependencies?: string[];
         architectureViolations?: string[];
         performanceBottlenecks?: string[];
@@ -42,7 +53,8 @@ export default function FileUpload({ teamId, isPro = false, customTrigger }: Fil
 
     const filterCodeFiles = (fileList: File[]): File[] => {
         return fileList.filter(file => {
-            const ext = "." + file.name.split(".").pop()?.toLowerCase();
+            const uploadPath = getUploadPath(file);
+            const ext = "." + uploadPath.split(".").pop()?.toLowerCase();
             return SUPPORTED_EXTENSIONS.includes(ext);
         });
     };
@@ -77,10 +89,11 @@ export default function FileUpload({ teamId, isPro = false, customTrigger }: Fil
         try {
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
-                setProgress({ current: i + 1, total: files.length, filename: file.name, status: "AI Analysis" });
+                const uploadPath = getUploadPath(file);
+                setProgress({ current: i + 1, total: files.length, filename: uploadPath, status: "AI Analysis" });
 
                 const formData = new FormData();
-                formData.append("files", file);
+                formData.append("files", file, uploadPath);
                 if (teamId) formData.append("teamId", teamId);
 
                 try {
@@ -100,7 +113,7 @@ export default function FileUpload({ teamId, isPro = false, customTrigger }: Fil
                     if (data.results?.length > 0) {
                         const result = data.results[0];
                         newResults.push({
-                            name: file.name,
+                            name: result.name || uploadPath,
                             score: result.qualityScore || 85,
                             status: result.status,
                             securityInsights: result.securityInsights,
@@ -112,7 +125,7 @@ export default function FileUpload({ teamId, isPro = false, customTrigger }: Fil
                         if (result.status === "success") lastDocId = result.fileId;
                     }
                 } catch {
-                    newResults.push({ name: file.name, score: 0, status: "error" });
+                    newResults.push({ name: uploadPath, score: 0, status: "error" });
                 }
             }
             setResults(newResults);
@@ -123,7 +136,7 @@ export default function FileUpload({ teamId, isPro = false, customTrigger }: Fil
                     router.refresh();
                 }, 4000);
             }
-        } catch (error) {
+        } catch {
             toast("Analysis interrupted", "error");
         } finally {
             setUploading(false);
@@ -153,7 +166,7 @@ export default function FileUpload({ teamId, isPro = false, customTrigger }: Fil
                     }`}
             >
                 <input {...getInputProps()} />
-                <input type="file" ref={folderInputRef} onChange={handleFolderSelect} {...{ webkitdirectory: "", directory: "" } as any} multiple className="hidden" />
+                <input type="file" ref={folderInputRef} onChange={handleFolderSelect} {...directoryInputProps} multiple className="hidden" />
 
                 <div className="relative z-10 flex flex-col items-center">
                     <motion.div
@@ -451,7 +464,7 @@ export default function FileUpload({ teamId, isPro = false, customTrigger }: Fil
                                         <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center shrink-0">
                                             <FileText className="w-4 h-4 text-primary" />
                                         </div>
-                                        <span className="text-sm text-white/80 truncate">{file.name}</span>
+                                        <span className="text-sm text-white/80 truncate">{getUploadPath(file)}</span>
                                     </div>
                                     <button onClick={() => removeFile(file)} className="text-white/30 hover:text-rose-400 p-1 ml-2">
                                         <X className="w-4 h-4" />

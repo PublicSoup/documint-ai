@@ -10,15 +10,12 @@ import {
     Activity,
     BookOpen,
     HardDrive,
-    ShieldCheck,
     Clock,
-    Link2,
     Zap,
     FileText,
     ChevronDown,
     ChevronRight,
     ExternalLink,
-    Loader2,
     RefreshCw,
     type LucideIcon,
 } from "lucide-react";
@@ -212,9 +209,6 @@ export function FileInsightsSidebar({ fileId, teamId }: FileInsightsSidebarProps
 
     useEffect(() => {
         let cancelled = false;
-        setLoading(true);
-        setError(null);
-
         fetch(`/api/files/${fileId}/metrics`)
             .then((res) => {
                 if (!res.ok) throw new Error("Failed to load metrics");

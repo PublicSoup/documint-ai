@@ -1,12 +1,14 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import mermaid from "mermaid";
 import { Loader2, Download, RefreshCcw, Maximize2, Minimize2, Move } from "lucide-react";
+import { renderMermaidDiagram } from "@/components/diagram-viewer/mermaid-renderer";
+import { decodeMermaidIdArg } from "@/components/diagram-viewer/svg-sanitize";
 
 interface DiagramViewerProps {
     code: string;
     type?: string;
+    nodeMap?: Record<string, string>;
     onNodeClick?: (id: string) => void;
     /** Optional: called when render errors. Useful for the parent to surface a toast. */
     onError?: (error: string) => void;
@@ -20,105 +22,11 @@ declare global {
     }
 }
 
-const MAX_DIAGRAM_CHARS = 100_000;
 const ZOOM_MIN = 0.2;
 const ZOOM_MAX = 5;
 const ZOOM_STEP = 1.2;
 
-let mermaidInitPromise: Promise<void> | null = null;
-
-/**
- * Initialize Mermaid exactly once for the lifetime of the page. Subsequent
- * re-renders reuse the same configuration. Without this, the initialize
- * call would re-run every time the `onNodeClick` prop identity changes.
- */
-function ensureMermaidInitialized(): Promise<void> {
-    if (mermaidInitPromise) return mermaidInitPromise;
-    mermaidInitPromise = (async () => {
-        mermaid.initialize({
-            startOnLoad: false,
-            theme: "dark",
-            themeVariables: {
-                darkMode: true,
-                background: "#0c0c0e",
-                primaryColor: "#3b82f6",
-                primaryTextColor: "#e2e8f0",
-                primaryBorderColor: "#6366f1",
-                lineColor: "#6366f1",
-                secondaryColor: "#10b981",
-                tertiaryColor: "#1e1b4b",
-                edgeLabelBackground: "#1e1b4b",
-                nodeTextColor: "#e2e8f0",
-                clusterBkg: "#1a1a2e",
-                clusterBorder: "#334155",
-                titleColor: "#e2e8f0",
-            },
-            securityLevel: "strict",
-            fontFamily: "'Inter', 'Segoe UI', sans-serif",
-            flowchart: {
-                htmlLabels: false,
-                curve: "basis",
-                padding: 16,
-                nodeSpacing: 40,
-                rankSpacing: 50,
-            },
-        });
-    })();
-    return mermaidInitPromise;
-}
-
-function sanitizeMermaidInput(input: string): string {
-    return input
-        .replace(/\u0000/g, "")
-        .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
-        .trim()
-        .slice(0, MAX_DIAGRAM_CHARS);
-}
-
-function isSafeSvgUrl(rawValue: string): boolean {
-    const value = rawValue.trim().toLowerCase();
-    if (!value) return true;
-    if (value.startsWith("#") || value.startsWith("/")) return true;
-    if (value.startsWith("data:")) return false; // block data: URIs as a hardening measure
-    return value.startsWith("http://") || value.startsWith("https://") || value.startsWith("mailto:") || value.startsWith("tel:");
-}
-
-function sanitizeSvg(svg: string): string {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(svg, "image/svg+xml");
-
-    const forbiddenTags = ["script", "foreignObject", "iframe", "object", "embed", "link"];
-    for (const tag of forbiddenTags) {
-        doc.querySelectorAll(tag).forEach((node) => node.remove());
-    }
-
-    doc.querySelectorAll("*").forEach((element) => {
-        const attrs = [...element.attributes];
-        for (const attr of attrs) {
-            const name = attr.name.toLowerCase();
-            const value = attr.value;
-
-            if (name.startsWith("on")) {
-                element.removeAttribute(attr.name);
-                continue;
-            }
-
-            if (name === "href" || name === "xlink:href") {
-                if (!isSafeSvgUrl(value)) {
-                    element.removeAttribute(attr.name);
-                }
-            }
-        }
-    });
-
-    return new XMLSerializer().serializeToString(doc);
-}
-
-function decodeMermaidIdArg(raw: string): string {
-    return raw.replace(/#quot;/g, '"');
-}
-
-export function DiagramViewer({ code, type = "class", onNodeClick, onError, onRendered }: DiagramViewerProps) {
+export function DiagramViewer({ code, type = "class", nodeMap, onNodeClick, onError, onRendered }: DiagramViewerProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const innerRef = useRef<HTMLDivElement>(null);
     const renderIdRef = useRef(0);
@@ -139,7 +47,6 @@ export function DiagramViewer({ code, type = "class", onNodeClick, onError, onRe
     }, [onNodeClick]);
 
     useEffect(() => {
-        ensureMermaidInitialized();
         window.mermaidNodeClick = (id: string) => {
             onNodeClickRef.current?.(decodeMermaidIdArg(id));
         };
@@ -158,15 +65,12 @@ export function DiagramViewer({ code, type = "class", onNodeClick, onError, onRe
             setError(null);
 
             try {
-                await ensureMermaidInitialized();
-                const safeInput = sanitizeMermaidInput(code);
                 const id = `mermaid-${Math.random().toString(36).slice(2, 11)}`;
-                const rendered = await mermaid.render(id, safeInput);
+                const sanitized = await renderMermaidDiagram(id, code);
 
                 // If another render has started in the meantime, drop this one.
                 if (currentRenderId !== renderIdRef.current) return;
 
-                const sanitized = sanitizeSvg(rendered.svg);
                 setSvg(sanitized);
                 setTransform({ k: 1, x: 0, y: 0 });
                 onRendered?.(sanitized);
@@ -285,6 +189,12 @@ export function DiagramViewer({ code, type = "class", onNodeClick, onError, onRe
 
             if (!rawId) return;
 
+            const mappedId = idAttr ? nodeMap?.[idAttr] : undefined;
+            if (mappedId) {
+                onNodeClick(mappedId);
+                return;
+            }
+
             // The id attribute is a sanitized id like `nABCD_xxx`. We can't
             // reverse that without a server-side id map, so for click-handler
             // purposes we forward the title (the file path) when present.
@@ -298,7 +208,7 @@ export function DiagramViewer({ code, type = "class", onNodeClick, onError, onRe
 
         container.addEventListener("click", onSvgClick);
         return () => container.removeEventListener("click", onSvgClick);
-    }, [onNodeClick, svg]);
+    }, [nodeMap, onNodeClick, svg]);
 
     // Fullscreen toggle
     const toggleFullscreen = useCallback(() => {

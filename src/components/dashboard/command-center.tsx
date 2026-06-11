@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
     Sparkles,
     TrendingUp,
-    GitBranch,
     Zap,
     Activity,
     AlertTriangle,
@@ -16,15 +15,12 @@ import {
     BarChart3,
     Shield,
     Target,
-    Users,
     CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { formatDistanceToNow } from "date-fns";
 import type { PriorityAction, Hotspot } from "@/app/dashboard/actions";
 import GitHubImport from "@/components/github-import";
-import FileUpload from "@/components/file-upload";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -47,7 +43,6 @@ interface CommandCenterProps {
     files: FileWithDocs[];
     priorityActions: PriorityAction[];
     hotspots: Hotspot[];
-    subscription: { isPro: boolean; isTeam: boolean };
     totalFilesCount: number;
     verifiedDocsCount: number;
 }
@@ -265,7 +260,6 @@ export function CommandCenter({
     files,
     priorityActions,
     hotspots,
-    subscription,
     totalFilesCount,
     verifiedDocsCount,
 }: CommandCenterProps) {

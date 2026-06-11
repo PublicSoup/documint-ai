@@ -8,15 +8,7 @@ import { buildFileTree, filterTree, type TreeNode } from "@/lib/file-tree";
 interface FileWithDocs {
     id: string;
     name: string;
-    language: string;
-    size: number;
-    createdAt: Date;
-    documentation: {
-        content: string;
-        verifiedAt?: Date | null;
-        verifiedById?: string | null;
-        status: string;
-    } | null;
+    language?: string | null;
 }
 
 interface DashboardFileTreeProps {
@@ -31,7 +23,7 @@ export function DashboardFileTree({ files, selectedFileId, teamId }: DashboardFi
         new Set(["Project"])
     );
 
-    const treeStructure = useMemo(() => buildFileTree(files as unknown as { id: string; name: string; language?: string | null }[]), [files]);
+    const treeStructure = useMemo(() => buildFileTree(files), [files]);
     const filteredTree = useMemo(
         () => filterTree(treeStructure, search),
         [treeStructure, search]
