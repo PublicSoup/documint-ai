@@ -34,7 +34,7 @@ import { IDEActivityBar } from "./activity-bar";
 import { IDEInspectorPanels } from "./ide-inspector-panels";
 import { IDESidebar } from "./ide-sidebar";
 import type { IDEFile, IDEUser, SidebarTab, SubscriptionInfo } from "./shared/types";
-import { detectRuntimeProject, extractTopLevelFolders, filterFilesByWorkspace, getResponseErrorMessage, slugifyProjectName } from "./shared/ide-constants";
+import { choosePreferredWorkspace, detectRuntimeProject, extractTopLevelFolders, filterFilesByWorkspace, getResponseErrorMessage, slugifyProjectName } from "./shared/ide-constants";
 
 interface EnhancedIDELayoutProps {
     files: IDEFile[];
@@ -82,6 +82,12 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
     const workspaceOptions = useMemo(() => {
         return ["Project", ...extractTopLevelFolders(files)];
     }, [files]);
+
+    useEffect(() => {
+        if (activeWorkspace !== "Project") return;
+        const preferredWorkspace = choosePreferredWorkspace(files);
+        if (preferredWorkspace) setActiveWorkspace(preferredWorkspace);
+    }, [activeWorkspace, files]);
     const visibleFiles = useMemo(() => {
         return filterFilesByWorkspace(files, activeWorkspace);
     }, [activeWorkspace, files]);

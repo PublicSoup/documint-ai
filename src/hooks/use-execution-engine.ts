@@ -8,6 +8,8 @@ import type {
   RuntimeProjectManifest,
 } from "@/components/ide/shared/types";
 import {
+  extractTopLevelFolders,
+  getRunnableWorkspaceCandidates,
   detectRuntimeProject,
   isSafeWorkspacePath,
   toWorkspaceRelativePath,
@@ -912,7 +914,10 @@ export function useExecutionEngine({
 
       const installCommand = getInstallCommand(packageManager);
       setRunStatus("installing");
-      writeRuntimeLine(term, `\r\n> ${formatCommand(installCommand)}\r\n`);
+      writeRuntimeLine(
+        term,
+        `\r\n> ${formatCommand(installCommand)}\r\n`,
+      );
       const installResult = await spawnTracked(
         installCommand.command,
         installCommand.args,
@@ -1029,7 +1034,7 @@ export function useExecutionEngine({
 
       setIsRuntimeTaskRunning(true);
       try {
-        await mountAll(filesRef.current);
+        await mountAll(filesRef.current, workspacePrefix);
         const runtimeProject = detectRuntimeProject(
           filesRef.current,
           workspacePrefix,
@@ -1120,6 +1125,23 @@ export function useExecutionEngine({
 
     try {
       const runtimeProject = detectRuntimeProject(files, workspacePrefix);
+      const topLevelFolders = extractTopLevelFolders(files);
+      const runnableWorkspaces = workspacePrefix === "Project"
+        ? getRunnableWorkspaceCandidates(files)
+        : [];
+
+      if (workspacePrefix === "Project" && runnableWorkspaces.length > 1) {
+        const choices = runnableWorkspaces
+          .map((candidate) => candidate.workspace)
+          .filter((value): value is string => Boolean(value));
+        failRuntime({
+          code: "ENTRYPOINT_NOT_FOUND",
+          message: "Multiple runnable workspaces detected.",
+          details: `Select one workspace before previewing: ${[...new Set(choices.length > 0 ? choices : topLevelFolders)].join(", ")}`,
+          term,
+        });
+        return;
+      }
       const packageJsonFile =
         runtimeProject.kind === "node" ? runtimeProject.packageFile : undefined;
       const staticEntryPath = STATIC_ENTRY_CANDIDATES.find((candidate) =>
@@ -1147,7 +1169,7 @@ export function useExecutionEngine({
       }
 
       if (!(await ensureBooted(term))) return;
-      await mountAll(files);
+      await mountAll(files, workspacePrefix);
 
       if (packageJsonFile) {
         const pkgJsonStr = getMountContent(packageJsonFile) || "{}";

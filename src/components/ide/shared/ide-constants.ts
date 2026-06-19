@@ -117,6 +117,27 @@ export function filterFilesByWorkspace<T extends Pick<IDEFile, "name">>(files: T
     return files.filter((file) => normalizeWorkspaceName(file.name).startsWith(prefix));
 }
 
+export function getRunnableWorkspaceCandidates(files: IDEFile[]): RuntimeProjectManifest[] {
+    return extractTopLevelFolders(files)
+        .map((workspace) => ({ ...detectRuntimeProject(files, workspace), workspace }))
+        .filter((manifest) => manifest.kind !== "unknown" && Boolean(manifest.entryFile));
+}
+
+export function choosePreferredWorkspace(files: IDEFile[]): string | null {
+    const folders = extractTopLevelFolders(files);
+    if (folders.length === 0) return null;
+
+    const runnable = folders
+        .map((workspace) => ({ workspace, manifest: detectRuntimeProject(files, workspace) }))
+        .filter(({ manifest }) => manifest.kind !== "unknown" && Boolean(manifest.entryFile));
+
+    return runnable.find(({ manifest }) => manifest.kind === "node")?.workspace
+        ?? runnable.find(({ manifest }) => manifest.kind === "static")?.workspace
+        ?? runnable[0]?.workspace
+        ?? folders[0]
+        ?? null;
+}
+
 export function parseGitStatus(rawStatus: string): ParsedGitStatus {
     const lines = rawStatus
         .split("\n")
@@ -148,6 +169,7 @@ export function detectRuntimeProject(files: IDEFile[], workspacePrefix?: string 
     if (packageFile) {
         return {
             kind: "node",
+            workspace: workspacePrefix && workspacePrefix !== "Project" ? normalizeWorkspaceName(workspacePrefix) : undefined,
             packageFile,
             entryFile: "package.json",
             previewableInBrowser: true,
@@ -160,6 +182,7 @@ export function detectRuntimeProject(files: IDEFile[], workspacePrefix?: string 
         const mainFile = findWorkspaceFile("src/main.rs");
         return {
             kind: "rust",
+            workspace: workspacePrefix && workspacePrefix !== "Project" ? normalizeWorkspaceName(workspacePrefix) : undefined,
             cargoFile,
             entryFile: mainFile?.name || "Cargo.toml",
             previewableInBrowser: false,
@@ -172,6 +195,7 @@ export function detectRuntimeProject(files: IDEFile[], workspacePrefix?: string 
     if (pythonEntry || findWorkspaceFile("requirements.txt") || findWorkspaceFile("pyproject.toml")) {
         return {
             kind: "python",
+            workspace: workspacePrefix && workspacePrefix !== "Project" ? normalizeWorkspaceName(workspacePrefix) : undefined,
             entryFile: pythonEntry?.name || "pyproject.toml",
             previewableInBrowser: false,
             requiresSandbox: true,
@@ -183,6 +207,7 @@ export function detectRuntimeProject(files: IDEFile[], workspacePrefix?: string 
     if (goEntry || findWorkspaceFile("go.mod")) {
         return {
             kind: "go",
+            workspace: workspacePrefix && workspacePrefix !== "Project" ? normalizeWorkspaceName(workspacePrefix) : undefined,
             entryFile: goEntry?.name || "go.mod",
             previewableInBrowser: false,
             requiresSandbox: true,
@@ -194,6 +219,7 @@ export function detectRuntimeProject(files: IDEFile[], workspacePrefix?: string 
     if (javaEntry || findWorkspaceFile("pom.xml") || findWorkspaceFile("build.gradle") || findWorkspaceFile("build.gradle.kts")) {
         return {
             kind: "java",
+            workspace: workspacePrefix && workspacePrefix !== "Project" ? normalizeWorkspaceName(workspacePrefix) : undefined,
             entryFile: javaEntry?.name || "pom.xml",
             previewableInBrowser: false,
             requiresSandbox: true,
@@ -205,6 +231,7 @@ export function detectRuntimeProject(files: IDEFile[], workspacePrefix?: string 
     if (phpEntry || findWorkspaceFile("composer.json")) {
         return {
             kind: "php",
+            workspace: workspacePrefix && workspacePrefix !== "Project" ? normalizeWorkspaceName(workspacePrefix) : undefined,
             entryFile: phpEntry?.name || "composer.json",
             previewableInBrowser: false,
             requiresSandbox: true,
@@ -216,6 +243,7 @@ export function detectRuntimeProject(files: IDEFile[], workspacePrefix?: string 
     if (shellEntry) {
         return {
             kind: "shell",
+            workspace: workspacePrefix && workspacePrefix !== "Project" ? normalizeWorkspaceName(workspacePrefix) : undefined,
             entryFile: shellEntry.name,
             previewableInBrowser: false,
             requiresSandbox: true,
@@ -230,6 +258,7 @@ export function detectRuntimeProject(files: IDEFile[], workspacePrefix?: string 
     if (dockerFile) {
         return {
             kind: "docker",
+            workspace: workspacePrefix && workspacePrefix !== "Project" ? normalizeWorkspaceName(workspacePrefix) : undefined,
             entryFile: dockerFile.name,
             previewableInBrowser: false,
             requiresSandbox: true,
@@ -240,6 +269,7 @@ export function detectRuntimeProject(files: IDEFile[], workspacePrefix?: string 
     const staticEntry = findWorkspaceFile("index.html");
     return {
         kind: staticEntry ? "static" : "unknown",
+        workspace: workspacePrefix && workspacePrefix !== "Project" ? normalizeWorkspaceName(workspacePrefix) : undefined,
         entryFile: staticEntry?.name,
         previewableInBrowser: Boolean(staticEntry),
         requiresSandbox: false,

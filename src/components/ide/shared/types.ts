@@ -121,6 +121,7 @@ export interface RuntimeErrorInfo {
 
 export interface RuntimeProjectManifest {
   kind: RuntimeKind;
+  workspace?: string;
   entryFile?: string;
   packageFile?: IDEFile;
   cargoFile?: IDEFile;
