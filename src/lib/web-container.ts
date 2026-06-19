@@ -124,6 +124,30 @@ function isRecoverableWebContainerError(error: unknown): boolean {
   );
 }
 
+function assertWebContainerPreflight(): void {
+  if (typeof window === "undefined") {
+    throw new Error("WebContainer can only boot in a browser environment.");
+  }
+
+  if (!globalThis.isSecureContext) {
+    throw new Error(
+      "WebContainer requires a secure browser context. Use HTTPS or localhost.",
+    );
+  }
+
+  if (!globalThis.crossOriginIsolated) {
+    throw new Error(
+      "WebContainer requires cross-origin isolation. Ensure /code sends Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: credentialless.",
+    );
+  }
+
+  if (typeof globalThis.SharedArrayBuffer === "undefined") {
+    throw new Error(
+      "WebContainer requires SharedArrayBuffer, but it is unavailable in this browser context.",
+    );
+  }
+}
+
 async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -144,11 +168,12 @@ export class WebContainerManager {
   private static async runWithRecovery<T>(
     operation: () => Promise<T>,
     operationName: string,
+    timeoutMs = DEFAULT_OP_TIMEOUT_MS,
   ): Promise<T> {
     try {
       return await withTimeout(
         operation(),
-        DEFAULT_OP_TIMEOUT_MS,
+        timeoutMs,
         operationName,
       );
     } catch (error) {
@@ -162,7 +187,7 @@ export class WebContainerManager {
       await this.reset(`recovered after ${operationName}`);
       return await withTimeout(
         operation(),
-        DEFAULT_OP_TIMEOUT_MS,
+        timeoutMs,
         `${operationName} (retry)`,
       );
     }
@@ -202,6 +227,7 @@ export class WebContainerManager {
 
     for (let attempt = 1; attempt <= MAX_BOOT_RETRIES; attempt += 1) {
       try {
+        assertWebContainerPreflight();
         const instance = await WebContainer.boot();
 
         // Provision essential environment config immediately after boot.
@@ -267,14 +293,12 @@ export class WebContainerManager {
     command: string,
     options: SpawnOptions = {},
   ): Promise<WebContainerProcess> {
-    const process = await this.runWithRecovery(async () => {
-      const instance = await this.getInstance();
-      const spawnOpts =
-        options.cwd || options.env
-          ? { cwd: options.cwd, env: options.env }
-          : undefined;
-      return await instance.spawn(command, options.args ?? [], spawnOpts);
-    }, `spawn ${command}`);
+    const instance = await this.getInstance();
+    const spawnOpts =
+      options.cwd || options.env
+        ? { cwd: options.cwd, env: options.env }
+        : undefined;
+    const process = await instance.spawn(command, options.args ?? [], spawnOpts);
 
     if (options.processId) {
       trackProcess(options.processId, process);
