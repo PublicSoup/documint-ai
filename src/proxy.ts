@@ -62,7 +62,7 @@ export async function proxy(request: NextRequest) {
     }
     response.headers.set("Origin-Agent-Cluster", "?1");
 
-    const csp = isCode ? `
+    const csp = (isCode ? `
     default-src 'self';
     script-src 'self' 'unsafe-eval' 'unsafe-inline' blob: https://va.vercel-scripts.com https://cdn.jsdelivr.net https://*.webcontainer-api.io https://*.stackblitz.io https://*.local-credentialless.webcontainer.io;
     style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net;
@@ -82,7 +82,8 @@ export async function proxy(request: NextRequest) {
     frame-src 'self' blob: https://*.auth0.com https://checkout.stripe.com https://js.stripe.com https://stackblitz.com;
     worker-src 'self' blob:;
     frame-ancestors 'self';
-  `
+  `)
+        .replace(/[\r\n]+/g, " ")
         .replace(/\s{2,}/g, " ")
         .trim();
 
