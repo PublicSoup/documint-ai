@@ -11,6 +11,14 @@ interface CommandPaletteProps {
     files: File[];
     onSelectFile: (fileId: string) => void;
     onRunCommand?: (commandId: string) => void;
+    runtimeAvailability?: {
+        canRun: boolean;
+        canBuild: boolean;
+        canTest: boolean;
+        runDisabledReason?: string;
+        buildDisabledReason?: string;
+        testDisabledReason?: string;
+    };
 }
 
 interface Command {
@@ -19,6 +27,7 @@ interface Command {
     category: string;
     icon: React.ReactNode;
     shortcut?: string;
+    disabledReason?: string;
 }
 
 const COMMANDS: Command[] = [
@@ -28,13 +37,13 @@ const COMMANDS: Command[] = [
     { id: "toggle-terminal", label: "Toggle Terminal", category: "View", icon: <Terminal className="w-4 h-4" />, shortcut: "Ctrl+`" },
     { id: "toggle-minimap", label: "Toggle Minimap", category: "View", icon: <Map className="w-4 h-4" /> },
     { id: "toggle-sidebar", label: "Toggle Sidebar", category: "View", icon: <Columns className="w-4 h-4" />, shortcut: "Ctrl+B" },
-    { id: "format-document", label: "Format Document", category: "Edit", icon: <Sparkles className="w-4 h-4" />, shortcut: "Shift+Alt+F" },
-    { id: "go-to-settings", label: "Open Settings", category: "Preferences", icon: <Settings className="w-4 h-4" />, shortcut: "Ctrl+," },
-    { id: "toggle-wordwrap", label: "Toggle Word Wrap", category: "View", icon: <Eye className="w-4 h-4" />, shortcut: "Alt+Z" },
-    { id: "keyboard-shortcuts", label: "Keyboard Shortcuts Reference", category: "Help", icon: <Keyboard className="w-4 h-4" />, shortcut: "Ctrl+K Ctrl+S" },
+    { id: "format-document", label: "Format Document", category: "Edit", icon: <Sparkles className="w-4 h-4" /> },
+    { id: "go-to-settings", label: "Open Keyboard Shortcuts", category: "Preferences", icon: <Settings className="w-4 h-4" /> },
+    { id: "toggle-wordwrap", label: "Toggle Word Wrap", category: "View", icon: <Eye className="w-4 h-4" /> },
+    { id: "keyboard-shortcuts", label: "Keyboard Shortcuts Reference", category: "Help", icon: <Keyboard className="w-4 h-4" /> },
 ];
 
-export function CommandPalette({ isOpen, onClose, files, onSelectFile, onRunCommand }: CommandPaletteProps) {
+export function CommandPalette({ isOpen, onClose, files, onSelectFile, onRunCommand, runtimeAvailability }: CommandPaletteProps) {
     const [query, setQuery] = useState("");
     const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -48,13 +57,26 @@ export function CommandPalette({ isOpen, onClose, files, onSelectFile, onRunComm
     }, [files, searchQuery, isCommandMode]);
 
     const filteredCommands = useMemo(() => {
+        const commands = COMMANDS.map((command) => {
+            if (command.id === "run-project" && runtimeAvailability && !runtimeAvailability.canRun) {
+                return { ...command, disabledReason: runtimeAvailability.runDisabledReason || "Runtime is busy" };
+            }
+            if (command.id === "build-project" && runtimeAvailability && !runtimeAvailability.canBuild) {
+                return { ...command, disabledReason: runtimeAvailability.buildDisabledReason || "Build unavailable" };
+            }
+            if (command.id === "test-project" && runtimeAvailability && !runtimeAvailability.canTest) {
+                return { ...command, disabledReason: runtimeAvailability.testDisabledReason || "Test unavailable" };
+            }
+            return command;
+        });
+
         if (!isCommandMode) return [];
-        if (!searchQuery) return COMMANDS;
-        return COMMANDS.filter(cmd =>
+        if (!searchQuery) return commands;
+        return commands.filter(cmd =>
             cmd.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
             cmd.category.toLowerCase().includes(searchQuery.toLowerCase())
         );
-    }, [searchQuery, isCommandMode]);
+    }, [searchQuery, isCommandMode, runtimeAvailability]);
 
     const totalItems = isCommandMode ? filteredCommands.length : filteredFiles.length;
     const activeIndex = Math.min(selectedIndex, Math.max(0, totalItems - 1));
@@ -74,7 +96,7 @@ export function CommandPalette({ isOpen, onClose, files, onSelectFile, onRunComm
                 e.preventDefault();
                 if (isCommandMode) {
                     const cmd = filteredCommands[activeIndex];
-                    if (cmd) {
+                    if (cmd && !cmd.disabledReason) {
                         onRunCommand?.(cmd.id);
                         onClose();
                     }
@@ -128,16 +150,20 @@ export function CommandPalette({ isOpen, onClose, files, onSelectFile, onRunComm
                                 <div
                                     key={cmd.id}
                                     onClick={() => {
+                                        if (cmd.disabledReason) return;
                                         onRunCommand?.(cmd.id);
                                         onClose();
                                     }}
+                                    title={cmd.disabledReason || cmd.label}
                                     className={cn(
-                                        "px-4 py-2 flex items-center gap-3 cursor-pointer text-sm",
+                                        "px-4 py-2 flex items-center gap-3 text-sm",
+                                        cmd.disabledReason ? "cursor-not-allowed opacity-45" : "cursor-pointer",
                                         i === activeIndex ? "bg-primary/20 text-white" : "text-muted-foreground hover:bg-white/5"
                                     )}
                                 >
                                     <span className="text-white/40">{cmd.icon}</span>
                                     <span className="flex-1 truncate">{cmd.label}</span>
+                                    {cmd.disabledReason && <span className="max-w-[160px] truncate text-[10px] text-amber-300/70">{cmd.disabledReason}</span>}
                                     <span className="text-[10px] text-white/20">{cmd.category}</span>
                                     {cmd.shortcut && (
                                         <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-white/40 font-mono">{cmd.shortcut}</span>

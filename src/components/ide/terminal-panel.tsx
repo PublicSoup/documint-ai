@@ -7,7 +7,6 @@ import {
     ChevronDown,
     X,
     Trash2,
-    SplitSquareHorizontal
 } from "lucide-react";
 import type { Terminal } from "@xterm/xterm";
 
@@ -16,13 +15,15 @@ interface TerminalPanelProps {
     setTerminalMaximized: (val: boolean) => void;
     setShowTerminal: (val: boolean) => void;
     setTerminalInstance: (val: Terminal | null) => void;
+    onBeforeCommand?: () => Promise<{ cwd?: string } | void>;
 }
 
 export function TerminalPanel({
     terminalMaximized,
     setTerminalMaximized,
     setShowTerminal,
-    setTerminalInstance
+    setTerminalInstance,
+    onBeforeCommand
 }: TerminalPanelProps) {
     const { toast } = useToast();
     const [terminalInstance, setLocalTerminalInstance] = useState<Terminal | null>(null);
@@ -41,24 +42,11 @@ export function TerminalPanel({
             <div className="flex-none h-8 flex items-center justify-between px-3 border-b border-white/[0.04] select-none bg-[#030014]">
                 <div className="flex items-center gap-4 h-full">
                     <button type="button" disabled className="h-full text-[11px] font-medium text-white/80 flex items-center gap-1.5 px-2 relative cursor-default">
-                        WebContainerTerminal
+                        Terminal
                         <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-purple-500 to-violet-400" />
-                    </button>
-                    <button type="button" disabled className="h-full text-[11px] font-medium text-white/20 flex items-center gap-1.5 px-2 transition-colors cursor-not-allowed">
-                        Output
-                    </button>
-                    <button type="button" disabled className="h-full text-[11px] font-medium text-white/20 flex items-center gap-1.5 px-2 transition-colors cursor-not-allowed">
-                        Problems
-                        <span className="bg-purple-500/15 text-purple-300/60 px-1 rounded-full text-[9px] font-bold">0</span>
-                    </button>
-                    <button type="button" disabled className="h-full text-[11px] font-medium text-white/20 flex items-center gap-1.5 px-2 transition-colors cursor-not-allowed">
-                        Debug Console
                     </button>
                 </div>
                 <div className="flex items-center gap-1.5">
-                    <button type="button" disabled className="p-1 rounded text-white/15 transition-colors cursor-not-allowed" title="Split unavailable">
-                        <SplitSquareHorizontal className="w-3.5 h-3.5" />
-                    </button>
                     <button
                         type="button"
                         onClick={() => {
@@ -94,6 +82,7 @@ export function TerminalPanel({
             <div className="flex-1 min-h-0 bg-[#020010] p-1 pl-3 overflow-hidden">
                 <WebContainerTerminal
                     onReady={handleTerminalReady}
+                    onBeforeCommand={onBeforeCommand}
                     onProcessStart={() => {
                         toast("Command started in terminal", "success");
                     }}

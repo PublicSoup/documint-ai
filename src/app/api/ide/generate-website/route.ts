@@ -52,6 +52,61 @@ function sanitizeFilePath(input: string): string | null {
 
 type WebsiteFile = { name: string; content: string };
 
+const JAVASCRIPT_FILE_PATTERN = /\.(?:mjs|cjs|js|jsx|ts|tsx)$/i;
+const IMPORT_SPECIFIER_PATTERN = /(?:import\s+(?:[\s\S]*?\s+from\s+)?|export\s+[\s\S]*?\s+from\s+|import\s*\()\s*["']([^"']+)["']/g;
+const ALLOWED_REACT_IMPORTS = new Set(["react", "react-dom", "react-dom/client", "react/jsx-runtime"]);
+
+function getPackageName(specifier: string): string {
+    if (specifier.startsWith("@")) {
+        const [scope, name] = specifier.split("/");
+        return scope && name ? `${scope}/${name}` : specifier;
+    }
+
+    return specifier.split("/")[0] || specifier;
+}
+
+function isExternalImport(specifier: string): boolean {
+    return !specifier.startsWith(".") && !specifier.startsWith("/") && !specifier.startsWith("node:") && !specifier.startsWith("http://") && !specifier.startsWith("https://");
+}
+
+function getDeclaredPackages(files: WebsiteFile[]): Set<string> {
+    const packageFile = files.find((file) => file.name === "package.json");
+    if (!packageFile) return new Set();
+
+    try {
+        const parsed = JSON.parse(packageFile.content) as { dependencies?: unknown; devDependencies?: unknown };
+        const dependencyEntries = parsed.dependencies && typeof parsed.dependencies === "object" && !Array.isArray(parsed.dependencies)
+            ? Object.keys(parsed.dependencies)
+            : [];
+        const devDependencyEntries = parsed.devDependencies && typeof parsed.devDependencies === "object" && !Array.isArray(parsed.devDependencies)
+            ? Object.keys(parsed.devDependencies)
+            : [];
+
+        return new Set([...dependencyEntries, ...devDependencyEntries]);
+    } catch {
+        return new Set();
+    }
+}
+
+function findMissingExternalImports(files: WebsiteFile[]): string[] {
+    const declaredPackages = getDeclaredPackages(files);
+    const missing = new Set<string>();
+
+    files
+        .filter((file) => JAVASCRIPT_FILE_PATTERN.test(file.name))
+        .forEach((file) => {
+            for (const match of file.content.matchAll(IMPORT_SPECIFIER_PATTERN)) {
+                const specifier = match[1];
+                if (!specifier || !isExternalImport(specifier) || ALLOWED_REACT_IMPORTS.has(specifier)) continue;
+
+                const packageName = getPackageName(specifier);
+                if (!declaredPackages.has(packageName)) missing.add(packageName);
+            }
+        });
+
+    return [...missing].sort((a, b) => a.localeCompare(b));
+}
+
 function upsertFile(files: WebsiteFile[], name: string, content: string): WebsiteFile[] {
     const existingIndex = files.findIndex((file) => file.name === name);
     if (existingIndex === -1) return [...files, { name, content }];
@@ -198,8 +253,9 @@ export async function POST(req: NextRequest) {
             "- Clean semantic HTML",
             "- No placeholder TODO comments",
             "- Keep file count practical and runnable",
+            "- Do not import third-party packages unless they are explicitly present in package.json",
             payload.framework === "react-vite"
-                ? "- Include package.json + index.html + src/main.tsx + src/App.tsx + src/styles.css"
+                ? "- Include package.json + index.html + src/main.tsx + src/App.tsx + src/styles.css; React files may import only React, ReactDOM, and relative files by default"
                 : "- Include index.html + style.css + script.js",
         ].join("\n");
 
@@ -210,6 +266,7 @@ export async function POST(req: NextRequest) {
             `Include auth pages: ${payload.includeAuthPages ? "yes" : "no"}`,
             "If auth pages are requested, include login and signup views and shared styles.",
             "Avoid external APIs and secrets.",
+            "Use plain CSS for icons, animation, and layout; do not import lucide-react, framer-motion, UI kits, or icon libraries.",
             "Include a launchChecklist with concrete go-live items (analytics, seo, legal, performance, QA).",
             "Include conversionHooks with concise subscription-growth suggestions relevant to the generated site.",
         ].join("\n");
@@ -253,6 +310,11 @@ export async function POST(req: NextRequest) {
 
         if (safeFiles.length < 2) {
             throw ApiErrors.badRequest("Generated output did not contain valid project files");
+        }
+
+        const missingImports = payload.framework === "react-vite" ? findMissingExternalImports(safeFiles) : [];
+        if (missingImports.length > 0) {
+            throw ApiErrors.badRequest(`Generated React project imported packages that are not declared or allowed: ${missingImports.join(", ")}. Please retry with a simpler self-contained prompt.`);
         }
 
         // Audit Log

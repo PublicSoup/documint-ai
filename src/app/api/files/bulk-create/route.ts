@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
 import { logAudit } from "@/lib/audit-logger";
 
@@ -60,7 +60,6 @@ export async function POST(req: NextRequest) {
             return errorResponse(ApiErrors.unauthorized());
         }
 
-        const ip = getClientIP(req);
         await enforceRateLimit(session.user.id, "file_create_bulk");
 
         const { files, teamId } = await validateBody(req, bulkCreateSchema);

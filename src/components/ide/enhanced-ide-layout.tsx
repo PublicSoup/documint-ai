@@ -1,23 +1,16 @@
 "use client";
 
 import { WebContainerManager } from "@/lib/web-container";
-import { FileTreeContainer } from "./file-tree-container";
-import ErrorBoundary from "@/components/error-boundary";
-import { SimpleEnhancedEditor, SimpleEnhancedEditorRef } from "./simple-enhanced-editor";
-import { DiagramViewer } from "../diagram-viewer";
+import type { SimpleEnhancedEditorRef } from "./simple-enhanced-editor";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 import type { Monaco } from "@monaco-editor/react";
 import type { Terminal as XTerm } from "@xterm/xterm";
-import { Breadcrumbs } from "./breadcrumbs";
 import { KeyboardShortcuts } from "./keyboard-shortcuts";
 import { LivePreview } from "./live-preview";
-import { ProjectTemplates } from "./project-templates";
 import NotificationsBell from "../notifications-bell";
-import { X, Maximize2, Terminal as TerminalIcon, Sparkles, GitBranch, Files, Search as SearchIcon, Loader2, FileText, Layout as LayoutIcon, Keyboard, FolderOpen } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { cn } from "@/lib/utils";
 import { useToast } from "../toast";
 import { AIChatPanel } from "./ai-chat-panel";
 
@@ -25,26 +18,41 @@ import { useExecutionEngine } from "@/hooks/use-execution-engine";
 import { EditorTabs } from "./editor-tabs";
 import { SecretsManager } from "./secrets-manager";
 import { IDEStatusBar } from "./status-bar";
-import ReadmeGenerator from "../readme-generator";
 import { ContextualHeader } from "./contextual-header";
 import { getProjectGraphMermaid } from "@/app/dashboard/client-actions";
 import { CommandPalette } from "./command-palette";
-import { SourceControlPanel } from "./source-control-panel";
 import { DiffModal } from "./diff-modal";
 import { useIDESettings } from "@/hooks/use-ide-settings";
 import { loadTypesFromWebContainer } from "@/lib/monaco-type-loader";
 import { useIDEFileManager } from "@/hooks/use-ide-file-manager";
 import { useIDEHotkeys } from "@/hooks/use-ide-hotkeys";
 import { IDEToolbar } from "./ide-toolbar";
+import { IDEEditorWorkspace } from "./editor-workspace";
 import { TerminalPanel } from "./terminal-panel";
 import { DeleteProjectDialog } from "./delete-project-dialog";
+import { IDEActivityBar } from "./activity-bar";
+import { IDEInspectorPanels } from "./ide-inspector-panels";
+import { IDESidebar } from "./ide-sidebar";
 import type { IDEFile, IDEUser, SidebarTab, SubscriptionInfo } from "./shared/types";
-import { extractTopLevelFolders, filterFilesByWorkspace, getLanguageFromFileName, getResponseErrorMessage, slugifyProjectName } from "./shared/ide-constants";
+import { detectRuntimeProject, extractTopLevelFolders, filterFilesByWorkspace, getResponseErrorMessage, slugifyProjectName } from "./shared/ide-constants";
 
 interface EnhancedIDELayoutProps {
     files: IDEFile[];
     user: IDEUser;
     subscription?: SubscriptionInfo;
+}
+
+function parsePackageScripts(content: string | null | undefined): Record<string, string> {
+    if (!content) return {};
+    try {
+        const parsed = JSON.parse(content) as { scripts?: unknown };
+        if (!parsed.scripts || typeof parsed.scripts !== "object" || Array.isArray(parsed.scripts)) return {};
+        return Object.fromEntries(
+            Object.entries(parsed.scripts).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+        );
+    } catch {
+        return {};
+    }
 }
 
 export default function EnhancedIDELayout({ files: initialFiles, subscription }: EnhancedIDELayoutProps) {
@@ -89,8 +97,8 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
         build: buildProject,
         test: testProject,
         mountAll: mountAllFiles,
+        bootRuntime,
         isRuntimeTaskRunning,
-        runtimeCommands,
         runtimeLogs,
         runtimeError
     } = useExecutionEngine({
@@ -117,8 +125,8 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
     const showAIChat = settings.showAIChat;
     const setShowAIChat = useCallback((val: boolean) => updateSetting("showAIChat", val), [updateSetting]);
 
-    const showAIEditor = settings.showAIEditor;
-    const setShowAIEditor = useCallback((val: boolean) => updateSetting("showAIEditor", val), [updateSetting]);
+    const showAIImproveAction = settings.showAIEditor;
+    const setShowAIImproveAction = useCallback((val: boolean) => updateSetting("showAIEditor", val), [updateSetting]);
 
     const showTerminal = settings.showTerminal;
     const setShowTerminal = useCallback((val: boolean) => updateSetting("showTerminal", val), [updateSetting]);
@@ -183,6 +191,33 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
         }
     }, [showLocalTopology, activeFileId]);
 
+    const runtimeCapabilities = useMemo(() => {
+        const runtimeProject = detectRuntimeProject(files, activeWorkspace);
+        const packageFile = runtimeProject.kind === "node" ? runtimeProject.packageFile : undefined;
+        const packageContent = packageFile ? fileContents[packageFile.id] ?? packageFile.content ?? "" : "";
+        const scripts = parsePackageScripts(packageContent);
+        const isRuntimeBusy = runStatus === "installing" || runStatus === "starting" || isRuntimeTaskRunning;
+        const busyReason = runStatus === "installing"
+            ? "Installing dependencies"
+            : runStatus === "starting"
+                ? "Starting runtime"
+                : isRuntimeTaskRunning
+                    ? "Runtime task already running"
+                    : undefined;
+        const requiresPackage = "Requires package.json in the selected workspace";
+
+        return {
+            isRuntimeBusy,
+            runtimeStatusLabel: busyReason,
+            canRun: !isRuntimeBusy,
+            canBuild: Boolean(packageFile && scripts.build) && !isRuntimeBusy,
+            canTest: Boolean(packageFile && scripts.test) && !isRuntimeBusy,
+            runDisabledReason: busyReason,
+            buildDisabledReason: busyReason || (packageFile ? "No scripts.build found in package.json" : requiresPackage),
+            testDisabledReason: busyReason || (packageFile ? "No scripts.test found in package.json" : requiresPackage),
+        };
+    }, [activeWorkspace, fileContents, files, isRuntimeTaskRunning, runStatus]);
+
     const handleReviewDiff = useCallback((original: string, modified: string) => {
         // Find language for active file
         const file = files.find(f => f.id === activeFileId);
@@ -234,7 +269,7 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
 
             if (webContainerBooted) {
                 const remainingFiles = files.filter((file) => !deletedFileIds.includes(file.id));
-                await mountAllFiles(remainingFiles);
+                await mountAllFiles(remainingFiles, activeWorkspace === deleteProjectTarget ? "Project" : activeWorkspace);
             }
 
             toast(`Deleted ${deleteProjectTarget} (${data.deletedCount ?? deletedFileIds.length} files)`, "success");
@@ -248,7 +283,7 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
 
 
     const handleRunProject = async () => {
-        if (runRequestInFlightRef.current || runStatus === 'installing' || runStatus === 'starting' || isRuntimeTaskRunning) return;
+        if (runRequestInFlightRef.current || !runtimeCapabilities.canRun) return;
 
         runRequestInFlightRef.current = true;
         setShowTerminal(true);
@@ -278,7 +313,11 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
     };
 
     const handleRuntimeTask = async (task: "build" | "test") => {
-        if (runRequestInFlightRef.current || runStatus === 'installing' || runStatus === 'starting' || isRuntimeTaskRunning) return;
+        const canExecute = task === "build" ? runtimeCapabilities.canBuild : runtimeCapabilities.canTest;
+        if (runRequestInFlightRef.current || !canExecute) {
+            toast(task === "build" ? runtimeCapabilities.buildDisabledReason || "Build unavailable" : runtimeCapabilities.testDisabledReason || "Test unavailable", "warning");
+            return;
+        }
 
         runRequestInFlightRef.current = true;
         setShowTerminal(true);
@@ -301,13 +340,71 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
         void handleRuntimeTask("test");
     };
 
+    const handleSelectTemplate = useCallback(async (templateFiles: { name: string; content: string }[], projectName = "Project") => {
+        try {
+            const baseSlug = slugifyProjectName(projectName);
+            const existingWorkspaces = new Set(workspaceOptions.map((workspace) => workspace.toLowerCase()));
+            let projectSlug = baseSlug;
+            let suffix = 2;
 
+            while (existingWorkspaces.has(projectSlug.toLowerCase())) {
+                projectSlug = `${baseSlug}-${suffix}`;
+                suffix += 1;
+            }
 
-    
+            const projectFiles = templateFiles.map((file) => ({
+                ...file,
+                name: `${projectSlug}/${file.name.replace(/^\/+/, "")}`,
+            }));
 
+            const res = await fetch("/api/files/bulk-create", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ files: projectFiles }),
+            });
 
+            if (!res.ok) {
+                toast(await getResponseErrorMessage(res, "Failed to create template files"), "error");
+                return;
+            }
+
+            const data = (await res.json()) as { files?: IDEFile[] };
+            const createdFiles = data.files || [];
+
+            createdFiles.forEach((createdFile) => {
+                upsertFile(createdFile, {
+                    initialContent: createdFile.content || "",
+                });
+            });
+
+            const [firstCreatedFile] = createdFiles;
+            if (firstCreatedFile) {
+                setActiveWorkspace(projectSlug);
+                upsertFile(firstCreatedFile, {
+                    open: true,
+                    makeActive: true,
+                    initialContent: firstCreatedFile.content || "",
+                });
+            }
+
+            toast(`Created ${projectSlug} with ${createdFiles.length} files`, "success");
+
+            if (webContainerBooted) {
+                await mountAllFiles([...files, ...createdFiles], projectSlug);
+            }
+        } catch (error) {
+            toast(error instanceof Error ? error.message : "Error initializing template", "error");
+        }
+    }, [files, mountAllFiles, toast, upsertFile, webContainerBooted, workspaceOptions]);
 
     const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+
+    const handleBeforeTerminalCommand = useCallback(async () => {
+        const booted = await bootRuntime();
+        if (!booted) throw new Error("WebContainer failed to boot before terminal command");
+        await mountAllFiles(files, activeWorkspace);
+        return undefined;
+    }, [activeWorkspace, bootRuntime, files, mountAllFiles]);
 
     // Hotkeys
     useIDEHotkeys({
@@ -315,238 +412,62 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
         onToggleSidebar: () => setShowSidebar(!showSidebar),
         onCommandPalette: () => setIsCommandPaletteOpen(true),
         onToggleAIChat: () => setShowAIChat(!showAIChat),
-        onToggleTerminal: () => setShowTerminal(!showTerminal)
+        onToggleTerminal: () => setShowTerminal(!showTerminal),
+        onRun: handleRunProject
     });
 
     const activeFile = files.find(f => f.id === activeFileId);
-    const sidebarSearchResults = useMemo(() => {
-        const query = sidebarSearchQuery.trim().toLowerCase();
-        if (query.length < 2) return [];
-
-        return visibleFiles
-            .filter(file => {
-                const content = fileContents[file.id] ?? file.content ?? "";
-                return file.name.toLowerCase().includes(query) || content.toLowerCase().includes(query);
-            })
-            .slice(0, 50);
-    }, [visibleFiles, fileContents, sidebarSearchQuery]);
 
     return (
         <div className="flex h-screen w-screen overflow-hidden bg-[#030014] text-white fixed inset-0 z-[100] selection:bg-purple-500/30">
-            {/* Activity Bar */}
-            {/* Activity Bar — Premium with gradient and glow */}
-            <div className="w-12 flex-none flex flex-col items-center py-3 gap-1 border-r border-white/[0.04] bg-gradient-to-b from-[#04001a] via-[#06001f] to-[#04001a] z-40 h-full overflow-hidden">
-                {/* Brand Mark */}
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-600/20 to-violet-500/10 flex items-center justify-center mb-3 border border-purple-500/10">
-                    <Sparkles className="w-4 h-4 text-purple-400/70" />
-                </div>
+            <IDEActivityBar
+                activeSidebarTab={activeSidebarTab}
+                showSidebar={showSidebar}
+                showTerminal={showTerminal}
+                onActiveSidebarTabChange={setActiveSidebarTab}
+                onShowSidebarChange={setShowSidebar}
+                onShowTerminalChange={setShowTerminal}
+                onOpenKeyboardShortcuts={() => setShowKeyboardShortcuts(true)}
+            />
 
-                <button
-                    onClick={() => {
-                        if (activeSidebarTab === "explorer" && showSidebar) {
-                            setShowSidebar(false);
-                        } else {
-                            setActiveSidebarTab("explorer");
-                            setShowSidebar(true);
-                        }
-                    }}
-                    className={cn(
-                        "p-2 rounded-lg transition-all duration-200 relative group",
-                        showSidebar && activeSidebarTab === "explorer"
-                            ? "bg-purple-500/15 text-purple-400"
-                            : "text-white/25 hover:text-white/50 hover:bg-white/[0.04]"
-                    )}
-                    title="Explorer (⌘B)"
-                >
-                    {showSidebar && activeSidebarTab === "explorer" && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-4 bg-purple-400 rounded-r" />}
-                    <Files className="w-5 h-5" />
-                </button>
-                <button
-                    onClick={() => {
-                        if (activeSidebarTab === "search" && showSidebar) {
-                            setShowSidebar(false);
-                        } else {
-                            setActiveSidebarTab("search");
-                            setShowSidebar(true);
-                        }
-                    }}
-                    className={cn(
-                        "p-2 rounded-lg transition-all duration-200 relative group",
-                        showSidebar && activeSidebarTab === "search"
-                            ? "bg-purple-500/15 text-purple-400"
-                            : "text-white/25 hover:text-white/50 hover:bg-white/[0.04]"
-                    )}
-                    title="Search (⌘F)"
-                >
-                    {showSidebar && activeSidebarTab === "search" && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-4 bg-purple-400 rounded-r" />}
-                    <SearchIcon className="w-5 h-5" />
-                </button>
-                <button
-                    onClick={() => {
-                        if (activeSidebarTab === "git" && showSidebar) {
-                            setShowSidebar(false);
-                        } else {
-                            setActiveSidebarTab("git");
-                            setShowSidebar(true);
-                        }
-                    }}
-                    className={cn(
-                        "p-2 rounded-lg transition-all duration-200 relative group",
-                        showSidebar && activeSidebarTab === "git"
-                            ? "bg-purple-500/15 text-purple-400"
-                            : "text-white/25 hover:text-white/50 hover:bg-white/[0.04]"
-                    )}
-                    title="Source Control (⌘G)"
-                >
-                    {showSidebar && activeSidebarTab === "git" && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-4 bg-purple-400 rounded-r" />}
-                    <GitBranch className="w-5 h-5" />
-                </button>
-
-                <div className="flex-1" />
-
-                <div className="flex flex-col gap-1">
-                    <button
-                        type="button"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setShowTerminal(!showTerminal);
-                        }}
-                        className={cn(
-                            "p-2 rounded-lg transition-all duration-200",
-                            showTerminal
-                                ? "bg-emerald-500/15 text-emerald-400"
-                                : "text-white/25 hover:text-white/50 hover:bg-white/[0.04]"
-                        )}
-                        title="Terminal (⌘`)">
-                        <TerminalIcon className="w-5 h-5" />
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setShowKeyboardShortcuts(true)}
-                        className="p-2 text-white/25 hover:text-white/50 hover:bg-white/[0.04] rounded-lg transition-all duration-200"
-                        title="Keyboard Shortcuts"
-                    >
-                        <Keyboard className="w-5 h-5" />
-                    </button>
-                </div>
-            </div>
-
-            {/* Left Sidebar Content */}
             {showSidebar && (
-                <>
-                    {/* Mobile Backdrop */}
-                    <div
-                        className="md:hidden fixed inset-0 z-20 bg-black/50 backdrop-blur-sm"
-                        onClick={() => setShowSidebar(false)}
-                    />
-                    <div className="absolute md:relative w-56 md:w-64 flex-none flex flex-col border-r border-white/[0.04] bg-[#030014] h-full overflow-hidden animate-in slide-in-from-left-1 duration-200 z-30 shadow-2xl md:shadow-none">
-                        <div className="p-3 border-b border-white/[0.04]">
-                            <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-white/25 mb-2">
-                                <FolderOpen className="w-3 h-3" />
-                                Workspace
-                            </label>
-                            <select
-                                value={activeWorkspace}
-                                onChange={(event) => setActiveWorkspace(event.target.value)}
-                                className="w-full rounded-md border border-white/[0.06] bg-black/30 px-2 py-1.5 text-xs text-white focus:outline-none focus:border-purple-500/50"
-                            >
-                                {workspaceOptions.map(workspace => (
-                                    <option key={workspace} value={workspace}>
-                                        {workspace}
-                                    </option>
-                                ))}
-                            </select>
-                            {activeWorkspace !== "Project" && (
-                                <button
-                                    type="button"
-                                    onClick={() => handleProjectDeleteRequest(activeWorkspace)}
-                                    className="mt-2 w-full rounded-md border border-red-500/15 bg-red-500/5 px-2 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider text-red-300/80 transition-colors hover:bg-red-500/10 hover:text-red-200"
-                                >
-                                    Delete Project
-                                </button>
-                            )}
-                        </div>
-                        {activeSidebarTab === "explorer" && (
-                            <FileTreeContainer
-                                activeFileId={activeFileId}
-                                files={visibleFiles}
-                                workspacePrefix={activeWorkspace}
-                                onSelect={handleFileSelect}
-                                onFileCreated={(newFile) => {
-                                    upsertFile(newFile, {
-                                        open: true,
-                                        makeActive: true,
-                                        initialContent: newFile.content || "",
-                                    });
-                                }}
-                                onFileRenamed={(fileId, newName) => {
-                                    renameFile(fileId, newName);
-                                }}
-                                onFileDeleted={(fileId) => {
-                                    removeFile(fileId);
-                                }}
-                                onProjectDeleteRequest={handleProjectDeleteRequest}
-                            />
-                        )}
-                        {activeSidebarTab === "search" && (
-                            <div className="flex flex-col h-full">
-                                <div className="p-4 border-b border-white/[0.04]">
-                                    <h2 className="text-[10px] font-black uppercase tracking-widest text-white/20 mb-3">Search</h2>
-                                    <div className="relative">
-                                        <SearchIcon className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-                                        <input
-                                            value={sidebarSearchQuery}
-                                            onChange={(event) => setSidebarSearchQuery(event.target.value)}
-                                            placeholder="Search in project..."
-                                            className="w-full bg-black/20 border border-white/[0.06] rounded-md pl-9 pr-3 py-1.5 text-xs text-white focus:outline-none focus:border-purple-500/50 focus:bg-black/30 transition-all"
-                                            autoFocus
-                                        />
-                                    </div>
-                                </div>
-                                <div className="flex-1 overflow-y-auto p-2">
-                                    {sidebarSearchQuery.trim().length < 2 ? (
-                                        <div className="h-full flex items-center justify-center p-4 text-center">
-                                            <p className="text-[10px] text-white/20 uppercase tracking-wider font-bold">Type at least 2 chars to search</p>
-                                        </div>
-                                    ) : sidebarSearchResults.length === 0 ? (
-                                        <div className="h-full flex items-center justify-center p-4 text-center">
-                                            <p className="text-[10px] text-white/20 uppercase tracking-wider font-bold">No results found</p>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-1">
-                                            {sidebarSearchResults.map(file => (
-                                                <button
-                                                    type="button"
-                                                    key={file.id}
-                                                    onClick={() => handleFileSelect(file.id)}
-                                                    className={cn(
-                                                        "w-full flex items-center gap-2 p-2 rounded-lg hover:bg-white/[0.05] text-left transition-colors",
-                                                        activeFileId === file.id ? "bg-purple-500/10 text-purple-300" : "text-white/55"
-                                                    )}
-                                                >
-                                                    <FileText className="w-3.5 h-3.5 shrink-0 text-white/30" />
-                                                    <span className="text-[11px] truncate">{file.name}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                        {activeSidebarTab === "git" && (
-                            <SourceControlPanel />
-                        )}
-                    </div>
-                </>
+                <IDESidebar
+                    activeSidebarTab={activeSidebarTab}
+                    activeFileId={activeFileId}
+                    activeWorkspace={activeWorkspace}
+                    workspaceOptions={workspaceOptions}
+                    visibleFiles={visibleFiles}
+                    fileContents={fileContents}
+                    searchQuery={sidebarSearchQuery}
+                    onSearchQueryChange={setSidebarSearchQuery}
+                    onWorkspaceChange={setActiveWorkspace}
+                    onCloseSidebar={() => setShowSidebar(false)}
+                    onSelectFile={handleFileSelect}
+                    onFileCreated={(newFile) => {
+                        upsertFile(newFile, {
+                            open: true,
+                            makeActive: true,
+                            initialContent: newFile.content || "",
+                        });
+                    }}
+                    onFileRenamed={renameFile}
+                    onFileDeleted={removeFile}
+                    onProjectDeleteRequest={handleProjectDeleteRequest}
+                />
             )}
 
             {/* Main Area */}
             <div className="flex-1 flex flex-col min-w-0 max-w-full bg-[#030014] relative z-10 h-full overflow-hidden">
-                {/* Enterprise Header */}
                 <ContextualHeader
                     filePath={activeFile?.name || "No file selected"}
                     isSaving={isSaving}
-                    isDeploying={runStatus === 'installing' || runStatus === 'starting'}
+                    runtimeStatusLabel={runtimeCapabilities.runtimeStatusLabel}
+                    canRun={runtimeCapabilities.canRun}
+                    canBuild={runtimeCapabilities.canBuild}
+                    canTest={runtimeCapabilities.canTest}
+                    runDisabledReason={runtimeCapabilities.runDisabledReason}
+                    buildDisabledReason={runtimeCapabilities.buildDisabledReason}
+                    testDisabledReason={runtimeCapabilities.testDisabledReason}
                     canShare={Boolean(activeFile)}
                     onDeploy={handleRunProject}
                     onBuild={handleBuildProject}
@@ -557,7 +478,7 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
                             toast('Share link copied to clipboard!', 'success');
                         }
                     }}
-                    onSettings={() => setShowKeyboardShortcuts(true)}
+                    onKeyboardShortcuts={() => setShowKeyboardShortcuts(true)}
                 />
                 {/* Notification Bell - top right */}
                 <div className="absolute top-2 right-4 z-50">
@@ -579,194 +500,49 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
                         showSidebar={showSidebar} setShowSidebar={setShowSidebar}
                         showAIChat={showAIChat} setShowAIChat={setShowAIChat}
                         showTerminal={showTerminal} setShowTerminal={setShowTerminal}
-                        showAIEditor={showAIEditor} setShowAIEditor={setShowAIEditor}
+                        showAIImproveAction={showAIImproveAction} setShowAIImproveAction={setShowAIImproveAction}
                         showDocPreview={showDocPreview} setShowDocPreview={setShowDocPreview}
                         showLocalTopology={showLocalTopology} setShowLocalTopology={setShowLocalTopology}
                         activeFileId={activeFileId} activeFile={activeFile}
                         fileContents={fileContents} replaceFileContent={replaceFileContent}
                         unsavedChanges={unsavedChanges}
-                        handleSave={handleSave} handleRunProject={handleRunProject}
-                        handleBuildProject={handleBuildProject} handleTestProject={handleTestProject}
-                        runStatus={runStatus}
-                        isRuntimeTaskRunning={isRuntimeTaskRunning}
+                        handleSave={handleSave}
                         setShowSecretsManager={setShowSecretsManager}
                     />
                 </div>
 
-                {/* Editor Area */}
                 <div className="flex-1 relative min-h-0 overflow-hidden flex">
-                    <div className={cn("flex-1 min-w-0 relative h-full transition-all duration-300 ease-in-out", (showDocPreview || showLocalTopology) && "border-r border-white/[0.06]")}>
-                        {/* Editor content area - no overlaying HUD */}
+                    <IDEEditorWorkspace
+                        activeFile={activeFile}
+                        activeFileId={activeFileId}
+                        code={activeFileId ? fileContents[activeFileId] : undefined}
+                        showInspector={showDocPreview || showLocalTopology}
+                        editorRef={editorRef}
+                        onChange={handleContentChange}
+                        onSave={handleSave}
+                        onRun={handleRunProject}
+                        onMonacoMount={(monaco) => {
+                            monacoInstanceRef.current = monaco;
+                        }}
+                        onCursorChange={(line, column) => {
+                            setCursorLine(line);
+                            setCursorColumn(column);
+                        }}
+                        onSelectTemplate={handleSelectTemplate}
+                    />
 
-                        {activeFileId && activeFile ? (
-                            fileContents[activeFileId] === undefined ? (
-                                <div className="h-full flex items-center justify-center bg-[#0d0d11]">
-                                    <Loader2 className="w-6 h-6 animate-spin text-purple-500/50" />
-                                </div>
-                            ) : (
-                                <div className="flex flex-col h-full">
-                                    <Breadcrumbs filePath={activeFile.name} />
-                                    <div className="flex-1 min-h-0">
-                                        <ErrorBoundary>
-                                            <SimpleEnhancedEditor
-                                                key={activeFileId} // Force remount on file change
-                                                ref={editorRef}
-                                                code={fileContents[activeFileId] ?? ""}
-                                                language={getLanguageFromFileName(activeFile.name)}
-                                                fileName={activeFile.name}
-                                                onChange={handleContentChange}
-                                                onSave={handleSave}
-                                                onRun={handleRunProject}
-                                                onMonacoMount={(monaco) => {
-                                                    monacoInstanceRef.current = monaco;
-                                                }}
-                                                onCursorChange={(line, col) => {
-                                                    setCursorLine(line);
-                                                    setCursorColumn(col);
-                                                }}
-                                            />
-                                        </ErrorBoundary>
-                                    </div>
-                                </div>
-                            )
-                        ) : (
-                            /* Empty State: Show Project Templates when no file is open */
-                            <ProjectTemplates
-                                onSelectTemplate={async (templateFiles, projectName = "Project") => {
-                                    try {
-                                        const baseSlug = slugifyProjectName(projectName);
-                                        const existingWorkspaces = new Set(workspaceOptions.map(workspace => workspace.toLowerCase()));
-                                        let projectSlug = baseSlug;
-                                        let suffix = 2;
-
-                                        while (existingWorkspaces.has(projectSlug.toLowerCase())) {
-                                            projectSlug = `${baseSlug}-${suffix}`;
-                                            suffix += 1;
-                                        }
-
-                                        const projectFiles = templateFiles.map(file => ({
-                                            ...file,
-                                            name: `${projectSlug}/${file.name.replace(/^\/+/, "")}`,
-                                        }));
-
-                                        // Use the new bulk-create API for efficiency
-                                        const res = await fetch("/api/files/bulk-create", {
-                                            method: "POST",
-                                            headers: { "Content-Type": "application/json" },
-                                            body: JSON.stringify({ files: projectFiles })
-                                        });
-
-                                        if (res.ok) {
-                                            const data = (await res.json()) as { files?: IDEFile[] };
-                                            const createdFiles = data.files || [];
-
-                                            // Update state with all new files
-                                            createdFiles.forEach((createdFile) => {
-                                                upsertFile(createdFile, {
-                                                    initialContent: createdFile.content || "",
-                                                });
-                                            });
-
-                                            // Auto-open the first file if available
-                                            if (createdFiles.length > 0) {
-                                                setActiveWorkspace(projectSlug);
-                                                upsertFile(createdFiles[0], {
-                                                    open: true,
-                                                    makeActive: true,
-                                                    initialContent: createdFiles[0].content || "",
-                                                });
-                                            }
-
-                                            toast(`Created ${projectSlug} with ${createdFiles.length} files`, "success");
-
-                                            // Synchronize all new files to WebContainer immediately
-                                            if (webContainerBooted) {
-                                                await mountAllFiles([...files, ...createdFiles]);
-                                            }
-                                        } else {
-                                            toast(await getResponseErrorMessage(res, "Failed to create template files"), "error");
-                                        }
-                                    } catch (e) {
-                                        console.error("Failed to batch create template files:", e);
-                                        toast("Error initializing template", "error");
-                                    }
-                                }}
-                            />
-                        )}
-                    </div>
-
-                    {showDocPreview && activeFile && (
-                        <div className="w-[40%] max-w-[800px] min-w-[350px] bg-[#020010] overflow-y-auto custom-scrollbar animate-in slide-in-from-right duration-500 border-l border-white/5 shadow-2xl z-20">
-                            <div className="p-3 border-b border-white/10 bg-[#08002a] flex items-center justify-between sticky top-0 z-20 backdrop-blur-md">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-6 h-6 rounded bg-blue-500/10 flex items-center justify-center">
-                                        <FileText className="w-3.5 h-3.5 text-blue-400" />
-                                    </div>
-                                    <div>
-                                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/80">Documentation</h3>
-                                        <p className="text-[9px] text-white/30 font-mono truncate max-w-[150px]">{activeFile.name}</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <button
-                                        onClick={() => {
-                                            // Open doc preview in a new window
-                                            const w = window.open('', '_blank', 'width=800,height=600');
-                                            if (w && activeFile) {
-                                                w.document.title = `Documentation - ${activeFile.name}`;
-                                                w.document.body.innerHTML = '<p style="font-family:system-ui;padding:2rem;color:#666;">Loading documentation...</p>';
-                                            }
-                                        }}
-                                        className="p-1.5 rounded hover:bg-white/5 text-white/40 hover:text-white/60 transition-colors"
-                                        title="Pop Out"
-                                    >
-                                        <Maximize2 className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button onClick={() => setShowDocPreview(false)} className="p-1.5 rounded hover:bg-red-500/10 text-white/30 hover:text-red-400 transition-colors">
-                                        <X className="w-3.5 h-3.5" />
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="p-8 prose prose-invert prose-sm max-w-none">
-                                <ReadmeGenerator
-                                    fileIds={activeFileId ? [activeFileId] : []}
-                                />
-                            </div>
-                        </div>
-                    )}
-
-                    {showLocalTopology && activeFile && (
-                        <div className="w-[40%] max-w-[800px] min-w-[350px] bg-[#020010] overflow-hidden flex flex-col animate-in slide-in-from-right duration-500 border-l border-white/5 shadow-2xl z-20">
-                            <div className="p-3 border-b border-white/10 bg-[#08002a] flex items-center justify-between sticky top-0 z-20 backdrop-blur-md">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-6 h-6 rounded bg-emerald-500/10 flex items-center justify-center">
-                                        <LayoutIcon className="w-3.5 h-3.5 text-emerald-400" />
-                                    </div>
-                                    <div>
-                                        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-white/80">Active Topology</h3>
-                                        <p className="text-[9px] text-white/30 font-mono truncate max-w-[150px]">{activeFile.name}</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <button onClick={() => setShowLocalTopology(false)} className="p-1.5 rounded hover:bg-red-500/10 text-white/30 hover:text-red-400 transition-colors">
-                                        <X className="w-3.5 h-3.5" />
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="flex-1 p-4 overflow-hidden relative">
-                                <DiagramViewer code={localMermaid} type="flowchart" onNodeClick={(filePath) => {
-                                    // Resolve file path to database ID
-                                    const file = files.find(f => f.name === filePath || f.id === filePath || f.name.endsWith(filePath));
-                                    if (file) {
-                                        handleFileSelect(file.id);
-                                        toast(`Opened ${file.name}`, "success");
-                                    } else {
-                                        toast(`File not found: ${filePath}`, "error");
-                                    }
-                                }} />
-                            </div>
-                        </div>
-                    )}
+                    <IDEInspectorPanels
+                        activeFile={activeFile}
+                        activeFileId={activeFileId}
+                        files={files}
+                        showDocPreview={showDocPreview}
+                        showLocalTopology={showLocalTopology}
+                        localMermaid={localMermaid}
+                        onCloseDocPreview={() => setShowDocPreview(false)}
+                        onCloseLocalTopology={() => setShowLocalTopology(false)}
+                        onSelectFile={handleFileSelect}
+                        onNotify={toast}
+                    />
                 </div>
 
                 {/* Status Bar */}
@@ -782,15 +558,14 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
                     cursorColumn={cursorColumn}
                 />
 
-
-
-                {/* Terminal Panel (Enterprise) */}
+                {/* Terminal Panel */}
                 {showTerminal && (
                     <TerminalPanel
                         terminalMaximized={terminalMaximized}
                         setTerminalMaximized={setTerminalMaximized}
                         setShowTerminal={setShowTerminal}
                         setTerminalInstance={setTerminalInstance}
+                        onBeforeCommand={handleBeforeTerminalCommand}
                     />
                 )}
             </div>
@@ -940,6 +715,7 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
                         case 'keyboard-shortcuts': setShowKeyboardShortcuts(true); break;
                     }
                 }}
+                runtimeAvailability={runtimeCapabilities}
             />
             <KeyboardShortcuts isOpen={showKeyboardShortcuts} onClose={() => setShowKeyboardShortcuts(false)} />
             <SecretsManager

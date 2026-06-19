@@ -10,9 +10,6 @@ import {
     Download,
     Lock,
     Save,
-    Play,
-    Hammer,
-    FlaskConical,
     Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -25,8 +22,8 @@ interface IDEToolbarProps {
     setShowAIChat: (val: boolean) => void;
     showTerminal: boolean;
     setShowTerminal: (val: boolean) => void;
-    showAIEditor: boolean;
-    setShowAIEditor: (val: boolean) => void;
+    showAIImproveAction: boolean;
+    setShowAIImproveAction: (val: boolean) => void;
     showDocPreview: boolean;
     setShowDocPreview: (val: boolean) => void;
     showLocalTopology: boolean;
@@ -37,11 +34,6 @@ interface IDEToolbarProps {
     replaceFileContent: (fileId: string, content: string, markUnsaved?: boolean) => void;
     unsavedChanges: Record<string, boolean>;
     handleSave: () => void;
-    handleRunProject: () => void;
-    handleBuildProject: () => void;
-    handleTestProject: () => void;
-    runStatus: string;
-    isRuntimeTaskRunning?: boolean;
     setShowSecretsManager: (val: boolean) => void;
 }
 
@@ -49,22 +41,18 @@ export function IDEToolbar({
     showSidebar, setShowSidebar,
     showAIChat, setShowAIChat,
     showTerminal, setShowTerminal,
-    showAIEditor, setShowAIEditor,
+    showAIImproveAction, setShowAIImproveAction,
     showDocPreview, setShowDocPreview,
     showLocalTopology, setShowLocalTopology,
     activeFileId, activeFile,
     fileContents, replaceFileContent,
     unsavedChanges,
-    handleSave, handleRunProject, handleBuildProject, handleTestProject,
-    runStatus,
-    isRuntimeTaskRunning,
+    handleSave,
     setShowSecretsManager
 }: IDEToolbarProps) {
     const { toast } = useToast();
     const [isAIImproving, setIsAIImproving] = useState(false);
     const activeFileContent = activeFileId ? fileContents[activeFileId] : undefined;
-    const isRunInProgress = runStatus === 'installing' || runStatus === 'starting';
-    const isRuntimeBusy = isRunInProgress || Boolean(isRuntimeTaskRunning);
     const canDownload = Boolean(activeFile && activeFileId && activeFileContent !== undefined);
     const canImproveCode = Boolean(activeFileId && activeFileContent?.trim()) && !isAIImproving;
 
@@ -144,9 +132,9 @@ export function IDEToolbar({
             </button>
             <button
                 type="button"
-                onClick={toggleBoolean(setShowAIEditor, showAIEditor)}
-                className={cn("p-1.5 rounded transition-all", showAIEditor ? "bg-purple-500/15 text-purple-400" : "text-purple-400/40 hover:bg-purple-500/10 hover:text-purple-400")}
-                title="Toggle AI Editor"
+                onClick={toggleBoolean(setShowAIImproveAction, showAIImproveAction)}
+                className={cn("p-1.5 rounded transition-all", showAIImproveAction ? "bg-purple-500/15 text-purple-400" : "text-purple-400/40 hover:bg-purple-500/10 hover:text-purple-400")}
+                title="Toggle AI Improve action"
             >
                 <Bot className="w-4 h-4" />
             </button>
@@ -169,13 +157,13 @@ export function IDEToolbar({
                 <LayoutIcon className="w-4 h-4" />
             </button>
 
-            {showAIEditor && (
+            {showAIImproveAction && (
                 <button
                     type="button"
                     onClick={handleAIAssistantClick}
                     disabled={!canImproveCode}
                     className="p-1.5 rounded hover:bg-amber-500/20 text-amber-500 hover:text-amber-400 disabled:opacity-30 disabled:pointer-events-none"
-                    title={activeFileContent?.trim() ? "AI Code Assistant" : "Open a file with code first"}
+                    title={activeFileContent?.trim() ? "Improve current file with AI" : "Open a file with code first"}
                 >
                     {isAIImproving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                 </button>
@@ -207,33 +195,6 @@ export function IDEToolbar({
                 className={cn("p-1.5 rounded transition-all flex items-center gap-1.5 text-xs font-medium", unsavedChanges[activeFileId || ""] ? "text-emerald-400 hover:bg-emerald-500/10" : "text-white/20 opacity-50")}
             >
                 <Save className="w-4 h-4" />
-            </button>
-            <button
-                type="button"
-                onClick={handleRunProject}
-                className="p-1.5 rounded hover:bg-emerald-500/15 text-emerald-400/70 hover:text-emerald-400 disabled:opacity-30 transition-all"
-                title="Run (Preview)"
-                disabled={isRuntimeBusy}
-            >
-                {isRuntimeBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            </button>
-            <button
-                type="button"
-                onClick={handleBuildProject}
-                className="p-1.5 rounded hover:bg-blue-500/15 text-blue-400/70 hover:text-blue-300 disabled:opacity-30 transition-all"
-                title="Build Project"
-                disabled={isRuntimeBusy}
-            >
-                <Hammer className="w-4 h-4" />
-            </button>
-            <button
-                type="button"
-                onClick={handleTestProject}
-                className="p-1.5 rounded hover:bg-violet-500/15 text-violet-400/70 hover:text-violet-300 disabled:opacity-30 transition-all"
-                title="Test Project"
-                disabled={isRuntimeBusy}
-            >
-                <FlaskConical className="w-4 h-4" />
             </button>
         </div>
     );

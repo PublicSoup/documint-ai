@@ -25,7 +25,7 @@ const nextConfig: NextConfig = {
     return [
       {
         // Only apply COEP/COOP to the /code route where WebContainer needs SharedArrayBuffer
-        source: "/code",
+        source: "/code/:path*",
         headers: [
           {
             key: "Cross-Origin-Embedder-Policy",

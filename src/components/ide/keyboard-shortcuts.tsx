@@ -12,43 +12,17 @@ const SHORTCUT_GROUPS = [
     {
         title: "General",
         shortcuts: [
-            { keys: ["Ctrl", "K"], label: "Command Palette" },
-            { keys: ["Ctrl", "S"], label: "Save File" },
-            { keys: ["Ctrl", "B"], label: "Toggle Sidebar" },
-            { keys: ["Ctrl", "`"], label: "Toggle Terminal" },
-            { keys: ["Ctrl", "\\"], label: "Split Editor" },
-        ],
-    },
-    {
-        title: "Editing",
-        shortcuts: [
-            { keys: ["Ctrl", "D"], label: "Select Word / Next Occurrence" },
-            { keys: ["Ctrl", "Shift", "K"], label: "Delete Line" },
-            { keys: ["Alt", "↑/↓"], label: "Move Line Up/Down" },
-            { keys: ["Ctrl", "/"], label: "Toggle Comment" },
-            { keys: ["Ctrl", "Shift", "F"], label: "Format Document" },
-            { keys: ["Ctrl", "Z"], label: "Undo" },
-            { keys: ["Ctrl", "Shift", "Z"], label: "Redo" },
-        ],
-    },
-    {
-        title: "Navigation",
-        shortcuts: [
-            { keys: ["Ctrl", "P"], label: "Quick Open File" },
-            { keys: ["Ctrl", "G"], label: "Go to Line" },
-            { keys: ["Ctrl", "Shift", "O"], label: "Go to Symbol" },
-            { keys: ["F12"], label: "Go to Definition" },
-            { keys: ["Ctrl", "F"], label: "Find" },
-            { keys: ["Ctrl", "H"], label: "Find & Replace" },
+            { keys: ["Ctrl/⌘", "K"], label: "Command Palette" },
+            { keys: ["Ctrl/⌘", "S"], label: "Save File" },
+            { keys: ["Ctrl/⌘", "Enter"], label: "Run / Preview Project" },
         ],
     },
     {
         title: "View",
         shortcuts: [
-            { keys: ["Ctrl", "+"], label: "Zoom In" },
-            { keys: ["Ctrl", "-"], label: "Zoom Out" },
-            { keys: ["Ctrl", "0"], label: "Reset Zoom" },
-            { keys: ["Alt", "Z"], label: "Toggle Word Wrap" },
+            { keys: ["Ctrl/⌘", "B"], label: "Toggle Sidebar" },
+            { keys: ["Ctrl/⌘", "I"], label: "Toggle AI Chat" },
+            { keys: ["Ctrl/⌘", "`"], label: "Toggle Terminal" },
         ],
     },
 ];
@@ -107,7 +81,7 @@ export function KeyboardShortcuts({ isOpen, onClose }: KeyboardShortcutsProps) {
                 {/* Footer */}
                 <div className="px-6 py-3 border-t border-white/[0.06] bg-white/[0.02]">
                     <p className="text-[10px] text-white/20 text-center">
-                        On macOS, use <kbd className="px-1 py-0.5 bg-white/5 rounded text-[9px] border border-white/[0.08]">⌘</kbd> instead of <kbd className="px-1 py-0.5 bg-white/5 rounded text-[9px] border border-white/[0.08]">Ctrl</kbd>
+                        Only shortcuts wired by DocuMint are listed here. Monaco editor defaults may also work while the editor is focused.
                     </p>
                 </div>
             </div>

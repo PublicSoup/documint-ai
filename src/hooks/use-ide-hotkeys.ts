@@ -6,6 +6,7 @@ interface HotkeyActions {
     onCommandPalette: () => void;
     onToggleAIChat: () => void;
     onToggleTerminal: () => void;
+    onRun: () => void;
 }
 
 export function useIDEHotkeys({
@@ -13,7 +14,8 @@ export function useIDEHotkeys({
     onToggleSidebar,
     onCommandPalette,
     onToggleAIChat,
-    onToggleTerminal
+    onToggleTerminal,
+    onRun
 }: HotkeyActions) {
     const actionsRef = useRef<HotkeyActions>({
         onSave,
@@ -21,6 +23,7 @@ export function useIDEHotkeys({
         onCommandPalette,
         onToggleAIChat,
         onToggleTerminal,
+        onRun,
     });
 
     useEffect(() => {
@@ -30,8 +33,9 @@ export function useIDEHotkeys({
             onCommandPalette,
             onToggleAIChat,
             onToggleTerminal,
+            onRun,
         };
-    }, [onSave, onToggleSidebar, onCommandPalette, onToggleAIChat, onToggleTerminal]);
+    }, [onSave, onToggleSidebar, onCommandPalette, onToggleAIChat, onToggleTerminal, onRun]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -48,6 +52,12 @@ export function useIDEHotkeys({
                 target.closest('.monaco-editor');
 
             if (isCmd && !isEditing) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    actions.onRun();
+                    return;
+                }
+
                 switch (e.key.toLowerCase()) {
                     case 's':
                         e.preventDefault();
@@ -71,13 +81,16 @@ export function useIDEHotkeys({
                         break;
                 }
             } else if (isCmd && isEditing) {
-                // Allow Cmd+S and Cmd+K even when in editor
+                // Allow Cmd+S, Cmd+K, and Cmd+Enter even when in editor.
                 if (e.key.toLowerCase() === 's') {
                     e.preventDefault();
                     actions.onSave();
                 } else if (e.key.toLowerCase() === 'k') {
                     e.preventDefault();
                     actions.onCommandPalette();
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    actions.onRun();
                 }
             }
         };

@@ -2,13 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FileCode2, LogOut } from "lucide-react";
+import { Code2, FileCode2, LogOut } from "lucide-react";
 import { signOut } from "next-auth/react";
 
 import { DASHBOARD_NAV_ITEMS, isDashboardNavItemActive } from "@/components/dashboard/header/nav-config";
 import { GlobalSearch } from "@/components/global-search";
 import { NotificationCenter } from "@/components/notification-center";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export function DashboardHeader() {
@@ -48,21 +47,28 @@ export function DashboardHeader() {
           </div>
 
           <div className="flex items-center gap-4 shrink-0">
+            <Link
+              href="/code"
+              className="hidden md:inline-flex items-center gap-2 rounded-full bg-purple-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-purple-500"
+            >
+              <Code2 className="w-4 h-4" />
+              Open IDE
+            </Link>
+
             <div className="hidden sm:block w-64">
               <GlobalSearch />
             </div>
 
             <NotificationCenter />
 
-            <Button
-              variant="ghost"
-              size="icon"
+            <button
+              type="button"
               onClick={() => signOut()}
-              className="text-white/70 hover:text-red-400 hover:bg-red-400/10 rounded-full"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-red-400/10 hover:text-red-400"
               aria-label="Sign out"
             >
               <LogOut className="w-5 h-5" />
-            </Button>
+            </button>
           </div>
         </div>
       </div>

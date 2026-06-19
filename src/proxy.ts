@@ -62,7 +62,17 @@ export async function proxy(request: NextRequest) {
     }
     response.headers.set("Origin-Agent-Cluster", "?1");
 
-    const csp = `
+    const csp = isCode ? `
+    default-src 'self';
+    script-src 'self' 'unsafe-eval' 'unsafe-inline' blob: https://va.vercel-scripts.com https://cdn.jsdelivr.net https://*.webcontainer-api.io https://*.stackblitz.io https://*.local-credentialless.webcontainer.io;
+    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net;
+    img-src 'self' blob: data: https: http://localhost:*;
+    font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net;
+    connect-src 'self' blob: http://localhost:* ws: wss: https://generativelanguage.googleapis.com https://api.openai.com https://api.anthropic.com https://*.auth0.com https://api.stripe.com https://checkout.stripe.com https://vitals.vercel-insights.com https://*.webcontainer-api.io https://*.stackblitz.io https://*.local-credentialless.webcontainer.io;
+    frame-src 'self' blob: http://localhost:* https://*.webcontainer-api.io https://*.stackblitz.io https://*.local-credentialless.webcontainer.io;
+    worker-src 'self' blob:;
+    frame-ancestors 'self';
+  ` : `
     default-src 'self';
     script-src 'self' 'unsafe-eval' 'unsafe-inline' blob: https://va.vercel-scripts.com https://js.stripe.com https://cdn.jsdelivr.net;
     style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net;

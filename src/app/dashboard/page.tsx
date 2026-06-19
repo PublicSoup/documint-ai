@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Activity, Lock, Network, ShieldAlert, ShieldCheck } from "lucide-react";
+import { Activity, ArrowRight, Code2, FileText, Lock, Network, ShieldAlert, ShieldCheck } from "lucide-react";
 
 import { getPriorityActions } from "./actions";
 import AnalyticsDashboard from "@/components/analytics-dashboard";
@@ -13,7 +14,6 @@ import AuditLogViewer from "@/components/audit-log-viewer";
 import { DashboardOverviewTab } from "@/components/dashboard/overview-tab";
 import { TrialBanner } from "@/components/dashboard/trial-banner";
 import { EnterpriseFeatureGate } from "@/components/enterprise-feature-gate";
-import { GlobalSearch } from "@/components/global-search";
 import { OnboardingChecklist } from "@/components/onboarding-checklist";
 import { TeamAIAudit } from "@/components/team-ai-audit";
 import { TeamLeaderboard } from "@/components/team-leaderboard";
@@ -80,6 +80,47 @@ export default async function DashboardPage({
       {fileStats.totalFilesCount === 0 && <OnboardingChecklist onboardingContext={onboarding} />}
       <TrialBanner onboarding={onboarding} isPaid={isPaid} />
 
+      <section className="rounded-2xl border border-white/[0.08] bg-white/[0.035] p-5 shadow-2xl shadow-black/20">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="space-y-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-purple-400/20 bg-purple-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-purple-200/90">
+              <Code2 className="h-3.5 w-3.5" />
+              Cloud IDE workspace
+            </div>
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-white md:text-3xl">Build, review, and document from one cockpit.</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-white/55">
+                Keep the dashboard for project intelligence. Use the IDE for actual coding, terminal runs, AI edits, preview, source control, and documentation workflows.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid min-w-full gap-3 sm:grid-cols-2 lg:min-w-[420px]">
+            <div className="rounded-xl border border-white/[0.07] bg-black/20 p-4">
+              <div className="flex items-center gap-2 text-xs font-medium text-white/45">
+                <FileText className="h-4 w-4 text-white/35" />
+                Files indexed
+              </div>
+              <p className="mt-2 text-2xl font-semibold text-white">{fileStats.totalFilesCount}</p>
+              <p className="mt-1 text-xs text-white/35">{fileStats.verifiedDocsCount} verified documents</p>
+            </div>
+            <Link
+              href="/code"
+              className="group flex min-h-[112px] flex-col justify-between rounded-xl border border-purple-400/20 bg-purple-500/15 p-4 text-white transition-colors hover:border-purple-300/40 hover:bg-purple-500/20"
+            >
+              <div className="flex items-center justify-between">
+                <Code2 className="h-5 w-5 text-purple-200" />
+                <ArrowRight className="h-4 w-4 text-purple-200/70 transition-transform group-hover:translate-x-0.5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">Open IDE</p>
+                <p className="mt-1 text-xs text-purple-100/60">Continue in the coding workspace</p>
+              </div>
+            </Link>
+          </div>
+        </div>
+      </section>
+
       <Tabs defaultValue={defaultTab} className="space-y-6">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <TabsList className="bg-white/5 border border-white/5">
@@ -113,8 +154,6 @@ export default async function DashboardPage({
               </TabsTrigger>
             )}
           </TabsList>
-
-          <GlobalSearch teamId={scope.teamId} />
         </div>
 
         <TabsContent value="overview">

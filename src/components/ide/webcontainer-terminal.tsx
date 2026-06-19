@@ -47,6 +47,7 @@ interface WebContainerTerminalProps {
   onProcessExit?: (code: number | null) => void;
   onError?: (error: Error) => void;
   onReady?: (terminal: XTerm) => void;
+  onBeforeCommand?: () => Promise<{ cwd?: string } | void>;
   disabled?: boolean;
 }
 
@@ -55,6 +56,7 @@ export const WebContainerTerminal = ({
   onProcessExit,
   onError,
   onReady,
+  onBeforeCommand,
   disabled = false
 }: WebContainerTerminalProps) => {
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -62,7 +64,7 @@ export const WebContainerTerminal = ({
   const fitAddonRef = useRef<FitAddon | null>(null);
   const webLinksAddonRef = useRef<WebLinksAddon | null>(null);
   const currentProcessRef = useRef<WebContainerProcess | null>(null);
-  const callbacksRef = useRef({ onProcessStart, onProcessExit, onError, onReady });
+  const callbacksRef = useRef({ onProcessStart, onProcessExit, onError, onReady, onBeforeCommand });
   const disposedRef = useRef(false);
   
   const [currentProcess, setCurrentProcess] = useState<WebContainerProcess | null>(null);
@@ -70,8 +72,8 @@ export const WebContainerTerminal = ({
   const lastHealthRef = useRef(healthStatus);
 
   useEffect(() => {
-    callbacksRef.current = { onProcessStart, onProcessExit, onError, onReady };
-  }, [onError, onProcessExit, onProcessStart, onReady]);
+    callbacksRef.current = { onProcessStart, onProcessExit, onError, onReady, onBeforeCommand };
+  }, [onBeforeCommand, onError, onProcessExit, onProcessStart, onReady]);
 
   const updateCurrentProcess = useCallback((process: WebContainerProcess | null) => {
     currentProcessRef.current = process;
@@ -135,11 +137,14 @@ export const WebContainerTerminal = ({
         return;
       }
       
-      term.writeln(`\r\nRunning: ${command}`);
+      term.writeln(`\r\nPreparing workspace...`);
+      const commandContext = await callbacksRef.current.onBeforeCommand?.();
+      term.writeln(`Running: ${command}`);
       
       const process = await WebContainerManager.spawn(cmd, {
         args,
         processId: `terminal-${Date.now().toString(36)}`,
+        cwd: commandContext?.cwd,
       });
       updateCurrentProcess(process);
       callbacksRef.current.onProcessStart?.(process);
