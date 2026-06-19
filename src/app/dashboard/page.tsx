@@ -1,7 +1,16 @@
 import { getServerSession } from "next-auth";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Activity, ArrowRight, Code2, FileText, Lock, Network, ShieldAlert, ShieldCheck } from "lucide-react";
+import {
+  Activity,
+  ArrowRight,
+  Code2,
+  FileText,
+  Lock,
+  Network,
+  ShieldAlert,
+  ShieldCheck,
+} from "lucide-react";
 
 import { getPriorityActions } from "./actions";
 import AnalyticsDashboard from "@/components/analytics-dashboard";
@@ -30,7 +39,10 @@ import {
   getSearchParam,
   isCodebasesViewEnabled,
 } from "@/lib/dashboard/params";
-import type { DashboardFileStats, DashboardSearchParams } from "@/lib/dashboard/types";
+import type {
+  DashboardFileStats,
+  DashboardSearchParams,
+} from "@/lib/dashboard/types";
 import { getUserSubscription } from "@/lib/subscription";
 
 const EMPTY_FILE_STATS: DashboardFileStats = {
@@ -55,16 +67,26 @@ export default async function DashboardPage({
   const initialProjectView = getProjectViewMode(getSearchParam(params, "view"));
   const onboarding = getOnboardingContext(params);
   const codebasesViewEnabled = isCodebasesViewEnabled(params);
-  const defaultTab = getSearchParam(params, "tab") === "architecture" ? "architecture" : "overview";
+  const defaultTab =
+    getSearchParam(params, "tab") === "architecture"
+      ? "architecture"
+      : "overview";
 
   const [subscription, scope] = await Promise.all([
-    getUserSubscription(userId).catch(() => ({ isPro: false, isTeam: false, plan: "free" })),
+    getUserSubscription(userId).catch(() => ({
+      isPro: false,
+      isTeam: false,
+      plan: "free",
+    })),
     resolveDashboardScope(userId, requestedTeamId),
   ]);
 
   if (scope.invalidTeamRequest) redirect("/dashboard");
 
-  const fileStats = await getDashboardFileStats(scope.where, selectedDocId).catch(() => EMPTY_FILE_STATS);
+  const fileStats = await getDashboardFileStats(
+    scope.where,
+    selectedDocId,
+  ).catch(() => EMPTY_FILE_STATS);
   const { selectedFile, parsedDoc } = await getSelectedDashboardDocument({
     files: fileStats.files,
     selectedDocId,
@@ -72,51 +94,89 @@ export default async function DashboardPage({
     userId,
   });
 
-  const priorityData = await getPriorityActions(userId, scope.teamId).catch(() => ({ actions: [], hotspots: [] }));
+  const priorityData = await getPriorityActions(userId, scope.teamId).catch(
+    () => ({ actions: [], hotspots: [] }),
+  );
   const isPaid = subscription.isPro || subscription.isTeam;
 
   return (
     <div className="space-y-8 animate-fade-in pb-20">
-      {fileStats.totalFilesCount === 0 && <OnboardingChecklist onboardingContext={onboarding} />}
+      {fileStats.totalFilesCount === 0 && (
+        <OnboardingChecklist onboardingContext={onboarding} />
+      )}
       <TrialBanner onboarding={onboarding} isPaid={isPaid} />
 
-      <section className="rounded-2xl border border-white/[0.08] bg-white/[0.035] p-5 shadow-2xl shadow-black/20">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-          <div className="space-y-3">
-            <div className="inline-flex items-center gap-2 rounded-full border border-purple-400/20 bg-purple-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-purple-200/90">
-              <Code2 className="h-3.5 w-3.5" />
-              Cloud IDE workspace
-            </div>
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-white md:text-3xl">Build, review, and document from one cockpit.</h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-white/55">
-                Keep the dashboard for project intelligence. Use the IDE for actual coding, terminal runs, AI edits, preview, source control, and documentation workflows.
-              </p>
-            </div>
+      <section className="rounded-2xl border border-white/10 bg-[#0d0d12] p-5 shadow-lg shadow-black/20">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-white/35">
+              Workspace
+            </p>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">
+              Dashboard
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/50">
+              Review documentation coverage, recent project activity, and the
+              files that need attention.
+            </p>
           </div>
 
-          <div className="grid min-w-full gap-3 sm:grid-cols-2 lg:min-w-[420px]">
-            <div className="rounded-xl border border-white/[0.07] bg-black/20 p-4">
-              <div className="flex items-center gap-2 text-xs font-medium text-white/45">
-                <FileText className="h-4 w-4 text-white/35" />
-                Files indexed
-              </div>
-              <p className="mt-2 text-2xl font-semibold text-white">{fileStats.totalFilesCount}</p>
-              <p className="mt-1 text-xs text-white/35">{fileStats.verifiedDocsCount} verified documents</p>
-            </div>
+          <div className="flex flex-wrap items-center gap-3">
             <Link
               href="/code"
-              className="group flex min-h-[112px] flex-col justify-between rounded-xl border border-purple-400/20 bg-purple-500/15 p-4 text-white transition-colors hover:border-purple-300/40 hover:bg-purple-500/20"
+              className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-white/90"
             >
-              <div className="flex items-center justify-between">
-                <Code2 className="h-5 w-5 text-purple-200" />
-                <ArrowRight className="h-4 w-4 text-purple-200/70 transition-transform group-hover:translate-x-0.5" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold">Open IDE</p>
-                <p className="mt-1 text-xs text-purple-100/60">Continue in the coding workspace</p>
-              </div>
+              <Code2 className="h-4 w-4" />
+              Open IDE
             </Link>
+            <Link
+              href={
+                scope.teamId
+                  ? `/dashboard/analytics?teamId=${scope.teamId}`
+                  : "/dashboard/analytics"
+              }
+              className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+            >
+              View analytics
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-white/8 bg-black/20 p-4">
+            <div className="flex items-center gap-2 text-xs font-medium text-white/45">
+              <FileText className="h-4 w-4 text-white/35" />
+              Files indexed
+            </div>
+            <p className="mt-2 text-2xl font-semibold text-white">
+              {fileStats.totalFilesCount}
+            </p>
+            <p className="mt-1 text-xs text-white/35">
+              Available in this workspace
+            </p>
+          </div>
+          <div className="rounded-xl border border-white/8 bg-black/20 p-4">
+            <div className="flex items-center gap-2 text-xs font-medium text-white/45">
+              <ShieldCheck className="h-4 w-4 text-white/35" />
+              Verified docs
+            </div>
+            <p className="mt-2 text-2xl font-semibold text-white">
+              {fileStats.verifiedDocsCount}
+            </p>
+            <p className="mt-1 text-xs text-white/35">
+              Approved documentation records
+            </p>
+          </div>
+          <div className="rounded-xl border border-white/8 bg-black/20 p-4">
+            <div className="flex items-center gap-2 text-xs font-medium text-white/45">
+              <Activity className="h-4 w-4 text-white/35" />
+              Priority items
+            </div>
+            <p className="mt-2 text-2xl font-semibold text-white">
+              {priorityData.actions.length}
+            </p>
+            <p className="mt-1 text-xs text-white/35">Open follow-up actions</p>
           </div>
         </div>
       </section>
@@ -179,7 +239,10 @@ export default async function DashboardPage({
           />
         </TabsContent>
 
-        <TabsContent value="health" className="space-y-6 animate-in fade-in-50 duration-500">
+        <TabsContent
+          value="health"
+          className="space-y-6 animate-in fade-in-50 duration-500"
+        >
           {scope.teamId && <TeamScorecard teamId={scope.teamId} />}
           {scope.teamId && <TeamAIAudit teamId={scope.teamId} />}
 
@@ -197,7 +260,10 @@ export default async function DashboardPage({
           </div>
         </TabsContent>
 
-        <TabsContent value="audit" className="space-y-4 animate-in fade-in-50 duration-500">
+        <TabsContent
+          value="audit"
+          className="space-y-4 animate-in fade-in-50 duration-500"
+        >
           <EnterpriseFeatureGate
             isPro={isPaid}
             featureName="Audit Logs"
@@ -207,7 +273,10 @@ export default async function DashboardPage({
           </EnterpriseFeatureGate>
         </TabsContent>
 
-        <TabsContent value="architecture" className="space-y-4 animate-in fade-in-50 duration-500">
+        <TabsContent
+          value="architecture"
+          className="space-y-4 animate-in fade-in-50 duration-500"
+        >
           <EnterpriseFeatureGate
             isPro={isPaid}
             featureName="Architecture Diagram"
@@ -218,7 +287,10 @@ export default async function DashboardPage({
         </TabsContent>
 
         {scope.teamId && (
-          <TabsContent value="security" className="space-y-6 animate-in fade-in-50 duration-500">
+          <TabsContent
+            value="security"
+            className="space-y-6 animate-in fade-in-50 duration-500"
+          >
             <TeamSecurityAudit teamId={scope.teamId} />
           </TabsContent>
         )}

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus, Sparkles } from "lucide-react";
+import { AlertTriangle, Plus } from "lucide-react";
 
 import FileUpload from "@/components/file-upload";
 import GitHubImport from "@/components/github-import";
@@ -22,11 +22,11 @@ export function WorkspaceActionsCard({
   priorityActions: PriorityAction[];
 }) {
   return (
-    <Card className="glass-card border-white/5 overflow-hidden">
+    <Card className="overflow-hidden border-white/8 bg-[#0d0d12]">
       <CardHeader className="pb-4">
-        <CardTitle className="text-sm font-bold flex items-center gap-2">
-          <Plus className="w-4 h-4 text-primary" />
-          Workspace Actions
+        <CardTitle className="text-sm font-semibold flex items-center gap-2 text-white">
+          <Plus className="w-4 h-4 text-white/45" />
+          Workspace actions
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 p-4 pt-0">
@@ -35,37 +35,47 @@ export function WorkspaceActionsCard({
           <GitHubImport />
         </div>
 
-        <div className="p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 space-y-3">
+        <div className="p-4 rounded-xl bg-white/[0.03] border border-white/8 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400 flex items-center gap-2">
-              <Sparkles className="w-3 h-3" />
-              Priority Queue
+            <span className="text-xs font-medium text-white/55 flex items-center gap-2">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-300" />
+              Needs attention
             </span>
-            <span className="text-[10px] bg-indigo-500 text-white px-1.5 rounded-full font-bold">
+            <span className="rounded-full border border-white/8 px-2 py-0.5 text-xs font-semibold text-white/55">
               {priorityActions.length}
             </span>
           </div>
           <div className="space-y-2">
-            {priorityActions.length > 0 ? priorityActions.map((action) => (
-              <Link
-                key={action.id}
-                href={`/dashboard?${teamId ? `teamId=${teamId}&` : ""}docId=${action.fileId}`}
-                className="text-[11px] text-white/60 hover:text-white transition-colors cursor-pointer flex items-center gap-2 group"
-              >
-                <div className={cn(
-                  "w-1 h-1 rounded-full group-hover:scale-125 transition-transform",
-                  action.priority === "CRITICAL" ? "bg-rose-500 animate-pulse" : "bg-amber-400",
-                )} />
-                <span className="truncate">{action.label}</span>
-              </Link>
-            )) : (
-              <p className="text-[10px] text-zinc-600 italic">No critical issues detected.</p>
+            {priorityActions.length > 0 ? (
+              priorityActions.map((action) => (
+                <Link
+                  key={action.id}
+                  href={`/dashboard?${teamId ? `teamId=${teamId}&` : ""}docId=${action.fileId}`}
+                  className="text-[11px] text-white/60 hover:text-white transition-colors cursor-pointer flex items-center gap-2 group"
+                >
+                  <div
+                    className={cn(
+                      "w-1 h-1 rounded-full group-hover:scale-125 transition-transform",
+                      action.priority === "CRITICAL"
+                        ? "bg-rose-500 animate-pulse"
+                        : "bg-amber-400",
+                    )}
+                  />
+                  <span className="truncate">{action.label}</span>
+                </Link>
+              ))
+            ) : (
+              <p className="text-xs text-white/35">
+                No priority work right now.
+              </p>
             )}
           </div>
         </div>
 
-        <div className="pt-4 border-t border-white/5 space-y-2">
-          <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest px-2">Current Context</p>
+        <div className="pt-4 border-t border-white/8 space-y-2">
+          <p className="px-2 text-xs font-medium text-white/45">
+            Current context
+          </p>
           <TeamSwitcher teams={teams} currentTeamId={teamId} />
           <UsageMeter />
         </div>

@@ -1,495 +1,447 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import {
-    Sparkles,
-    TrendingUp,
-    Zap,
-    Activity,
-    AlertTriangle,
-    Clock,
-    FileText,
-    FolderOpen,
-    ArrowRight,
-    BarChart3,
-    Shield,
-    Target,
-    CheckCircle2,
+  AlertTriangle,
+  ArrowRight,
+  BarChart3,
+  CheckCircle2,
+  Clock,
+  FileText,
+  FolderOpen,
+  ShieldCheck,
+  type LucideIcon,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
-import type { PriorityAction, Hotspot } from "@/app/dashboard/actions";
-import GitHubImport from "@/components/github-import";
 
-// ── Types ──────────────────────────────────────────────────────────────────
+import type { Hotspot, PriorityAction } from "@/app/dashboard/actions";
+import { cn } from "@/lib/utils";
 
 interface FileWithDocs {
-    id: string;
-    name: string;
-    language: string;
-    size: number;
-    createdAt: Date;
-    updatedAt: Date;
-    documentation: {
-        content: string;
-        verifiedAt?: Date | null;
-        status: string;
-    } | null;
+  id: string;
+  name: string;
+  language: string;
+  size: number;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+  documentation: {
+    content: string;
+    verifiedAt?: Date | string | null;
+    status: string;
+  } | null;
 }
 
 interface CommandCenterProps {
-    teamId?: string;
-    files: FileWithDocs[];
-    priorityActions: PriorityAction[];
-    hotspots: Hotspot[];
-    totalFilesCount: number;
-    verifiedDocsCount: number;
+  teamId?: string;
+  files: FileWithDocs[];
+  priorityActions: PriorityAction[];
+  hotspots: Hotspot[];
+  totalFilesCount: number;
+  verifiedDocsCount: number;
 }
 
 interface WorkspaceSummary {
-    totalFiles: number;
-    totalLOC: number;
-    documentedCount: number;
-    undocumentedCount: number;
-    coveragePercent: number;
-    avgRisk: number;
-    criticalCount: number;
+  totalFiles: number;
+  totalLOC: number;
+  documentedCount: number;
+  undocumentedCount: number;
+  coveragePercent: number;
+  avgRisk: number;
+  criticalCount: number;
 }
 
-// ── Summary bar ────────────────────────────────────────────────────────────
+function dashboardHref(fileId: string, teamId?: string) {
+  return `/dashboard?${teamId ? `teamId=${teamId}&` : ""}docId=${fileId}`;
+}
 
-function SummaryBar({ summary }: { summary: WorkspaceSummary | null }) {
-    if (!summary) {
-        return (
-            <div className="h-[72px] rounded-2xl bg-white/[0.03] border border-white/[0.06] animate-pulse" />
-        );
-    }
+function formatUpdatedAt(value: Date | string) {
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "recently"
+    : formatDistanceToNow(date, { addSuffix: true });
+}
 
-    const riskColor =
-        summary.criticalCount > 0
-            ? "text-rose-400"
-            : summary.avgRisk > 50
-              ? "text-amber-400"
-              : "text-emerald-400";
+function fallbackSummary(
+  totalFilesCount: number,
+  verifiedDocsCount: number,
+): WorkspaceSummary {
+  return {
+    totalFiles: totalFilesCount,
+    totalLOC: 0,
+    documentedCount: verifiedDocsCount,
+    undocumentedCount: Math.max(0, totalFilesCount - verifiedDocsCount),
+    coveragePercent:
+      totalFilesCount > 0
+        ? Math.round((verifiedDocsCount / totalFilesCount) * 100)
+        : 0,
+    avgRisk: 0,
+    criticalCount: 0,
+  };
+}
 
-    return (
-        <div className="rounded-2xl bg-gradient-to-r from-white/[0.03] to-white/[0.01] border border-white/[0.06] p-5">
-            <div className="flex items-center justify-between flex-wrap gap-4">
-                <div className="flex items-center gap-6 flex-wrap">
-                    <div className="flex items-center gap-2">
-                        <FolderOpen className="w-4 h-4 text-primary" />
-                        <span className="text-sm font-bold text-white">
-                            {summary.totalFiles.toLocaleString()}
-                        </span>
-                        <span className="text-[10px] text-white/30 uppercase tracking-wider">
-                            files
-                        </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-blue-400" />
-                        <span className="text-sm font-bold text-white">
-                            {summary.totalLOC >= 1000
-                                ? `${(summary.totalLOC / 1000).toFixed(1)}k`
-                                : summary.totalLOC.toLocaleString()}
-                        </span>
-                        <span className="text-[10px] text-white/30 uppercase tracking-wider">
-                            LOC
-                        </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <Target className="w-4 h-4 text-indigo-400" />
-                        <span className="text-sm font-bold text-white">
-                            {summary.coveragePercent}%
-                        </span>
-                        <span className="text-[10px] text-white/30 uppercase tracking-wider">
-                            coverage
-                        </span>
-                    </div>
-                    {summary.criticalCount > 0 && (
-                        <div className="flex items-center gap-2">
-                            <AlertTriangle className="w-4 h-4 text-rose-400" />
-                            <span className={cn("text-sm font-bold", riskColor)}>
-                                {summary.criticalCount}
-                            </span>
-                            <span className="text-[10px] text-white/30 uppercase tracking-wider">
-                                critical
-                            </span>
-                        </div>
-                    )}
-                </div>
+function MetricCard({
+  label,
+  value,
+  detail,
+  icon: Icon,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string | number;
+  detail: string;
+  icon: LucideIcon;
+  tone?: "neutral" | "good" | "warn" | "bad";
+}) {
+  const toneClass = {
+    neutral: "text-slate-300 bg-white/5 border-white/10",
+    good: "text-emerald-300 bg-emerald-500/10 border-emerald-400/20",
+    warn: "text-amber-300 bg-amber-500/10 border-amber-400/20",
+    bad: "text-rose-300 bg-rose-500/10 border-rose-400/20",
+  }[tone];
 
-                {/* Coverage bar */}
-                <div className="flex items-center gap-3">
-                    <div className="w-32 h-1.5 bg-white/5 rounded-full overflow-hidden">
-                        <div
-                            className={cn(
-                                "h-full rounded-full transition-all duration-1000",
-                                summary.coveragePercent >= 80
-                                    ? "bg-emerald-500"
-                                    : summary.coveragePercent >= 50
-                                      ? "bg-amber-500"
-                                      : "bg-rose-500"
-                            )}
-                            style={{ width: `${summary.coveragePercent}%` }}
-                        />
-                    </div>
-                </div>
-            </div>
+  return (
+    <div className="rounded-xl border border-white/8 bg-[#0d0d12] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium text-white/45">{label}</p>
+          <p className="mt-2 text-2xl font-semibold tracking-tight text-white">
+            {value}
+          </p>
         </div>
-    );
+        <div className={cn("rounded-lg border p-2", toneClass)}>
+          <Icon className="h-4 w-4" />
+        </div>
+      </div>
+      <p className="mt-3 text-xs leading-5 text-white/40">{detail}</p>
+    </div>
+  );
 }
 
-// ── Priority action row ────────────────────────────────────────────────────
+function Section({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="overflow-hidden rounded-xl border border-white/8 bg-[#0d0d12]">
+      <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-3">
+        <h3 className="text-sm font-semibold text-white">{title}</h3>
+        {action}
+      </div>
+      <div className="p-2">{children}</div>
+    </section>
+  );
+}
+
+function EmptyRow({ children }: { children: ReactNode }) {
+  return (
+    <div className="px-3 py-6 text-center text-sm text-white/35">
+      {children}
+    </div>
+  );
+}
 
 function PriorityActionRow({
-    action,
-    teamId,
+  action,
+  teamId,
 }: {
-    action: PriorityAction;
-    teamId?: string;
+  action: PriorityAction;
+  teamId?: string;
 }) {
-    const priorityColors = {
-        CRITICAL: "bg-rose-500",
-        HIGH: "bg-amber-500",
-        MEDIUM: "bg-yellow-500",
-        LOW: "bg-zinc-400",
-    };
+  const tone = {
+    CRITICAL: "bg-rose-400",
+    HIGH: "bg-amber-400",
+    MEDIUM: "bg-yellow-300",
+    LOW: "bg-slate-400",
+  }[action.priority];
 
-    return (
-        <Link
-            href={`/dashboard?${teamId ? `teamId=${teamId}&` : ""}docId=${action.fileId}`}
-            className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/[0.03] transition-colors group"
-        >
-            <div
-                className={cn(
-                    "w-1.5 h-1.5 rounded-full shrink-0 group-hover:scale-125 transition-transform",
-                    priorityColors[action.priority],
-                    action.priority === "CRITICAL" && "animate-pulse"
-                )}
-            />
-            <span className="text-[11px] text-white/50 group-hover:text-white/70 transition-colors truncate flex-1">
-                {action.label}
-            </span>
-            <ArrowRight className="w-3 h-3 text-white/15 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-        </Link>
-    );
+  return (
+    <Link
+      href={dashboardHref(action.fileId, teamId)}
+      className="group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-white/5"
+    >
+      <span className={cn("h-2 w-2 rounded-full", tone)} />
+      <span className="min-w-0 flex-1 truncate text-white/70 group-hover:text-white">
+        {action.label}
+      </span>
+      <span className="rounded border border-white/8 px-1.5 py-0.5 text-[10px] font-medium text-white/35">
+        {action.priority}
+      </span>
+    </Link>
+  );
 }
-
-// ── Hotspot row ────────────────────────────────────────────────────────────
-
-function HotspotRow({ hotspot, teamId }: { hotspot: Hotspot; teamId?: string }) {
-    return (
-        <Link
-            href={`/dashboard?${teamId ? `teamId=${teamId}&` : ""}docId=${hotspot.id}`}
-            className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white/[0.03] transition-colors group"
-        >
-            <div className="flex items-center gap-3 min-w-0">
-                <div
-                    className={cn(
-                        "w-1.5 h-1.5 rounded-full shrink-0",
-                        hotspot.riskScore > 70
-                            ? "bg-rose-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]"
-                            : hotspot.riskScore > 40
-                              ? "bg-amber-400"
-                              : "bg-emerald-400"
-                    )}
-                />
-                <span className="text-[11px] text-white/50 group-hover:text-white/70 transition-colors truncate">
-                    {hotspot.name}
-                </span>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-                {hotspot.isDocumented ? (
-                    <div className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 text-[8px] font-black uppercase">
-                        Docs
-                    </div>
-                ) : (
-                    <div className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 text-[8px] font-black uppercase">
-                        Missing
-                    </div>
-                )}
-                <span className="text-[10px] font-bold text-zinc-500 w-6 text-right">
-                    {hotspot.riskScore}
-                </span>
-            </div>
-        </Link>
-    );
-}
-
-// ── Recent file row ────────────────────────────────────────────────────────
 
 function RecentFileRow({
-    file,
-    teamId,
+  file,
+  teamId,
 }: {
-    file: FileWithDocs;
-    teamId?: string;
+  file: FileWithDocs;
+  teamId?: string;
 }) {
-    const statusColor =
-        file.documentation?.status === "APPROVED"
-            ? "bg-emerald-500"
-            : file.documentation?.status === "REVIEW"
-              ? "bg-blue-500 animate-pulse"
-              : file.documentation?.status === "DRAFT"
-                ? "bg-amber-500"
-                : "bg-white/20";
+  const documented = Boolean(file.documentation);
 
-    return (
-        <Link
-            href={`/dashboard?${teamId ? `teamId=${teamId}&` : ""}docId=${file.id}`}
-            className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/[0.03] transition-colors group"
-        >
-            <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", statusColor)} />
-            <span className="text-[11px] text-white/50 group-hover:text-white/70 transition-colors truncate flex-1">
-                {file.name}
-            </span>
-            <span className="text-[9px] text-white/20 shrink-0">
-                {file.updatedAt instanceof Date
-                    ? formatDistanceToNow(file.updatedAt, { addSuffix: true })
-                    : "recently"}
-            </span>
-        </Link>
-    );
+  return (
+    <Link
+      href={dashboardHref(file.id, teamId)}
+      className="group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-white/5"
+    >
+      <div
+        className={cn(
+          "flex h-8 w-8 items-center justify-center rounded-lg border",
+          documented
+            ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-300"
+            : "border-white/8 bg-white/5 text-white/45",
+        )}
+      >
+        <FileText className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-white/75 group-hover:text-white">
+          {file.name}
+        </p>
+        <p className="mt-0.5 text-xs text-white/35">
+          {file.language || "text"} · {formatUpdatedAt(file.updatedAt)}
+        </p>
+      </div>
+      <ArrowRight className="h-4 w-4 text-white/20 transition-transform group-hover:translate-x-0.5 group-hover:text-white/45" />
+    </Link>
+  );
 }
 
-// ── Main component ─────────────────────────────────────────────────────────
+function HotspotRow({
+  hotspot,
+  teamId,
+}: {
+  hotspot: Hotspot;
+  teamId?: string;
+}) {
+  const tone =
+    hotspot.riskScore > 70 ? "bad" : hotspot.riskScore > 40 ? "warn" : "good";
+  const toneClass = {
+    good: "bg-emerald-400",
+    warn: "bg-amber-400",
+    bad: "bg-rose-400",
+  }[tone];
+
+  return (
+    <Link
+      href={dashboardHref(hotspot.id, teamId)}
+      className="group flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-white/5"
+    >
+      <div className="flex min-w-0 items-center gap-3">
+        <span className={cn("h-2 w-2 shrink-0 rounded-full", toneClass)} />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-white/75 group-hover:text-white">
+            {hotspot.name}
+          </p>
+          <p className="mt-0.5 text-xs text-white/35">
+            {hotspot.isDocumented ? "Documented" : "Missing documentation"}
+          </p>
+        </div>
+      </div>
+      <span className="rounded border border-white/8 px-2 py-1 text-xs font-semibold text-white/55">
+        {hotspot.riskScore}
+      </span>
+    </Link>
+  );
+}
 
 export function CommandCenter({
-    teamId,
-    files,
-    priorityActions,
-    hotspots,
-    totalFilesCount,
-    verifiedDocsCount,
+  teamId,
+  files,
+  priorityActions,
+  hotspots,
+  totalFilesCount,
+  verifiedDocsCount,
 }: CommandCenterProps) {
-    const [summary, setSummary] = useState<WorkspaceSummary | null>(null);
+  const [summary, setSummary] = useState<WorkspaceSummary>(() =>
+    fallbackSummary(totalFilesCount, verifiedDocsCount),
+  );
 
-    useEffect(() => {
-        const params = new URLSearchParams();
-        if (teamId) params.set("teamId", teamId);
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams();
+    if (teamId) params.set("teamId", teamId);
 
-        fetch(`/api/files/metrics?${params.toString()}`)
-            .then((r) => r.json())
-            .then((data: { summary: WorkspaceSummary }) => {
-                if (data?.summary) setSummary(data.summary);
-            })
-            .catch(() => {
-                // Fallback: compute from props
-                setSummary({
-                    totalFiles: totalFilesCount,
-                    totalLOC: 0,
-                    documentedCount: verifiedDocsCount,
-                    undocumentedCount: totalFilesCount - verifiedDocsCount,
-                    coveragePercent:
-                        totalFilesCount > 0
-                            ? Math.round((verifiedDocsCount / totalFilesCount) * 100)
-                            : 0,
-                    avgRisk: 0,
-                    criticalCount: 0,
-                });
-            });
-    }, [teamId, totalFilesCount, verifiedDocsCount]);
+    fetch(`/api/files/metrics?${params.toString()}`, {
+      signal: controller.signal,
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { summary?: WorkspaceSummary } | null) => {
+        if (data?.summary) setSummary(data.summary);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError")
+          return;
+        setSummary(fallbackSummary(totalFilesCount, verifiedDocsCount));
+      });
 
-    // Sort files by updatedAt descending for "recent"
-    const recentFiles = [...files]
-        .sort((a, b) => {
-            const dateA = a.updatedAt instanceof Date ? a.updatedAt : new Date(a.updatedAt);
-            const dateB = b.updatedAt instanceof Date ? b.updatedAt : new Date(b.updatedAt);
-            return dateB.getTime() - dateA.getTime();
-        })
-        .slice(0, 6);
+    return () => controller.abort();
+  }, [teamId, totalFilesCount, verifiedDocsCount]);
 
-    // Continue working: most recently updated file
-    const continueWorking = recentFiles[0];
+  const recentFiles = useMemo(() => {
+    return [...files]
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      )
+      .slice(0, 6);
+  }, [files]);
 
-    return (
-        <div className="space-y-5">
-            {/* Summary Bar */}
-            <SummaryBar summary={summary} />
+  const coverageTone =
+    summary.coveragePercent >= 80
+      ? "good"
+      : summary.coveragePercent >= 50
+        ? "warn"
+        : "bad";
+  const hotspotTone =
+    summary.criticalCount > 0 ? "bad" : hotspots.length > 0 ? "warn" : "good";
 
-            {/* Continue Working CTA */}
-            {continueWorking && (
-                <Link
-                    href={`/dashboard?${teamId ? `teamId=${teamId}&` : ""}docId=${continueWorking.id}`}
-                    className="flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/20 hover:bg-primary/15 transition-all group cursor-pointer"
-                >
-                    <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
-                        <Zap className="w-5 h-5 text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-primary/80">
-                            Continue Working
-                        </p>
-                        <p className="text-sm font-bold text-white truncate mt-0.5">
-                            {continueWorking.name}
-                        </p>
-                    </div>
-                    <ArrowRight className="w-4 h-4 text-primary/50 group-hover:translate-x-1 transition-transform" />
-                </Link>
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          label="Files"
+          value={summary.totalFiles.toLocaleString()}
+          detail={`${summary.totalLOC ? `${summary.totalLOC.toLocaleString()} lines indexed` : "Workspace files indexed"}`}
+          icon={FolderOpen}
+        />
+        <MetricCard
+          label="Documentation"
+          value={`${summary.coveragePercent}%`}
+          detail={`${summary.documentedCount} documented · ${summary.undocumentedCount} remaining`}
+          icon={ShieldCheck}
+          tone={coverageTone}
+        />
+        <MetricCard
+          label="Priority work"
+          value={priorityActions.length}
+          detail="Open documentation and review actions"
+          icon={AlertTriangle}
+          tone={priorityActions.length > 0 ? "warn" : "good"}
+        />
+        <MetricCard
+          label="Hotspots"
+          value={hotspots.length}
+          detail={
+            summary.criticalCount > 0
+              ? `${summary.criticalCount} critical files`
+              : "Risk-weighted project files"
+          }
+          icon={BarChart3}
+          tone={hotspotTone}
+        />
+      </div>
+
+      {recentFiles[0] && (
+        <Link
+          href={dashboardHref(recentFiles[0].id, teamId)}
+          className="group flex items-center justify-between gap-4 rounded-xl border border-white/8 bg-[#0d0d12] p-4 transition-colors hover:bg-white/5"
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/8 bg-white/5 text-white/60">
+              <Clock className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-wide text-white/35">
+                Continue where you left off
+              </p>
+              <p className="mt-1 truncate text-sm font-semibold text-white">
+                {recentFiles[0].name}
+              </p>
+            </div>
+          </div>
+          <ArrowRight className="h-4 w-4 text-white/30 transition-transform group-hover:translate-x-0.5 group-hover:text-white/60" />
+        </Link>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <Section
+          title="Priority work"
+          action={
+            <span className="text-xs text-white/35">
+              {priorityActions.length} open
+            </span>
+          }
+        >
+          <div className="max-h-72 overflow-y-auto">
+            {priorityActions.length > 0 ? (
+              priorityActions
+                .slice(0, 8)
+                .map((action) => (
+                  <PriorityActionRow
+                    key={action.id}
+                    action={action}
+                    teamId={teamId}
+                  />
+                ))
+            ) : (
+              <EmptyRow>No priority actions right now.</EmptyRow>
             )}
+          </div>
+        </Section>
 
-            {/* Quick Actions */}
-            <div className="grid grid-cols-3 gap-4">
-                <Link
-                    href={`/dashboard?${teamId ? `teamId=${teamId}&` : ""}docId=${continueWorking?.id ?? ""}`}
-                    className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] hover:border-primary/30 transition-colors group cursor-pointer"
-                >
-                    <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-                        <FileText className="w-4 h-4 text-primary" />
-                    </div>
-                    <h3 className="text-xs font-bold text-white mb-1">Quick Analysis</h3>
-                    <p className="text-[10px] text-white/30">Select a file for deep analysis</p>
-                </Link>
+        <Section
+          title="Recent files"
+          action={<span className="text-xs text-white/35">Latest changes</span>}
+        >
+          <div className="max-h-72 overflow-y-auto">
+            {recentFiles.length > 0 ? (
+              recentFiles.map((file) => (
+                <RecentFileRow key={file.id} file={file} teamId={teamId} />
+              ))
+            ) : (
+              <EmptyRow>No files uploaded yet.</EmptyRow>
+            )}
+          </div>
+        </Section>
+      </div>
 
-                <GitHubImport />
-
-                <Link
-                    href={teamId ? `/dashboard/analytics?teamId=${teamId}` : "/dashboard/analytics"}
-                    className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] hover:border-purple-500/30 transition-colors group cursor-pointer"
-                >
-                    <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-                        <BarChart3 className="w-4 h-4 text-purple-400" />
-                    </div>
-                    <h3 className="text-xs font-bold text-white mb-1">View Analytics</h3>
-                    <p className="text-[10px] text-white/30">Workspace health and trends</p>
-                </Link>
+      <Section
+        title="Project hotspots"
+        action={
+          teamId ? (
+            <Link
+              href={`/dashboard/analytics?teamId=${teamId}`}
+              className="text-xs text-white/45 hover:text-white"
+            >
+              Analytics
+            </Link>
+          ) : (
+            <Link
+              href="/dashboard/analytics"
+              className="text-xs text-white/45 hover:text-white"
+            >
+              Analytics
+            </Link>
+          )
+        }
+      >
+        <div className="max-h-80 overflow-y-auto">
+          {hotspots.length > 0 ? (
+            hotspots
+              .slice(0, 10)
+              .map((hotspot) => (
+                <HotspotRow
+                  key={hotspot.id}
+                  hotspot={hotspot}
+                  teamId={teamId}
+                />
+              ))
+          ) : (
+            <div className="flex items-center justify-center gap-2 px-3 py-8 text-sm text-emerald-300">
+              <CheckCircle2 className="h-4 w-4" />
+              No high-risk files detected.
             </div>
-
-            {/* AI Priority Queue + Recent Files */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Priority Queue */}
-                <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] overflow-hidden">
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.04]">
-                        <div className="flex items-center gap-2">
-                            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                            <span className="text-[10px] font-black uppercase tracking-widest text-white/30">
-                                AI Priority Queue
-                            </span>
-                        </div>
-                        <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded-full font-bold">
-                            {priorityActions.length}
-                        </span>
-                    </div>
-                    <div className="p-2 space-y-0.5 max-h-[200px] overflow-y-auto custom-scrollbar">
-                        {priorityActions.length > 0 ? (
-                            priorityActions.map((action) => (
-                                <PriorityActionRow
-                                    key={action.id}
-                                    action={action}
-                                    teamId={teamId}
-                                />
-                            ))
-                        ) : (
-                            <p className="text-[10px] text-white/20 italic p-3 text-center">
-                                No critical issues detected.
-                            </p>
-                        )}
-                    </div>
-                </div>
-
-                {/* Recent Files */}
-                <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] overflow-hidden">
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.04]">
-                        <div className="flex items-center gap-2">
-                            <Clock className="w-3.5 h-3.5 text-blue-400" />
-                            <span className="text-[10px] font-black uppercase tracking-widest text-white/30">
-                                Recent Files
-                            </span>
-                        </div>
-                    </div>
-                    <div className="p-2 space-y-0.5 max-h-[200px] overflow-y-auto custom-scrollbar">
-                        {recentFiles.length > 0 ? (
-                            recentFiles.map((file) => (
-                                <RecentFileRow key={file.id} file={file} teamId={teamId} />
-                            ))
-                        ) : (
-                            <p className="text-[10px] text-white/20 italic p-3 text-center">
-                                No files uploaded yet.
-                            </p>
-                        )}
-                    </div>
-                </div>
-            </div>
-
-            {/* Hotspot Analysis */}
-            <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.04]">
-                    <div className="flex items-center gap-2">
-                        <Activity className="w-3.5 h-3.5 text-orange-400" />
-                        <span className="text-[10px] font-black uppercase tracking-widest text-white/30">
-                            Hotspot Analysis
-                        </span>
-                    </div>
-                    <span className="text-[10px] text-white/20 font-bold uppercase tracking-widest">
-                        Live
-                    </span>
-                </div>
-                <div className="p-2 space-y-0.5 max-h-[200px] overflow-y-auto custom-scrollbar">
-                    {hotspots.length > 0 ? (
-                        hotspots.map((hotspot) => (
-                            <HotspotRow
-                                key={hotspot.id}
-                                hotspot={hotspot}
-                                teamId={teamId}
-                            />
-                        ))
-                    ) : (
-                        <div className="flex items-center gap-2 justify-center p-4 text-[10px] text-emerald-400">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span className="font-bold">Project is looking healthy</span>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* Documentation Health */}
-            <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-5">
-                <div className="flex items-center gap-2 mb-4">
-                    <Shield className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-white/30">
-                        Documentation Health
-                    </span>
-                </div>
-                <div className="flex items-center gap-4">
-                    <div className="flex-1">
-                        <div className="flex items-center gap-4 mb-2">
-                            <span className="text-xs text-white/50">
-                                {verifiedDocsCount} of {totalFilesCount} files documented
-                            </span>
-                            <span className="text-xs text-white/30">
-                                {totalFilesCount > 0
-                                    ? `${Math.round((verifiedDocsCount / totalFilesCount) * 100)}%`
-                                    : "0%"}
-                            </span>
-                        </div>
-                        <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-                            <div
-                                className="h-full bg-emerald-500 rounded-full transition-all duration-1000"
-                                style={{
-                                    width: `${
-                                        totalFilesCount > 0
-                                            ? (verifiedDocsCount / totalFilesCount) * 100
-                                            : 0
-                                    }%`,
-                                }}
-                            />
-                        </div>
-                    </div>
-                    <Link
-                        href={teamId ? `/dashboard/analytics?teamId=${teamId}` : "/dashboard/analytics"}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 text-[10px] font-bold text-white/40 hover:bg-white/10 hover:text-white/60 transition-colors shrink-0"
-                    >
-                        <TrendingUp className="w-3 h-3" />
-                        See Analytics
-                    </Link>
-                </div>
-            </div>
-
-            {/* Footer note */}
-            <p className="text-center text-[10px] text-white/15 py-2">
-                {totalFilesCount} files in workspace · Select a file from the explorer to begin deep analysis
-            </p>
+          )}
         </div>
-    );
+      </Section>
+    </div>
+  );
 }
