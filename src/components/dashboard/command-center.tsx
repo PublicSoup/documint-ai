@@ -11,13 +11,24 @@ import {
   Clock,
   FileText,
   FolderOpen,
+  GitBranch,
+  RadioTower,
   ShieldCheck,
+  Sparkles,
+  TerminalSquare,
   type LucideIcon,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 import type { Hotspot, PriorityAction } from "@/app/dashboard/actions";
+import type {
+  IdeActivityEntry,
+  MonitoringCodebase,
+  ProjectMonitoringData,
+} from "@/lib/dashboard/types";
 import { cn } from "@/lib/utils";
+
+type Tone = "neutral" | "good" | "warn" | "bad";
 
 interface FileWithDocs {
   id: string;
@@ -40,6 +51,7 @@ interface CommandCenterProps {
   hotspots: Hotspot[];
   totalFilesCount: number;
   verifiedDocsCount: number;
+  projectMonitoring: ProjectMonitoringData;
 }
 
 interface WorkspaceSummary {
@@ -63,6 +75,17 @@ function formatUpdatedAt(value: Date | string) {
     : formatDistanceToNow(date, { addSuffix: true });
 }
 
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"] as const;
+  const index = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
+  const value = bytes / 1024 ** index;
+  return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
+}
+
 function fallbackSummary(
   totalFilesCount: number,
   verifiedDocsCount: number,
@@ -81,6 +104,32 @@ function fallbackSummary(
   };
 }
 
+function StatusPill({
+  tone = "neutral",
+  children,
+}: {
+  tone?: Tone;
+  children: ReactNode;
+}) {
+  const toneClass = {
+    neutral: "border-white/10 bg-white/[0.04] text-white/55",
+    good: "border-emerald-400/20 bg-emerald-500/10 text-emerald-300",
+    warn: "border-amber-400/20 bg-amber-500/10 text-amber-300",
+    bad: "border-rose-400/20 bg-rose-500/10 text-rose-300",
+  }[tone];
+
+  return (
+    <span
+      className={cn(
+        "rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-wider",
+        toneClass,
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
 function MetricCard({
   label,
   value,
@@ -92,20 +141,23 @@ function MetricCard({
   value: string | number;
   detail: string;
   icon: LucideIcon;
-  tone?: "neutral" | "good" | "warn" | "bad";
+  tone?: Tone;
 }) {
   const toneClass = {
-    neutral: "text-slate-300 bg-white/5 border-white/10",
-    good: "text-emerald-300 bg-emerald-500/10 border-emerald-400/20",
-    warn: "text-amber-300 bg-amber-500/10 border-amber-400/20",
-    bad: "text-rose-300 bg-rose-500/10 border-rose-400/20",
+    neutral: "border-white/10 bg-white/[0.04] text-slate-300",
+    good: "border-emerald-400/20 bg-emerald-500/10 text-emerald-300",
+    warn: "border-amber-400/20 bg-amber-500/10 text-amber-300",
+    bad: "border-rose-400/20 bg-rose-500/10 text-rose-300",
   }[tone];
 
   return (
-    <div className="rounded-xl border border-white/8 bg-[#0d0d12] p-4">
+    <div className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0d0d12]/95 p-4 shadow-xl shadow-black/20">
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-medium text-white/45">{label}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/40">
+            {label}
+          </p>
           <p className="mt-2 text-2xl font-semibold tracking-tight text-white">
             {value}
           </p>
@@ -121,17 +173,26 @@ function MetricCard({
 
 function Section({
   title,
+  description,
   action,
   children,
 }: {
   title: string;
+  description?: string;
   action?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-xl border border-white/8 bg-[#0d0d12]">
-      <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-3">
-        <h3 className="text-sm font-semibold text-white">{title}</h3>
+    <section className="overflow-hidden rounded-xl border border-white/10 bg-[#0d0d12]/95 shadow-xl shadow-black/20">
+      <div className="flex items-start justify-between gap-3 border-b border-white/8 px-4 py-3">
+        <div>
+          <h3 className="text-sm font-semibold text-white">{title}</h3>
+          {description && (
+            <p className="mt-1 text-xs leading-5 text-white/40">
+              {description}
+            </p>
+          )}
+        </div>
         {action}
       </div>
       <div className="p-2">{children}</div>
@@ -141,9 +202,86 @@ function Section({
 
 function EmptyRow({ children }: { children: ReactNode }) {
   return (
-    <div className="px-3 py-6 text-center text-sm text-white/35">
+    <div className="rounded-lg border border-dashed border-white/10 bg-black/15 px-3 py-6 text-center text-sm text-white/35">
       {children}
     </div>
+  );
+}
+
+function CommandCenterHero({
+  summary,
+  recentFile,
+  teamId,
+  projectMonitoring,
+}: {
+  summary: WorkspaceSummary;
+  recentFile?: FileWithDocs;
+  teamId?: string;
+  projectMonitoring: ProjectMonitoringData;
+}) {
+  const coverageTone: Tone =
+    summary.coveragePercent >= 80
+      ? "good"
+      : summary.coveragePercent >= 50
+        ? "warn"
+        : "bad";
+
+  return (
+    <section className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0d0d12]/95 shadow-xl shadow-black/20">
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-primary/0 via-primary/70 to-primary/0" />
+      <div className="absolute -right-16 -top-20 h-52 w-52 rounded-full bg-primary/10 blur-3xl" />
+      <div className="relative grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="min-w-0 space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPill tone="good">Operational</StatusPill>
+            <StatusPill tone={coverageTone}>
+              Coverage {summary.coveragePercent}%
+            </StatusPill>
+            <StatusPill>{projectMonitoring.ideRuns7d} IDE runs / 7d</StatusPill>
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight text-white">
+              Documentation command center
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/50">
+              Control-plane overview for indexed files, documentation posture,
+              monitored codebases, and AI-assisted remediation work.
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-white/8 bg-black/25 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
+            Resume workflow
+          </p>
+          {recentFile ? (
+            <Link
+              href={dashboardHref(recentFile.id, teamId)}
+              className="group mt-3 flex items-center justify-between gap-3 rounded-lg border border-white/8 bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.06]"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
+                  <Clock className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-white">
+                    {recentFile.name}
+                  </p>
+                  <p className="mt-0.5 text-xs text-white/35">
+                    {formatUpdatedAt(recentFile.updatedAt)}
+                  </p>
+                </div>
+              </div>
+              <ArrowRight className="h-4 w-4 text-white/25 transition-transform group-hover:translate-x-0.5 group-hover:text-white/60" />
+            </Link>
+          ) : (
+            <p className="mt-3 rounded-lg border border-dashed border-white/10 p-3 text-xs text-white/35">
+              Upload or import a codebase to start a workflow.
+            </p>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -206,11 +344,76 @@ function RecentFileRow({
           {file.name}
         </p>
         <p className="mt-0.5 text-xs text-white/35">
-          {file.language || "text"} · {formatUpdatedAt(file.updatedAt)}
+          {file.language || "text"} · {formatBytes(file.size)} ·{" "}
+          {formatUpdatedAt(file.updatedAt)}
         </p>
       </div>
       <ArrowRight className="h-4 w-4 text-white/20 transition-transform group-hover:translate-x-0.5 group-hover:text-white/45" />
     </Link>
+  );
+}
+
+function CodebaseRow({ codebase }: { codebase: MonitoringCodebase }) {
+  const statusTone: Tone = codebase.docsVerified
+    ? "good"
+    : codebase.hasDocs
+      ? "warn"
+      : "neutral";
+  const statusLabel = codebase.docsVerified
+    ? "Verified"
+    : codebase.hasDocs
+      ? "Generated"
+      : "Pending";
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-white/[0.04]">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-white/50">
+          <GitBranch className="h-4 w-4" />
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-white/75">
+            {codebase.name}
+          </p>
+          <p className="mt-0.5 text-xs text-white/35">
+            {codebase.source.toLowerCase()} · {codebase.language ?? "mixed"} ·{" "}
+            {codebase.fileCount} files · {formatBytes(codebase.totalSizeBytes)} ·{" "}
+            {formatUpdatedAt(codebase.lastActivityAt)}
+          </p>
+        </div>
+      </div>
+      <StatusPill tone={statusTone}>{statusLabel}</StatusPill>
+    </div>
+  );
+}
+
+function ActivityRow({ activity }: { activity: IdeActivityEntry }) {
+  const tone = {
+    info: "neutral",
+    success: "good",
+    warning: "warn",
+    error: "bad",
+  } satisfies Record<IdeActivityEntry["severity"], Tone>;
+
+  return (
+    <div className="flex items-start gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-white/[0.04]">
+      <span className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-primary">
+        <TerminalSquare className="h-4 w-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="truncate text-sm font-medium text-white/75">
+            {activity.label}
+          </p>
+          <StatusPill tone={tone[activity.severity]}>
+            {activity.severity}
+          </StatusPill>
+        </div>
+        <p className="mt-0.5 text-xs text-white/35">
+          {activity.action} · {formatUpdatedAt(activity.createdAt)}
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -259,6 +462,7 @@ export function CommandCenter({
   hotspots,
   totalFilesCount,
   verifiedDocsCount,
+  projectMonitoring,
 }: CommandCenterProps) {
   const [summary, setSummary] = useState<WorkspaceSummary>(() =>
     fallbackSummary(totalFilesCount, verifiedDocsCount),
@@ -277,8 +481,9 @@ export function CommandCenter({
         if (data?.summary) setSummary(data.summary);
       })
       .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError")
+        if (error instanceof DOMException && error.name === "AbortError") {
           return;
+        }
         setSummary(fallbackSummary(totalFilesCount, verifiedDocsCount));
       });
 
@@ -294,22 +499,35 @@ export function CommandCenter({
       .slice(0, 6);
   }, [files]);
 
-  const coverageTone =
+  const coverageTone: Tone =
     summary.coveragePercent >= 80
       ? "good"
       : summary.coveragePercent >= 50
         ? "warn"
         : "bad";
-  const hotspotTone =
+  const hotspotTone: Tone =
     summary.criticalCount > 0 ? "bad" : hotspots.length > 0 ? "warn" : "good";
+  const monitoredCodebases = projectMonitoring.codebases.slice(0, 5);
+  const activityFeed = projectMonitoring.ideActivity.slice(0, 5);
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <CommandCenterHero
+        summary={summary}
+        recentFile={recentFiles[0]}
+        teamId={teamId}
+        projectMonitoring={projectMonitoring}
+      />
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         <MetricCard
           label="Files"
           value={summary.totalFiles.toLocaleString()}
-          detail={`${summary.totalLOC ? `${summary.totalLOC.toLocaleString()} lines indexed` : "Workspace files indexed"}`}
+          detail={
+            summary.totalLOC
+              ? `${summary.totalLOC.toLocaleString()} lines indexed`
+              : "Workspace files indexed"
+          }
           icon={FolderOpen}
         />
         <MetricCard
@@ -337,50 +555,75 @@ export function CommandCenter({
           icon={BarChart3}
           tone={hotspotTone}
         />
+        <MetricCard
+          label="Codebases"
+          value={projectMonitoring.totalCount.toLocaleString()}
+          detail="Monitored source surfaces"
+          icon={RadioTower}
+          tone={projectMonitoring.totalCount > 0 ? "good" : "neutral"}
+        />
+        <MetricCard
+          label="AI activity"
+          value={projectMonitoring.ideRuns7d.toLocaleString()}
+          detail="IDE-assisted runs in 7 days"
+          icon={Sparkles}
+          tone={projectMonitoring.ideRuns7d > 0 ? "good" : "neutral"}
+        />
       </div>
 
-      {recentFiles[0] && (
-        <Link
-          href={dashboardHref(recentFiles[0].id, teamId)}
-          className="group flex items-center justify-between gap-4 rounded-xl border border-white/8 bg-[#0d0d12] p-4 transition-colors hover:bg-white/5"
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <Section
+          title="Monitored codebases"
+          description="Source surfaces currently tracked by the documentation control plane."
+          action={<StatusPill>{projectMonitoring.totalCount} total</StatusPill>}
         >
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/8 bg-white/5 text-white/60">
-              <Clock className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-medium uppercase tracking-wide text-white/35">
-                Continue where you left off
-              </p>
-              <p className="mt-1 truncate text-sm font-semibold text-white">
-                {recentFiles[0].name}
-              </p>
-            </div>
+          <div className="max-h-72 overflow-y-auto">
+            {monitoredCodebases.length > 0 ? (
+              monitoredCodebases.map((codebase) => (
+                <CodebaseRow key={codebase.id} codebase={codebase} />
+              ))
+            ) : (
+              <EmptyRow>No monitored codebases yet.</EmptyRow>
+            )}
           </div>
-          <ArrowRight className="h-4 w-4 text-white/30 transition-transform group-hover:translate-x-0.5 group-hover:text-white/60" />
-        </Link>
-      )}
+        </Section>
+
+        <Section
+          title="AI / IDE activity"
+          description="Recent agent and IDE execution signals across this workspace."
+          action={<StatusPill>{projectMonitoring.ideRuns7d} runs</StatusPill>}
+        >
+          <div className="max-h-72 overflow-y-auto">
+            {activityFeed.length > 0 ? (
+              activityFeed.map((activity) => (
+                <ActivityRow key={activity.id} activity={activity} />
+              ))
+            ) : (
+              <EmptyRow>No recent IDE activity.</EmptyRow>
+            )}
+          </div>
+        </Section>
+      </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Section
           title="Priority work"
+          description="Ranked remediation queue for documentation coverage and review operations."
           action={
-            <span className="text-xs text-white/35">
+            <StatusPill tone={priorityActions.length > 0 ? "warn" : "good"}>
               {priorityActions.length} open
-            </span>
+            </StatusPill>
           }
         >
           <div className="max-h-72 overflow-y-auto">
             {priorityActions.length > 0 ? (
-              priorityActions
-                .slice(0, 8)
-                .map((action) => (
-                  <PriorityActionRow
-                    key={action.id}
-                    action={action}
-                    teamId={teamId}
-                  />
-                ))
+              priorityActions.slice(0, 8).map((action) => (
+                <PriorityActionRow
+                  key={action.id}
+                  action={action}
+                  teamId={teamId}
+                />
+              ))
             ) : (
               <EmptyRow>No priority actions right now.</EmptyRow>
             )}
@@ -389,7 +632,8 @@ export function CommandCenter({
 
         <Section
           title="Recent files"
-          action={<span className="text-xs text-white/35">Latest changes</span>}
+          description="Latest code surfaces changed or analyzed in this workspace."
+          action={<StatusPill>Latest changes</StatusPill>}
         >
           <div className="max-h-72 overflow-y-auto">
             {recentFiles.length > 0 ? (
@@ -405,37 +649,27 @@ export function CommandCenter({
 
       <Section
         title="Project hotspots"
+        description="Risk-weighted files that deserve attention before docs drift into stale state."
         action={
-          teamId ? (
-            <Link
-              href={`/dashboard/analytics?teamId=${teamId}`}
-              className="text-xs text-white/45 hover:text-white"
-            >
-              Analytics
-            </Link>
-          ) : (
-            <Link
-              href="/dashboard/analytics"
-              className="text-xs text-white/45 hover:text-white"
-            >
-              Analytics
-            </Link>
-          )
+          <Link
+            href={
+              teamId
+                ? `/dashboard/analytics?teamId=${teamId}`
+                : "/dashboard/analytics"
+            }
+            className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-white/55 transition-colors hover:text-white"
+          >
+            Analytics
+          </Link>
         }
       >
         <div className="max-h-80 overflow-y-auto">
           {hotspots.length > 0 ? (
-            hotspots
-              .slice(0, 10)
-              .map((hotspot) => (
-                <HotspotRow
-                  key={hotspot.id}
-                  hotspot={hotspot}
-                  teamId={teamId}
-                />
-              ))
+            hotspots.slice(0, 10).map((hotspot) => (
+              <HotspotRow key={hotspot.id} hotspot={hotspot} teamId={teamId} />
+            ))
           ) : (
-            <div className="flex items-center justify-center gap-2 px-3 py-8 text-sm text-emerald-300">
+            <div className="flex items-center justify-center gap-2 rounded-lg border border-emerald-400/10 bg-emerald-500/5 px-3 py-8 text-sm text-emerald-300">
               <CheckCircle2 className="h-4 w-4" />
               No high-risk files detected.
             </div>

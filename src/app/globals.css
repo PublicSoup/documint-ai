@@ -499,3 +499,46 @@ html {
 .popover-content-animate {
   animation: slide-up 0.2s ease-out;
 }
+
+/* ───────────────────────────────────────────────────────────────
+   Monitoring dashboard surfaces (Cloudflare-inspired, brand-safe)
+   Elevated card surface replacing the flat #0d0d12 panels. Keeps the
+   dark-violet palette and white text — only adds a subtle top highlight
+   + soft border so cards feel layered and consistent across the overview.
+   ─────────────────────────────────────────────────────────────── */
+.monitor-surface {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.015) 100%),
+    hsl(265 30% 6%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.05) inset, 0 12px 30px -18px rgba(0, 0, 0, 0.8);
+  transition: border-color 0.25s ease, background 0.25s ease;
+}
+
+.monitor-surface-interactive:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%),
+    hsl(265 30% 7%);
+}
+
+.monitor-divider {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Horizontal health/risk bar — track + fill keep the brand tones. */
+.health-bar {
+  position: relative;
+  height: 4px;
+  width: 100%;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.health-bar-fill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}

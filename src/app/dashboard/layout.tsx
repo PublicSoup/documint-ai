@@ -18,13 +18,14 @@ export default async function DashboardLayout({
     }
 
     return (
-        <div className="min-h-screen bg-transparent relative">
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-black/0 to-black/0 pointer-events-none -z-10" />
+        <div className="relative min-h-screen overflow-hidden bg-[#030014]">
+            <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_20%_0%,rgba(124,58,237,0.22),transparent_34%),radial-gradient(circle_at_80%_12%,rgba(76,29,149,0.18),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.03)_0%,transparent_22%)]" />
+            <div className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(to_right,rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:56px_56px] opacity-40" />
 
             <DashboardHeader />
 
             {/* Main Content */}
-            <main className="pt-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto pb-12 transition-all duration-300 ease-in-out animate-fade-in">
+            <main className="mx-auto max-w-[1440px] px-4 pb-12 pt-20 transition-all duration-300 ease-in-out animate-fade-in sm:px-6 lg:px-8">
                 {children}
             </main>
 

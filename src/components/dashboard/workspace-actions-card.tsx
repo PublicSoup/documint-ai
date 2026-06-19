@@ -1,79 +1,59 @@
-import Link from "next/link";
-import { AlertTriangle, Plus } from "lucide-react";
+import { GitBranch, Plus, UploadCloud } from "lucide-react";
 
 import FileUpload from "@/components/file-upload";
 import GitHubImport from "@/components/github-import";
 import TeamSwitcher from "@/components/team-switcher";
 import UsageMeter from "@/components/usage-meter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
-import type { PriorityAction } from "@/app/dashboard/actions";
 import type { DashboardTeam } from "@/lib/dashboard/types";
 
 export function WorkspaceActionsCard({
   teamId,
   teams,
   isPro,
-  priorityActions,
 }: {
   teamId?: string;
   teams: DashboardTeam[];
   isPro: boolean;
-  priorityActions: PriorityAction[];
 }) {
   return (
-    <Card className="overflow-hidden border-white/8 bg-[#0d0d12]">
-      <CardHeader className="pb-4">
-        <CardTitle className="text-sm font-semibold flex items-center gap-2 text-white">
-          <Plus className="w-4 h-4 text-white/45" />
-          Workspace actions
-        </CardTitle>
+    <Card className="overflow-hidden border-white/10 bg-[#0d0d12]/95 shadow-xl shadow-black/20" hoverEffect={false}>
+      <CardHeader className="border-b border-white/8 pb-4">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2 text-white">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
+              <Plus className="h-3.5 w-3.5" />
+            </span>
+            Add to workspace
+          </CardTitle>
+          <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-300">
+            Ready
+          </span>
+        </div>
+        <p className="pt-2 text-xs leading-5 text-white/45">
+          Import source code, sync repositories, and keep the operational scope aligned.
+        </p>
       </CardHeader>
-      <CardContent className="space-y-4 p-4 pt-0">
+      <CardContent className="space-y-4 p-4">
         <div className="grid grid-cols-1 gap-3">
-          <FileUpload teamId={teamId} isPro={isPro} />
-          <GitHubImport />
-        </div>
-
-        <div className="p-4 rounded-xl bg-white/[0.03] border border-white/8 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-white/55 flex items-center gap-2">
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-300" />
-              Needs attention
-            </span>
-            <span className="rounded-full border border-white/8 px-2 py-0.5 text-xs font-semibold text-white/55">
-              {priorityActions.length}
-            </span>
+          <div className="rounded-xl border border-white/8 bg-black/20 p-3">
+            <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/40">
+              <UploadCloud className="h-3.5 w-3.5 text-primary" />
+              Direct upload
+            </div>
+            <FileUpload teamId={teamId} isPro={isPro} />
           </div>
-          <div className="space-y-2">
-            {priorityActions.length > 0 ? (
-              priorityActions.map((action) => (
-                <Link
-                  key={action.id}
-                  href={`/dashboard?${teamId ? `teamId=${teamId}&` : ""}docId=${action.fileId}`}
-                  className="text-[11px] text-white/60 hover:text-white transition-colors cursor-pointer flex items-center gap-2 group"
-                >
-                  <div
-                    className={cn(
-                      "w-1 h-1 rounded-full group-hover:scale-125 transition-transform",
-                      action.priority === "CRITICAL"
-                        ? "bg-rose-500 animate-pulse"
-                        : "bg-amber-400",
-                    )}
-                  />
-                  <span className="truncate">{action.label}</span>
-                </Link>
-              ))
-            ) : (
-              <p className="text-xs text-white/35">
-                No priority work right now.
-              </p>
-            )}
+          <div className="rounded-xl border border-white/8 bg-black/20 p-3">
+            <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/40">
+              <GitBranch className="h-3.5 w-3.5 text-primary" />
+              Repository sync
+            </div>
+            <GitHubImport />
           </div>
         </div>
 
-        <div className="pt-4 border-t border-white/8 space-y-2">
-          <p className="px-2 text-xs font-medium text-white/45">
+        <div className="space-y-3 rounded-xl border border-white/8 bg-black/20 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/40">
             Current context
           </p>
           <TeamSwitcher teams={teams} currentTeamId={teamId} />

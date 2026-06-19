@@ -14,6 +14,7 @@ interface Repo {
     updated_at: string;
     private: boolean;
     description?: string;
+    default_branch: string;
 }
 
 interface PullRequest {
@@ -121,70 +122,37 @@ export default function GitHubImport({ customTrigger }: GitHubImportProps) {
         }
     };
 
-    const [importProgress, setImportProgress] = useState<{
-        status: string;
-        current?: number;
-        total?: number;
-        file?: string;
-        imported?: number;
-        error?: string;
-    } | null>(null);
-
     const handleImport = async (repo: Repo) => {
         setImporting(repo.full_name);
-        setImportProgress({ status: "initializing" });
 
         try {
             const [owner, repoName] = repo.full_name.split("/");
             const response = await fetch("/api/github/import", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ owner, repo: repoName }),
+                body: JSON.stringify({
+                    owner,
+                    repo: repoName,
+                    branch: repo.default_branch,
+                }),
             });
 
+            const data = await response.json().catch(() => ({}));
+
             if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error || "Import failed");
+                throw new Error(data.error || "Import failed");
             }
 
-            if (!response.body) throw new Error("No response body");
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value);
-                const lines = chunk.split("\n").filter(line => line.trim() !== "");
-
-                for (const line of lines) {
-                    try {
-                        const update = JSON.parse(line);
-
-                        if (update.error) {
-                            toast(update.error, "error");
-                            break;
-                        }
-
-                        setImportProgress(update);
-
-                        if (update.status === "complete") {
-                            toast(`Imported ${update.imported} files successfully!`, "success");
-                            setImported(prev => [...prev, repo.full_name]);
-                        }
-                    } catch (e) {
-                        console.error("Error parsing update:", e);
-                    }
-                }
-            }
-
+            // The route dispatches an Inngest background job and returns
+            // 202 { status: "processing", jobId, message }. There is no
+            // streaming completion event, so treat a successful 202 as
+            // "import queued" and mark the repo immediately.
+            toast("Import started — processing your files in the background.", "success");
+            setImported(prev => [...prev, repo.full_name]);
         } catch (err: any) {
             toast(err.message || "Failed to import repository", "error");
         } finally {
             setImporting(null);
-            setImportProgress(null);
         }
     };
 
@@ -244,7 +212,7 @@ export default function GitHubImport({ customTrigger }: GitHubImportProps) {
                         onClick={() => fetchRepos(1)}
                         disabled={loading}
                         variant="ghost"
-                        className="w-full h-11 bg-white/5 border border-white/10 hover:bg-white/10 text-white font-bold text-xs uppercase tracking-widest transition-all"
+                        className="w-full h-11 bg-white/5 border border-white/10 hover:bg-white/10 text-white font-semibold text-sm transition-all"
                     >
                         {loading ? (
                             <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -261,7 +229,7 @@ export default function GitHubImport({ customTrigger }: GitHubImportProps) {
                             <div className="w-6 h-6 rounded-lg bg-white/10 flex items-center justify-center">
                                 <Github className="w-3.5 h-3.5 text-white" />
                             </div>
-                            <h3 className="text-[10px] font-black uppercase tracking-widest text-white/70">
+                            <h3 className="text-sm font-semibold text-white">
                                 {activeRepo ? "Select PR" : showCreate ? "Create Repo" : "GitHub Repos"}
                             </h3>
                         </div>
@@ -269,7 +237,7 @@ export default function GitHubImport({ customTrigger }: GitHubImportProps) {
                             {!activeRepo && !showCreate && (
                                 <button
                                     onClick={() => setShowCreate(true)}
-                                    className="text-[10px] uppercase font-bold text-primary hover:text-primary/80 transition-colors mr-2"
+                                    className="text-xs font-medium text-primary hover:text-primary/80 transition-colors mr-2"
                                 >
                                     + New
                                 </button>
@@ -280,7 +248,7 @@ export default function GitHubImport({ customTrigger }: GitHubImportProps) {
                                     else if (showCreate) setShowCreate(false);
                                     else setShowRepos(false);
                                 }}
-                                className="text-[10px] uppercase font-bold text-white/40 hover:text-white transition-colors"
+                                className="text-xs font-medium text-white/50 hover:text-white transition-colors"
                             >
                                 {activeRepo || showCreate ? "Back" : "Close"}
                             </button>
@@ -290,23 +258,23 @@ export default function GitHubImport({ customTrigger }: GitHubImportProps) {
                     {showCreate ? (
                         <div className="space-y-4 animate-in slide-in-from-right-4 duration-300">
                             <div className="space-y-2">
-                                <label className="text-[10px] uppercase font-bold text-muted-foreground">Repository Name</label>
+                                <label className="text-xs font-medium text-white/55">Repository Name</label>
                                 <input
                                     type="text"
                                     value={createForm.name}
                                     onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
                                     placeholder="my-awesome-project"
-                                    className="w-full bg-black/40 border border-white/5 rounded-xl py-2 px-3 text-[11px] text-white focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all font-mono"
+                                    className="w-full bg-black/40 border border-white/8 rounded-xl py-2 px-3 text-sm text-white focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all font-mono"
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-[10px] uppercase font-bold text-muted-foreground">Description</label>
+                                <label className="text-xs font-medium text-white/55">Description</label>
                                 <textarea
                                     value={createForm.description}
                                     onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
                                     placeholder="What's this project about?"
                                     rows={3}
-                                    className="w-full bg-black/40 border border-white/5 rounded-xl py-2 px-3 text-[11px] text-white focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all resize-none"
+                                    className="w-full bg-black/40 border border-white/8 rounded-xl py-2 px-3 text-sm text-white focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all resize-none"
                                 />
                             </div>
                             <div className="flex items-center gap-2">
@@ -317,13 +285,13 @@ export default function GitHubImport({ customTrigger }: GitHubImportProps) {
                                     onChange={(e) => setCreateForm({ ...createForm, isPrivate: e.target.checked })}
                                     className="rounded bg-black/40 border-white/10 text-primary focus:ring-primary/50"
                                 />
-                                <label htmlFor="private-repo" className="text-[11px] text-white cursor-pointer select-none">Private Repository</label>
+                                <label htmlFor="private-repo" className="text-sm text-white cursor-pointer select-none">Private Repository</label>
                                 <Lock className="w-3 h-3 text-amber-500/50" />
                             </div>
                             <Button
                                 onClick={handleCreateRepo}
                                 disabled={creating || !createForm.name}
-                                className="w-full h-10 bg-primary hover:bg-primary-dark text-white rounded-xl text-[10px] font-black uppercase tracking-widest"
+                                className="w-full h-10 bg-primary hover:bg-primary-dark text-white rounded-xl text-sm font-semibold"
                             >
                                 {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Create Repository"}
                             </Button>
@@ -398,14 +366,7 @@ export default function GitHubImport({ customTrigger }: GitHubImportProps) {
                                                         }`}
                                                 >
                                                     {importing === repo.full_name ? (
-                                                        <div className="flex items-center gap-2">
-                                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                                            {importProgress && importProgress.status === "processing" && (
-                                                                <span className="text-[9px] font-mono opacity-70">
-                                                                    {importProgress.current}/{importProgress.total}
-                                                                </span>
-                                                            )}
-                                                        </div>
+                                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                                     ) : imported.includes(repo.full_name) ? (
                                                         <Check className="w-3.5 h-3.5" />
                                                     ) : (
@@ -461,12 +422,6 @@ export default function GitHubImport({ customTrigger }: GitHubImportProps) {
                                 <div className="text-center py-8 text-xs text-muted-foreground italic">
                                     No repositories found for "{searchQuery}"
                                 </div>
-                            )}
-
-                            {!activeRepo && (
-                                <p className="text-[9px] font-bold text-muted-foreground/30 text-center uppercase tracking-tighter">
-                                    DocuMint • Secure GitHub Bridge • v2.0
-                                </p>
                             )}
                         </>
                     )}

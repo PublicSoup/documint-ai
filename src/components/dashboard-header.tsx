@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Code2, FileCode2, LogOut } from "lucide-react";
+import { Code2, FileCode2, LogOut, ShieldCheck } from "lucide-react";
 import { signOut } from "next-auth/react";
 
 import {
@@ -17,38 +17,47 @@ export function DashboardHeader() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-40 border-b border-white/8 bg-[#050508]/85 backdrop-blur-xl">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          <div className="flex items-center gap-8 min-w-0">
+    <nav className="fixed inset-x-0 top-0 z-40 border-b border-white/10 bg-[#050508]/90 backdrop-blur-2xl">
+      <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8">
+        <div className="flex h-16 items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-5">
             <Link
               href="/dashboard"
-              className="flex items-center gap-2 group shrink-0"
+              className="group flex shrink-0 items-center gap-3"
+              aria-label="DocuMint dashboard"
             >
-              <div className="w-8 h-8 rounded-lg border border-white/10 bg-white/8 flex items-center justify-center transition-all">
-                <FileCode2 className="text-white/85 w-5 h-5" />
+              <div className="relative flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl border border-primary/25 bg-primary/10 text-primary shadow-lg shadow-primary/10 transition-colors group-hover:bg-primary/15">
+                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/70 to-transparent" />
+                <FileCode2 className="h-5 w-5" />
               </div>
-              <span className="font-semibold text-lg text-white">DocuMint</span>
+              <div className="hidden leading-tight sm:block">
+                <span className="block text-sm font-semibold text-white">DocuMint</span>
+                <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">
+                  <ShieldCheck className="h-3 w-3 text-emerald-300" />
+                  Control plane
+                </span>
+              </div>
             </Link>
 
-            <div className="hidden md:flex items-center gap-1 overflow-x-auto custom-scrollbar">
+            <div className="hidden items-center gap-1 overflow-x-auto rounded-xl border border-white/8 bg-white/[0.03] p-1 md:flex custom-scrollbar">
               {DASHBOARD_NAV_ITEMS.map((item) => {
                 const isActive = isDashboardNavItemActive(pathname, item);
+
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
                     aria-current={isActive ? "page" : undefined}
                     className={cn(
-                      "px-3 py-2 rounded-lg text-sm font-medium transition-all relative whitespace-nowrap",
+                      "relative rounded-lg px-3 py-2 text-sm font-medium whitespace-nowrap transition-all",
                       isActive
-                        ? "text-white bg-white/10"
-                        : "text-white/60 hover:text-white hover:bg-white/5",
+                        ? "bg-white/10 text-white shadow-sm"
+                        : "text-white/55 hover:bg-white/[0.06] hover:text-white",
                     )}
                   >
                     {item.name}
                     {isActive && (
-                      <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-4/5 h-0.5 bg-primary rounded-full" />
+                      <span className="absolute inset-x-3 -bottom-1 h-0.5 rounded-full bg-primary" />
                     )}
                   </Link>
                 );
@@ -56,28 +65,28 @@ export function DashboardHeader() {
             </div>
           </div>
 
-          <div className="flex items-center gap-4 shrink-0">
-            <Link
-              href="/code"
-              className="hidden md:inline-flex items-center gap-2 rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-black transition-colors hover:bg-white/90"
-            >
-              <Code2 className="w-4 h-4" />
-              Open IDE
-            </Link>
-
-            <div className="hidden sm:block w-64">
+          <div className="flex shrink-0 items-center gap-3">
+            <div className="hidden w-72 lg:block">
               <GlobalSearch />
             </div>
+
+            <Link
+              href="/code"
+              className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white px-3.5 py-2 text-sm font-semibold text-black transition-colors hover:bg-white/90 md:inline-flex"
+            >
+              <Code2 className="h-4 w-4" />
+              Open IDE
+            </Link>
 
             <NotificationCenter />
 
             <button
               type="button"
               onClick={() => signOut()}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-red-400/10 hover:text-red-400"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/8 bg-white/[0.03] text-white/60 transition-colors hover:border-red-400/20 hover:bg-red-400/10 hover:text-red-300"
               aria-label="Sign out"
             >
-              <LogOut className="w-5 h-5" />
+              <LogOut className="h-5 w-5" />
             </button>
           </div>
         </div>

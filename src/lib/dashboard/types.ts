@@ -70,4 +70,39 @@ export interface DashboardSessionUser {
   name: string;
 }
 
+/**
+ * Serialized, client-safe projection of a codebase for the monitoring
+ * dashboard. Mirrors the relevant fields of `CodebaseSummary` but with
+ * ISO strings so it can cross the server→client boundary cleanly.
+ */
+export interface MonitoringCodebase {
+  id: string;
+  name: string;
+  source: "LOCAL" | "GITHUB" | "UPLOAD";
+  language: string | null;
+  fileCount: number;
+  totalSizeBytes: number;
+  hasDocs: boolean;
+  docsVerified: boolean;
+  lastActivityAt: string;
+  archivedAt: string | null;
+}
+
+export type IdeActivitySeverity = "info" | "success" | "warning" | "error";
+
+export interface IdeActivityEntry {
+  id: string;
+  action: string;
+  label: string;
+  createdAt: string;
+  severity: IdeActivitySeverity;
+}
+
+export interface ProjectMonitoringData {
+  codebases: MonitoringCodebase[];
+  totalCount: number;
+  ideRuns7d: number;
+  ideActivity: IdeActivityEntry[];
+}
+
 export type { ProjectViewMode };
