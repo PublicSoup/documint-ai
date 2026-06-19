@@ -18,6 +18,7 @@ const DEFAULT_OP_TIMEOUT_MS = 15_000;
 
 let webcontainerInstance: WebContainer | null = null;
 let bootPromise: Promise<WebContainer> | null = null;
+let terminalBootError: Error | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
 const trackedProcesses = new Map<string, WebContainerProcess>();
 
@@ -76,6 +77,29 @@ function nextBackoff(attempt: number): number {
   return BASE_BACKOFF_MS * 2 ** Math.max(0, attempt - 1);
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isSingleInstanceBootError(error: unknown): boolean {
+  const message = getErrorMessage(error).toLowerCase();
+  return (
+    message.includes("only a single webcontainer instance can be booted") ||
+    message.includes("single webcontainer instance") ||
+    message.includes("already booted")
+  );
+}
+
+function isRecoverableWebContainerError(error: unknown): boolean {
+  const message = getErrorMessage(error).toLowerCase();
+  if (isSingleInstanceBootError(error)) return false;
+  return (
+    message.includes("webcontainer") ||
+    message.includes("timed out") ||
+    message.includes("closed")
+  );
+}
+
 async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -104,13 +128,9 @@ export class WebContainerManager {
         operationName,
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message.toLowerCase() : "";
-      const isRecoverable =
-        message.includes("webcontainer") ||
-        message.includes("timed out") ||
-        message.includes("closed");
+      const message = getErrorMessage(error).toLowerCase();
 
-      if (!isRecoverable) {
+      if (!isRecoverableWebContainerError(error)) {
         throw error;
       }
 
@@ -129,6 +149,10 @@ export class WebContainerManager {
       return webcontainerInstance;
     }
 
+    if (terminalBootError) {
+      throw terminalBootError;
+    }
+
     if (bootPromise) {
       return bootPromise;
     }
@@ -137,6 +161,7 @@ export class WebContainerManager {
 
     try {
       webcontainerInstance = await bootPromise;
+      terminalBootError = null;
       return webcontainerInstance;
     } finally {
       bootPromise = null;
@@ -165,6 +190,12 @@ export class WebContainerManager {
         return instance;
       } catch (error) {
         lastError = error;
+        if (isSingleInstanceBootError(error)) {
+          terminalBootError = error instanceof Error
+            ? error
+            : new Error(getErrorMessage(error));
+          throw terminalBootError;
+        }
         if (attempt < MAX_BOOT_RETRIES) {
           await sleep(nextBackoff(attempt));
         }
@@ -275,6 +306,7 @@ export class WebContainerManager {
     await this.stopAllProcesses();
     webcontainerInstance = null;
     bootPromise = null;
+    terminalBootError = null;
     writeQueue = Promise.resolve();
     runtimeHealth.generation += 1;
     runtimeHealth.lastRecoveryAt = new Date().toISOString();

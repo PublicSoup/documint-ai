@@ -300,9 +300,9 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
 
             // Still handle type loading here or in hook? 
             // Better to keep UI-specific things like type loading in the layout if it uses Monaco ref.
-            const wc = await WebContainerManager.getInstance();
-            if (monacoInstanceRef.current) {
+            if (webContainerBooted && monacoInstanceRef.current) {
                 try {
+                    const wc = await WebContainerManager.getInstance();
                     const count = await loadTypesFromWebContainer(wc, monacoInstanceRef.current);
                     if (count > 0) {
                         toast(`Loaded ${count} type definitions`, "success");
