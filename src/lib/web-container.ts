@@ -16,9 +16,33 @@ const MAX_BOOT_RETRIES = 3;
 const BASE_BACKOFF_MS = 400;
 const DEFAULT_OP_TIMEOUT_MS = 15_000;
 
-let webcontainerInstance: WebContainer | null = null;
-let bootPromise: Promise<WebContainer> | null = null;
-let terminalBootError: Error | null = null;
+// Persist WebContainer instance and boot state on globalThis to survive
+// Next.js HMR / Fast Refresh which re-evaluates module-level state.
+// @webcontainer/api enforces a singleton internally, so we must maintain
+// the reference across hot reloads to avoid the "Only a single WebContainer
+// instance can be booted" error.
+const WC_KEY = "__documint_webcontainer";
+const WC_BOOT_KEY = "__documint_webcontainer_boot_promise";
+const WC_ERROR_KEY = "__documint_webcontainer_boot_error";
+
+function getGlobalInstance(): WebContainer | null {
+  return (globalThis as Record<string, unknown>)[WC_KEY] as WebContainer | null;
+}
+function setGlobalInstance(instance: WebContainer | null): void {
+  (globalThis as Record<string, unknown>)[WC_KEY] = instance;
+}
+function getGlobalBootPromise(): Promise<WebContainer> | null {
+  return (globalThis as Record<string, unknown>)[WC_BOOT_KEY] as Promise<WebContainer> | null;
+}
+function setGlobalBootPromise(promise: Promise<WebContainer> | null): void {
+  (globalThis as Record<string, unknown>)[WC_BOOT_KEY] = promise;
+}
+function getGlobalBootError(): Error | null {
+  return (globalThis as Record<string, unknown>)[WC_ERROR_KEY] as Error | null;
+}
+function setGlobalBootError(error: Error | null): void {
+  (globalThis as Record<string, unknown>)[WC_ERROR_KEY] = error;
+}
 let writeQueue: Promise<void> = Promise.resolve();
 const trackedProcesses = new Map<string, WebContainerProcess>();
 
@@ -145,26 +169,31 @@ export class WebContainerManager {
   }
 
   static async getInstance(): Promise<WebContainer> {
-    if (webcontainerInstance) {
-      return webcontainerInstance;
+    const existing = getGlobalInstance();
+    if (existing) {
+      return existing;
     }
 
-    if (terminalBootError) {
-      throw terminalBootError;
+    const bootError = getGlobalBootError();
+    if (bootError) {
+      throw bootError;
     }
 
-    if (bootPromise) {
-      return bootPromise;
+    const pendingBoot = getGlobalBootPromise();
+    if (pendingBoot) {
+      return pendingBoot;
     }
 
-    bootPromise = this.bootWithRetry();
+    const bootPromise = this.bootWithRetry();
+    setGlobalBootPromise(bootPromise);
 
     try {
-      webcontainerInstance = await bootPromise;
-      terminalBootError = null;
-      return webcontainerInstance;
+      const instance = await bootPromise;
+      setGlobalInstance(instance);
+      setGlobalBootError(null);
+      return instance;
     } finally {
-      bootPromise = null;
+      setGlobalBootPromise(null);
     }
   }
 
@@ -191,10 +220,11 @@ export class WebContainerManager {
       } catch (error) {
         lastError = error;
         if (isSingleInstanceBootError(error)) {
-          terminalBootError = error instanceof Error
+          const bootError = error instanceof Error
             ? error
             : new Error(getErrorMessage(error));
-          throw terminalBootError;
+          setGlobalBootError(bootError);
+          throw bootError;
         }
         if (attempt < MAX_BOOT_RETRIES) {
           await sleep(nextBackoff(attempt));
@@ -304,9 +334,9 @@ export class WebContainerManager {
 
   static async reset(reason = "manual reset"): Promise<void> {
     await this.stopAllProcesses();
-    webcontainerInstance = null;
-    bootPromise = null;
-    terminalBootError = null;
+    setGlobalInstance(null);
+    setGlobalBootPromise(null);
+    setGlobalBootError(null);
     writeQueue = Promise.resolve();
     runtimeHealth.generation += 1;
     runtimeHealth.lastRecoveryAt = new Date().toISOString();
