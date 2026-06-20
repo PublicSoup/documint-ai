@@ -755,6 +755,37 @@ export function useExecutionEngine({
           return;
         }
 
+        if (name === "package.json") {
+          try {
+            const pkg = JSON.parse(getMountContent(file));
+            if (pkg.scripts) {
+              let modified = false;
+              for (const [key, script] of Object.entries(pkg.scripts)) {
+                if (typeof script !== "string") continue;
+                if (script.includes("vite") && !script.includes("--host")) {
+                  pkg.scripts[key] = script.replace(/vite\b/, "vite --host 0.0.0.0");
+                  modified = true;
+                } else if (script.includes("next dev") && !script.includes("-H") && !script.includes("--hostname")) {
+                  pkg.scripts[key] = script.replace(/next dev\b/, "next dev -H 0.0.0.0");
+                  modified = true;
+                } else if (script.includes("ng serve") && !script.includes("--host")) {
+                  pkg.scripts[key] = script.replace(/ng serve\b/, "ng serve --host 0.0.0.0");
+                  modified = true;
+                } else if (script.includes("nuxt dev") && !script.includes("--host")) {
+                  pkg.scripts[key] = script.replace(/nuxt dev\b/, "nuxt dev --host 0.0.0.0");
+                  modified = true;
+                }
+              }
+              if (modified) {
+                fileMounts[name] = { file: { contents: JSON.stringify(pkg, null, 2) } };
+                return;
+              }
+            }
+          } catch {
+            // Ignore parse errors; mount as-is
+          }
+        }
+
         fileMounts[name] = { file: { contents: getMountContent(file) } };
       });
 
