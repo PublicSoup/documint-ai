@@ -230,7 +230,7 @@ export class WebContainerManager {
       // cross-origin-isolated context and makes boot reject.
       
       const bootOperation = async () => {
-        const instance = await WebContainer.boot({ coep: "require-corp" });
+        const instance = await WebContainer.boot({ coep: "credentialless" });
 
         // Provision essential environment config immediately after boot.
         // WebContainer's npm does not support HTTPS; force HTTP registry

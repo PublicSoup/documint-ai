@@ -59,7 +59,7 @@ export async function proxy(request: NextRequest) {
     // `require-corp` is the only COEP value that grants crossOriginIsolated across
     // Chromium + Firefox + Safari (`credentialless` is Chromium-only).
     response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
-    response.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+    response.headers.set("Cross-Origin-Embedder-Policy", "credentialless");
     response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
     response.headers.set("Origin-Agent-Cluster", "?1");
 

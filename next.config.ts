@@ -26,14 +26,14 @@ const nextConfig: NextConfig = {
       {
         source: "/code",
         headers: [
-          { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+          { key: "Cross-Origin-Embedder-Policy", value: "credentialless" },
           { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
         ],
       },
       {
         source: "/code/:path*",
         headers: [
-          { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+          { key: "Cross-Origin-Embedder-Policy", value: "credentialless" },
           { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
         ],
       },
