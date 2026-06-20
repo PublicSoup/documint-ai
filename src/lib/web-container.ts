@@ -199,10 +199,9 @@ export class WebContainerManager {
       return existing;
     }
 
-    const bootError = getGlobalBootError();
-    if (bootError) {
-      throw bootError;
-    }
+    // Don't cache boot errors across HMR — let fresh boots attempt recovery.
+    // The error is still thrown for the current attempt, but cleared so next call retries.
+    setGlobalBootError(null);
 
     const pendingBoot = getGlobalBootPromise();
     if (pendingBoot) {
@@ -249,12 +248,10 @@ export class WebContainerManager {
         return instance;
       } catch (error) {
         lastError = error;
+        // Don't cache singleton errors — they poison future boots across HMR.
+        // The retry loop will attempt a fresh boot naturally.
         if (isSingleInstanceBootError(error)) {
-          const bootError = error instanceof Error
-            ? error
-            : new Error(getErrorMessage(error));
-          setGlobalBootError(bootError);
-          throw bootError;
+          continue;
         }
         if (attempt < MAX_BOOT_RETRIES) {
           await sleep(nextBackoff(attempt));
@@ -362,9 +359,6 @@ export class WebContainerManager {
 
   static async reset(reason = "manual reset"): Promise<void> {
     await this.stopAllProcesses();
-    setGlobalInstance(null);
-    setGlobalBootPromise(null);
-    setGlobalBootError(null);
     writeQueue = Promise.resolve();
     runtimeHealth.generation += 1;
     runtimeHealth.lastRecoveryAt = new Date().toISOString();
