@@ -137,7 +137,7 @@ function assertWebContainerPreflight(): void {
 
   if (!globalThis.crossOriginIsolated) {
     throw new Error(
-      "WebContainer requires cross-origin isolation. Ensure /code sends Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: credentialless.",
+      "WebContainer requires cross-origin isolation. Ensure /code sends Cross-Origin-Opener-Policy: same-origin, Cross-Origin-Embedder-Policy: require-corp, and Cross-Origin-Resource-Policy: same-origin.",
     );
   }
 
@@ -228,7 +228,11 @@ export class WebContainerManager {
     for (let attempt = 1; attempt <= MAX_BOOT_RETRIES; attempt += 1) {
       try {
         assertWebContainerPreflight();
-        const instance = await WebContainer.boot();
+        // The `coep` option MUST match the COEP header sent for /code in src/proxy.ts.
+        // It is fixed on first boot and cannot be changed across reboots; a mismatch
+        // (e.g. header `credentialless` vs library default `require-corp`) corrupts the
+        // cross-origin-isolated context and makes boot reject.
+        const instance = await WebContainer.boot({ coep: "require-corp" });
 
         // Provision essential environment config immediately after boot.
         // WebContainer's npm does not support HTTPS; force HTTP registry

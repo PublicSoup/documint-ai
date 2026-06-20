@@ -53,11 +53,14 @@ export async function proxy(request: NextRequest) {
     response.headers.set("X-Content-Type-Options", "nosniff");
     response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
     response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+    // WebContainers require cross-origin isolation to access SharedArrayBuffer.
+    // The COEP value here MUST match the `coep` option passed to WebContainer.boot()
+    // (see src/lib/web-container.ts), because that option is fixed on first boot.
+    // `require-corp` is the only COEP value that grants crossOriginIsolated across
+    // Chromium + Firefox + Safari (`credentialless` is Chromium-only).
     response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
-    response.headers.set("Cross-Origin-Embedder-Policy", isCode ? "credentialless" : "require-corp");
-    if (!isCode) {
-        response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
-    }
+    response.headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+    response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
     response.headers.set("Origin-Agent-Cluster", "?1");
 
     const csp = (isCode ? `
