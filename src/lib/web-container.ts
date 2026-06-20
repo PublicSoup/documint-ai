@@ -228,21 +228,26 @@ export class WebContainerManager {
       // It is fixed on first boot and cannot be changed across reboots; a mismatch
       // (e.g. header `credentialless` vs library default `require-corp`) corrupts the
       // cross-origin-isolated context and makes boot reject.
-      const instance = await WebContainer.boot({ coep: "require-corp" });
+      
+      const bootOperation = async () => {
+        const instance = await WebContainer.boot({ coep: "require-corp" });
 
-      // Provision essential environment config immediately after boot.
-      // WebContainer's npm does not support HTTPS; force HTTP registry
-      // so npm install / npx work regardless of how they are spawned.
-      // This covers the interactive terminal, auto-run, and any other
-      // npm/npx invocation path.
-      await instance.fs.writeFile(
-        "/home/.npmrc",
-        ["registry=http://registry.npmjs.org/", "strict-ssl=false"].join(
-          "\n",
-        ),
-      );
+        // Provision essential environment config immediately after boot.
+        // WebContainer's npm does not support HTTPS; force HTTP registry
+        // so npm install / npx work regardless of how they are spawned.
+        // This covers the interactive terminal, auto-run, and any other
+        // npm/npx invocation path.
+        await instance.fs.writeFile(
+          "/home/.npmrc",
+          ["registry=http://registry.npmjs.org/", "strict-ssl=false"].join(
+            "\n",
+          ),
+        );
+        
+        return instance;
+      };
 
-      return instance;
+      return await withTimeout(bootOperation(), 30_000, "boot");
     } catch (error) {
       console.error("[WebContainer Boot Error]:", error);
       const bootError = error instanceof Error
