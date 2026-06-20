@@ -222,46 +222,35 @@ export class WebContainerManager {
   }
 
   private static async bootWithRetry(): Promise<WebContainer> {
-    let lastError: unknown = null;
+    try {
+      assertWebContainerPreflight();
+      // The `coep` option MUST match the COEP header sent for /code in src/proxy.ts.
+      // It is fixed on first boot and cannot be changed across reboots; a mismatch
+      // (e.g. header `credentialless` vs library default `require-corp`) corrupts the
+      // cross-origin-isolated context and makes boot reject.
+      const instance = await WebContainer.boot({ coep: "require-corp" });
 
-    for (let attempt = 1; attempt <= MAX_BOOT_RETRIES; attempt += 1) {
-      try {
-        assertWebContainerPreflight();
-        // The `coep` option MUST match the COEP header sent for /code in src/proxy.ts.
-        // It is fixed on first boot and cannot be changed across reboots; a mismatch
-        // (e.g. header `credentialless` vs library default `require-corp`) corrupts the
-        // cross-origin-isolated context and makes boot reject.
-        const instance = await WebContainer.boot({ coep: "require-corp" });
+      // Provision essential environment config immediately after boot.
+      // WebContainer's npm does not support HTTPS; force HTTP registry
+      // so npm install / npx work regardless of how they are spawned.
+      // This covers the interactive terminal, auto-run, and any other
+      // npm/npx invocation path.
+      await instance.fs.writeFile(
+        "/home/.npmrc",
+        ["registry=http://registry.npmjs.org/", "strict-ssl=false"].join(
+          "\n",
+        ),
+      );
 
-        // Provision essential environment config immediately after boot.
-        // WebContainer's npm does not support HTTPS; force HTTP registry
-        // so npm install / npx work regardless of how they are spawned.
-        // This covers the interactive terminal, auto-run, and any other
-        // npm/npx invocation path.
-        await instance.fs.writeFile(
-          "/home/.npmrc",
-          ["registry=http://registry.npmjs.org/", "strict-ssl=false"].join(
-            "\n",
-          ),
-        );
-
-        return instance;
-      } catch (error) {
-        lastError = error;
-        // Don't cache singleton errors — they poison future boots across HMR.
-        // The retry loop will attempt a fresh boot naturally.
-        if (isSingleInstanceBootError(error)) {
-          continue;
-        }
-        if (attempt < MAX_BOOT_RETRIES) {
-          await sleep(nextBackoff(attempt));
-        }
-      }
+      return instance;
+    } catch (error) {
+      console.error("[WebContainer Boot Error]:", error);
+      const bootError = error instanceof Error
+        ? error
+        : new Error(getErrorMessage(error));
+      setGlobalBootError(bootError);
+      throw bootError;
     }
-
-    throw lastError instanceof Error
-      ? lastError
-      : new Error("Failed to boot WebContainer");
   }
 
   static async mountFiles(files: MountTree): Promise<void> {

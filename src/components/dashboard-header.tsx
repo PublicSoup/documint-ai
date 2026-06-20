@@ -70,13 +70,13 @@ export function DashboardHeader() {
               <GlobalSearch />
             </div>
 
-            <Link
+            <a
               href="/code"
               className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white px-3.5 py-2 text-sm font-semibold text-black transition-colors hover:bg-white/90 md:inline-flex"
             >
               <Code2 className="h-4 w-4" />
               Open IDE
-            </Link>
+            </a>
 
             <NotificationCenter />
 

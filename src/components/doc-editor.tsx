@@ -500,7 +500,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                         variant="ghost"
                         size="sm"
                         className="h-9 border border-white/10 bg-white/5 text-[10px] font-black uppercase tracking-widest text-white/60 hover:bg-white/10 hover:text-white"
-                        onClick={() => router.push("/code")}
+                        onClick={() => window.location.href = "/code"}
                     >
                         <Code2 className="mr-2 h-3.5 w-3.5 text-primary" />
                         Open IDE
