@@ -124,17 +124,26 @@ export function getRunnableWorkspaceCandidates(files: IDEFile[]): RuntimeProject
 }
 
 export function choosePreferredWorkspace(files: IDEFile[]): string | null {
-    const folders = extractTopLevelFolders(files);
-    if (folders.length === 0) return null;
+    // Prefer the whole project. If the ROOT is itself runnable — a website
+    // template with index.html or package.json at the top level — keep the
+    // "Project" workspace so the entire project is shown and previewed as one.
+    // Returning null tells the caller not to narrow to a subfolder.
+    const rootProject = detectRuntimeProject(files, "Project");
+    if (rootProject.kind !== "unknown" && Boolean(rootProject.entryFile)) {
+        return null;
+    }
 
-    const runnable = folders
+    // The root isn't a project on its own (e.g. a monorepo with the app under a
+    // subdirectory). Narrow to the best runnable subfolder. Never fall back to an
+    // arbitrary non-runnable folder — that hides the rest of the tree and
+    // previews nothing.
+    const runnable = extractTopLevelFolders(files)
         .map((workspace) => ({ workspace, manifest: detectRuntimeProject(files, workspace) }))
         .filter(({ manifest }) => manifest.kind !== "unknown" && Boolean(manifest.entryFile));
 
     return runnable.find(({ manifest }) => manifest.kind === "node")?.workspace
         ?? runnable.find(({ manifest }) => manifest.kind === "static")?.workspace
         ?? runnable[0]?.workspace
-        ?? folders[0]
         ?? null;
 }
 

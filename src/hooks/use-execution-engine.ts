@@ -1154,19 +1154,26 @@ export function useExecutionEngine({
 
     try {
       const runtimeProject = detectRuntimeProject(files, workspacePrefix);
+      // When the whole project (root) is itself runnable, preview the ENTIRE
+      // project rather than forcing the user to pick a sub-workspace. Only fall
+      // back to per-subfolder selection for a monorepo where the root isn't a
+      // project on its own.
+      const rootIsRunnable =
+        runtimeProject.kind !== "unknown" && Boolean(runtimeProject.entryFile);
       const topLevelFolders = extractTopLevelFolders(files);
-      const runnableWorkspaces = workspacePrefix === "Project"
-        ? getRunnableWorkspaceCandidates(files)
-        : [];
+      const runnableWorkspaces =
+        workspacePrefix === "Project" && !rootIsRunnable
+          ? getRunnableWorkspaceCandidates(files)
+          : [];
 
-      if (workspacePrefix === "Project" && runnableWorkspaces.length > 1) {
+      if (runnableWorkspaces.length > 1) {
         const choices = runnableWorkspaces
           .map((candidate) => candidate.workspace)
           .filter((value): value is string => Boolean(value));
         failRuntime({
           code: "ENTRYPOINT_NOT_FOUND",
-          message: "Multiple runnable workspaces detected.",
-          details: `Select one workspace before previewing: ${[...new Set(choices.length > 0 ? choices : topLevelFolders)].join(", ")}`,
+          message: "Multiple runnable projects detected.",
+          details: `This looks like a monorepo. Select one workspace before previewing: ${[...new Set(choices.length > 0 ? choices : topLevelFolders)].join(", ")}`,
           term,
         });
         return;
