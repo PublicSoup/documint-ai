@@ -97,7 +97,27 @@ function useCrossOriginIsolationGuard(): IsolationStatus {
   return status;
 }
 
+interface IsolationDiagnostics {
+  coi: boolean;
+  sab: boolean;
+  secure: boolean;
+  embedded: boolean;
+  ua: string;
+}
+
 function IsolationBlocked() {
+  const [diag, setDiag] = useState<IsolationDiagnostics | null>(null);
+
+  useEffect(() => {
+    setDiag({
+      coi: window.crossOriginIsolated,
+      sab: typeof SharedArrayBuffer !== "undefined",
+      secure: window.isSecureContext,
+      embedded: window.self !== window.top,
+      ua: navigator.userAgent,
+    });
+  }, []);
+
   const retry = () => {
     try {
       window.sessionStorage.removeItem(COI_RELOAD_KEY);
@@ -119,11 +139,26 @@ function IsolationBlocked() {
           <code className="mx-1 rounded bg-black/40 px-1">SharedArrayBuffer</code>)
           and this tab isn&apos;t getting one. Try these, in order:
         </p>
-        <ul className="mb-5 space-y-1.5 text-left text-sm text-white/60">
+        {diag?.embedded && (
+          <p className="mb-4 rounded-md border border-amber-400/30 bg-amber-400/10 p-2 text-sm text-amber-200">
+            This page is running inside an embedded frame, which blocks isolation.
+            Open <strong>documintai.dev/code</strong> in its own browser tab.
+          </p>
+        )}
+        <ul className="mb-4 space-y-1.5 text-left text-sm text-white/60">
           <li>• Use the latest <strong>Chrome</strong> or <strong>Edge</strong> (Firefox/Safari have limited support).</li>
           <li>• Disable extensions that block <code className="rounded bg-black/40 px-1">stackblitz.com</code> (ad-blockers, Brave Shields, privacy blockers), or try a private window.</li>
           <li>• Hard-refresh the page.</li>
         </ul>
+        {diag && (
+          <div className="mb-4 rounded-md bg-black/40 p-3 text-left font-mono text-[11px] leading-relaxed text-white/50">
+            <div>crossOriginIsolated: <span className={diag.coi ? "text-emerald-400" : "text-rose-400"}>{String(diag.coi)}</span></div>
+            <div>SharedArrayBuffer: <span className={diag.sab ? "text-emerald-400" : "text-rose-400"}>{String(diag.sab)}</span></div>
+            <div>secureContext: <span className={diag.secure ? "text-emerald-400" : "text-rose-400"}>{String(diag.secure)}</span></div>
+            <div>embedded(iframe): <span className={diag.embedded ? "text-rose-400" : "text-emerald-400"}>{String(diag.embedded)}</span></div>
+            <div className="mt-1 break-words text-white/40">{diag.ua}</div>
+          </div>
+        )}
         <button
           onClick={retry}
           className="inline-flex items-center gap-2 rounded-md bg-white/10 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/20"
