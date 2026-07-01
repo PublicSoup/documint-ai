@@ -222,13 +222,30 @@ export class WebContainerManager {
   }
 
   private static async bootWithRetry(): Promise<WebContainer> {
+    // WebContainer boots by injecting a hidden iframe (https://stackblitz.com/headless)
+    // and waiting for its `init` postMessage. If CSP blocks that iframe the handshake
+    // never fires and boot just hangs until our timeout — with no native error saying
+    // why. Capture any Content-Security-Policy violations against WebContainer hosts so
+    // the failure surfaces the blocked directive/URL instead of a bare "timed out".
+    const cspViolations: string[] = [];
+    const onCspViolation = (event: SecurityPolicyViolationEvent) => {
+      if (/stackblitz|staticblitz|webcontainer/i.test(event.blockedURI)) {
+        cspViolations.push(
+          `${event.effectiveDirective} blocked ${event.blockedURI}`,
+        );
+      }
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("securitypolicyviolation", onCspViolation);
+    }
+
     try {
       assertWebContainerPreflight();
       // The `coep` option MUST match the COEP header sent for /code in src/proxy.ts.
       // It is fixed on first boot and cannot be changed across reboots; a mismatch
       // (e.g. header `credentialless` vs library default `require-corp`) corrupts the
       // cross-origin-isolated context and makes boot reject.
-      
+
       const bootOperation = async () => {
         const instance = await WebContainer.boot({ coep: "credentialless" });
 
@@ -243,18 +260,24 @@ export class WebContainerManager {
             "\n",
           ),
         );
-        
+
         return instance;
       };
 
       return await withTimeout(bootOperation(), 30_000, "boot");
     } catch (error) {
       console.error("[WebContainer Boot Error]:", error);
-      const bootError = error instanceof Error
-        ? error
-        : new Error(getErrorMessage(error));
+      let message = getErrorMessage(error);
+      if (cspViolations.length > 0) {
+        message += ` — Content-Security-Policy blocked WebContainer hosts: ${[...new Set(cspViolations)].join("; ")}. Allow these origins in the /code CSP (see src/proxy.ts).`;
+      }
+      const bootError = new Error(message);
       setGlobalBootError(bootError);
       throw bootError;
+    } finally {
+      if (typeof document !== "undefined") {
+        document.removeEventListener("securitypolicyviolation", onCspViolation);
+      }
     }
   }
 

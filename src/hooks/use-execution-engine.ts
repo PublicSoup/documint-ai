@@ -68,7 +68,7 @@ const RUNTIME_ERROR_HINTS: Record<RuntimeErrorCode, string> = {
   TERMINAL_NOT_READY:
     "The runtime can still run, but the terminal UI did not mount fast enough. Reopen the terminal or retry the run action.",
   WEBCONTAINER_BOOT_FAILED:
-    "Refresh the IDE and try again. WebContainers require cross-origin isolation and may fail if the browser blocks SharedArrayBuffer.",
+    "The in-browser runtime could not start — see Details below for the underlying cause. Common causes: a Content-Security-Policy that doesn't allow the WebContainer hosts (stackblitz.com / *.staticblitz.com / *.webcontainer-api.io), a browser extension blocking those hosts, a non-isolated context (missing COOP/COEP headers), or a slow network. Refreshing the IDE can clear a transient boot.",
   INSTALL_FAILED:
     "Check dependency names, package versions, and package manager lockfiles. Try simplifying package.json if install keeps failing.",
   PACKAGE_JSON_INVALID:
@@ -903,17 +903,15 @@ export function useExecutionEngine({
         isBooted = await bootRuntime();
       }
       if (!isBooted) {
-        failRuntime({
-          code: "WEBCONTAINER_BOOT_FAILED",
-          message: "WebContainer failed to boot in time.",
-          term,
-        });
+        // bootRuntime() already called failRuntime with the underlying cause
+        // (e.g. the CSP-blocked host or boot timeout). Re-failing here would
+        // overwrite those details with a generic message, so just bail out.
         return false;
       }
 
       return true;
     },
-    [bootRuntime, failRuntime, writeRuntimeLine],
+    [bootRuntime, writeRuntimeLine],
   );
 
   const ensureDependenciesInstalled = useCallback(

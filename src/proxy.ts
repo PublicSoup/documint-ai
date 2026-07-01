@@ -63,15 +63,33 @@ export async function proxy(request: NextRequest) {
     response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
     response.headers.set("Origin-Agent-Cluster", "?1");
 
+    // Every origin @webcontainer/api loads from. The boot handshake loads a hidden
+    // iframe from https://stackblitz.com/headless; the runtime and credentialless
+    // preview servers load from *.staticblitz.com / *.webcontainer-api.io. If ANY of
+    // these is missing from frame-src the boot iframe is silently blocked, the init
+    // postMessage never arrives, and boot hangs until it times out as
+    // WEBCONTAINER_BOOT_FAILED. Keep this list as the single source of truth so every
+    // directive (frame-src/connect-src/script-src) stays in sync.
+    const webContainerOrigins = [
+        "https://stackblitz.com",
+        "https://*.stackblitz.io",
+        "https://staticblitz.com",
+        "https://*.staticblitz.com",
+        "https://*.webcontainer.io",
+        "https://*.webcontainer-api.io",
+        "https://*.local-credentialless.webcontainer.io",
+    ].join(" ");
+
     const csp = (isCode ? `
     default-src 'self';
-    script-src 'self' 'unsafe-eval' 'unsafe-inline' blob: https://va.vercel-scripts.com https://cdn.jsdelivr.net https://*.webcontainer.io https://*.webcontainer-api.io https://*.stackblitz.io https://*.local-credentialless.webcontainer.io https://*.staticblitz.com https://staticblitz.com https://stackblitz.com;
+    script-src 'self' 'unsafe-eval' 'unsafe-inline' blob: https://va.vercel-scripts.com https://cdn.jsdelivr.net ${webContainerOrigins};
     style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net;
     img-src 'self' blob: data: https: http://localhost:*;
     font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net;
-    connect-src 'self' blob: http://localhost:* ws: wss: https://generativelanguage.googleapis.com https://api.openai.com https://api.anthropic.com https://*.auth0.com https://api.stripe.com https://checkout.stripe.com https://vitals.vercel-insights.com https://*.webcontainer.io https://*.webcontainer-api.io https://*.stackblitz.io https://*.local-credentialless.webcontainer.io https://*.staticblitz.com https://staticblitz.com https://stackblitz.com;
-    frame-src 'self' blob: http://localhost:* https://*.webcontainer.io https://*.webcontainer-api.io https://*.stackblitz.io https://*.local-credentialless.webcontainer.io https://*.staticblitz.com https://staticblitz.com https://stackblitz.com;    worker-src 'self' blob:;
-    worker-src 'self' blob: https://*.webcontainer.io https://*.webcontainer-api.io https://*.staticblitz.com https://staticblitz.com
+    connect-src 'self' blob: http://localhost:* ws: wss: https://generativelanguage.googleapis.com https://api.openai.com https://api.anthropic.com https://*.auth0.com https://api.stripe.com https://checkout.stripe.com https://vitals.vercel-insights.com ${webContainerOrigins};
+    frame-src 'self' blob: http://localhost:* ${webContainerOrigins};
+    worker-src 'self' blob:;
+    frame-ancestors 'self';
   ` : `
     default-src 'self';
     script-src 'self' 'unsafe-eval' 'unsafe-inline' blob: https://va.vercel-scripts.com https://js.stripe.com https://cdn.jsdelivr.net;
