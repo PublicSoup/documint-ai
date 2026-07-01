@@ -21,24 +21,9 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  async headers() {
-    return [
-      {
-        source: "/code",
-        headers: [
-          { key: "Cross-Origin-Embedder-Policy", value: "credentialless" },
-          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
-        ],
-      },
-      {
-        source: "/code/:path*",
-        headers: [
-          { key: "Cross-Origin-Embedder-Policy", value: "credentialless" },
-          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
-        ],
-      },
-    ];
-  },
+  // COOP/COEP for /code are set in middleware (src/proxy.ts) because the COEP
+  // mode is browser-dependent (Safari needs require-corp, others credentialless).
+  // Setting a static value here too would emit a conflicting duplicate header.
 };
 
 export default nextConfig;

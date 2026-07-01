@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
+import { coepForUserAgent } from "@/lib/coep";
 
 const publicPaths = [
     "/auth/login",
@@ -54,12 +55,17 @@ export async function proxy(request: NextRequest) {
     response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
     response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
     // WebContainers require cross-origin isolation to access SharedArrayBuffer.
-    // The COEP value here MUST match the `coep` option passed to WebContainer.boot()
-    // (see src/lib/web-container.ts), because that option is fixed on first boot.
-    // `require-corp` is the only COEP value that grants crossOriginIsolated across
-    // Chromium + Firefox + Safari (`credentialless` is Chromium-only).
+    // Only /code needs it, and the right COEP mode is browser-dependent:
+    // Chromium/Firefox get `credentialless` (keeps the preview iframe embeddable),
+    // Safari/WebKit get `require-corp` (the only mode they isolate under). The value
+    // MUST match the `coep` option passed to WebContainer.boot() in
+    // src/lib/web-container.ts. Non-/code pages keep `credentialless` (harmless —
+    // Safari ignores it) so require-corp never blocks cross-origin iframes there.
     response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
-    response.headers.set("Cross-Origin-Embedder-Policy", "credentialless");
+    response.headers.set(
+        "Cross-Origin-Embedder-Policy",
+        isCode ? coepForUserAgent(request.headers.get("user-agent")) : "credentialless",
+    );
     response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
     response.headers.set("Origin-Agent-Cluster", "?1");
 

@@ -1,4 +1,5 @@
 import { WebContainer, WebContainerProcess } from "@webcontainer/api";
+import { coepForUserAgent } from "@/lib/coep";
 
 type MountTree = Record<
   string,
@@ -241,13 +242,17 @@ export class WebContainerManager {
 
     try {
       assertWebContainerPreflight();
-      // The `coep` option MUST match the COEP header sent for /code in src/proxy.ts.
-      // It is fixed on first boot and cannot be changed across reboots; a mismatch
-      // (e.g. header `credentialless` vs library default `require-corp`) corrupts the
-      // cross-origin-isolated context and makes boot reject.
+      // The `coep` option MUST match the COEP header sent for /code in src/proxy.ts,
+      // which is browser-dependent (Safari/WebKit → require-corp, others →
+      // credentialless). We derive it from the same user-agent logic so the boot
+      // mode always agrees with the header; a mismatch corrupts the isolated
+      // context and makes boot hang/reject. It is fixed on first boot.
+      const coep = coepForUserAgent(
+        typeof navigator !== "undefined" ? navigator.userAgent : "",
+      );
 
       const bootOperation = async () => {
-        const instance = await WebContainer.boot({ coep: "credentialless" });
+        const instance = await WebContainer.boot({ coep });
 
         // Provision essential environment config immediately after boot.
         // WebContainer's npm does not support HTTPS; force HTTP registry
