@@ -254,17 +254,25 @@ export class WebContainerManager {
       const bootOperation = async () => {
         const instance = await WebContainer.boot({ coep });
 
-        // Provision essential environment config immediately after boot.
-        // WebContainer's npm does not support HTTPS; force HTTP registry
-        // so npm install / npx work regardless of how they are spawned.
-        // This covers the interactive terminal, auto-run, and any other
-        // npm/npx invocation path.
-        await instance.fs.writeFile(
-          "/home/.npmrc",
-          ["registry=http://registry.npmjs.org/", "strict-ssl=false"].join(
-            "\n",
-          ),
-        );
+        // Best-effort npm registry config. This is a NON-FATAL optimization:
+        // depending on WebContainer version/browser, /home may not be a writable
+        // directory at boot (writeFile throws `ENOENT ... /home/.npmrc`), and a
+        // failed config write must never fail the whole boot. Current WebContainer
+        // supports the default HTTPS registry, so npm install/npx still work
+        // without it.
+        try {
+          await instance.fs.writeFile(
+            "/home/.npmrc",
+            ["registry=http://registry.npmjs.org/", "strict-ssl=false"].join(
+              "\n",
+            ),
+          );
+        } catch (npmrcError) {
+          console.warn(
+            "[WebContainer] Skipped /home/.npmrc provisioning:",
+            getErrorMessage(npmrcError),
+          );
+        }
 
         return instance;
       };
