@@ -986,7 +986,7 @@ export function AIChatPanel({
                         >
                             {AVAILABLE_MODELS.map(model => (
                                 <option key={model.id} value={model.id}>
-                                    {model.label} {model.tier === "pro" ? "✨" : ""}
+                                    {model.label}{model.tier === "pro" ? " (Pro)" : ""}
                                 </option>
                             ))}
                         </select>

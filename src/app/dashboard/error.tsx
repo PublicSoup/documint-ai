@@ -23,8 +23,8 @@ export default function Error({
                     <AlertCircle className="w-6 h-6" />
                 </div>
                 <div>
-                    <h2 className="text-xl font-bold text-white mb-2">Something went wrong!</h2>
-                    <p className="text-sm text-gray-400 mb-4">{error.message || "An unexpected error occurred while loading the dashboard."}</p>
+                    <h2 className="text-xl font-bold text-white mb-2">Something went wrong</h2>
+                    <p className="text-sm text-gray-400 mb-4">An unexpected error occurred while loading the dashboard. Try again, or contact support if the problem persists.</p>
                     {error.digest && (
                         <code className="text-xs bg-black/30 px-2 py-1 rounded text-gray-500 block mb-4 font-mono w-full overflow-hidden text-ellipsis">
                             Digest: {error.digest}
