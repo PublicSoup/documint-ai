@@ -5,15 +5,17 @@
  * server-only dependencies (env.ts, @ai-sdk/*) into client bundles.
  */
 
+// Only Google/Gemini models are listed: the app authenticates with a Google AI
+// Studio key (shared GOOGLE_API_KEY or a per-user bring-your-own key), and a BYO
+// key only works for Google models. Other providers (OpenAI/Anthropic/etc.)
+// require a paid AI Gateway, so listing them just produces "requires AI Gateway"
+// errors for free/BYO users. All of these run on Gemini's free tier, and a BYO
+// key also bypasses the shared plan limits.
 export const AVAILABLE_MODELS = [
-    { id: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "Google", tier: "pro" },
+    { id: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "Google", tier: "free" },
+    { id: "google/gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite", provider: "Google", tier: "free" },
     { id: "google/gemini-2.0-flash", label: "Gemini 2.0 Flash", provider: "Google", tier: "free" },
-    { id: "anthropic/claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet", provider: "Anthropic", tier: "pro" },
-    { id: "openai/gpt-4o", label: "GPT-4o", provider: "OpenAI", tier: "pro" },
-    { id: "openai/gpt-4o-mini", label: "GPT-4o Mini", provider: "OpenAI", tier: "free" },
-    { id: "openai/o3-mini", label: "o3-mini", provider: "OpenAI", tier: "pro" },
-    { id: "deepseek/deepseek-r1", label: "DeepSeek R1", provider: "DeepSeek", tier: "pro" },
-    { id: "xai/grok-2-latest", label: "Grok 2", provider: "xAI", tier: "pro" },
+    { id: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "Google", tier: "free" },
 ] as const;
 
 export type AIModelId = typeof AVAILABLE_MODELS[number]["id"];

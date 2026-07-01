@@ -225,13 +225,18 @@ export function AIChatPanel({
     ]);
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
-    const [selectedModel, setSelectedModel] = useState<string>("google/gemini-2.0-flash");
+    const [selectedModel, setSelectedModel] = useState<string>("google/gemini-2.5-flash");
     const [reasoningEffort, setReasoningEffort] = useState<"low" | "medium">("low");
     const [autoFixErrors, setAutoFixErrors] = useState(true);
 
     useEffect(() => {
+        // Only restore a stored model if it's still a valid option — the model
+        // list is Gemini-only now, so a previously selected non-Google model
+        // would otherwise be sent and rejected by the API.
         const stored = localStorage.getItem("documint_model");
-        if (stored) setSelectedModel(stored);
+        if (stored && AVAILABLE_MODELS.some((m) => m.id === stored)) {
+            setSelectedModel(stored);
+        }
 
         const storedEffort = localStorage.getItem("documint_reasoning_effort");
         if (storedEffort === "low" || storedEffort === "medium") setReasoningEffort(storedEffort);
@@ -986,7 +991,7 @@ export function AIChatPanel({
                         >
                             {AVAILABLE_MODELS.map(model => (
                                 <option key={model.id} value={model.id}>
-                                    {model.label} {model.tier === "pro" ? "✨" : ""}
+                                    {model.label}
                                 </option>
                             ))}
                         </select>
