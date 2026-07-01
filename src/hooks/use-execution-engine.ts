@@ -142,7 +142,12 @@ function send(res, status, body, contentType) {
 function safeResolve(rawUrl) {
   try {
     const pathname = decodeURIComponent(new URL(rawUrl || "/", "http://localhost").pathname);
-    const requestPath = pathname === "/" ? "index.html" : pathname.replace(/^\\/+/, "");
+    // Strip leading slashes WITHOUT a regex: WebContainer's Node evaluates this
+    // "node -e" script through its TypeScript parser, which misparses a /^\\/+/
+    // regex literal ("Unterminated regular expression literal") and crashes the
+    // whole static server. A plain loop is equivalent and parser-safe.
+    let requestPath = pathname === "/" ? "index.html" : pathname;
+    while (requestPath.charAt(0) === "/") { requestPath = requestPath.slice(1); }
     const filePath = path.resolve(resolvedRoot, requestPath);
     return filePath === resolvedRoot || filePath.startsWith(resolvedRoot + path.sep) ? filePath : null;
   } catch {
