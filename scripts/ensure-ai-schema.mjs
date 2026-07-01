@@ -12,8 +12,11 @@
  * deploy — it just brings an out-of-date database up to date.
  */
 
-if (!process.env.DATABASE_URL) {
-  console.log("[ensure-ai-schema] No DATABASE_URL; skipping.");
+// Prefer the direct (non-pooled) connection for DDL — pooled/pgBouncer URLs can
+// reject schema changes. Fall back to DATABASE_URL if DIRECT_URL isn't set.
+const DB_URL = process.env.DIRECT_URL || process.env.DATABASE_URL;
+if (!DB_URL) {
+  console.log("[ensure-ai-schema] No DIRECT_URL/DATABASE_URL; skipping.");
   process.exit(0);
 }
 
@@ -35,7 +38,7 @@ const statements = [
 
 async function main() {
   const { PrismaClient } = await import("@prisma/client");
-  const prisma = new PrismaClient();
+  const prisma = new PrismaClient({ datasources: { db: { url: DB_URL } } });
   try {
     for (const sql of statements) {
       try {
