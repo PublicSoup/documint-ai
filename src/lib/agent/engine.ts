@@ -332,10 +332,12 @@ export async function* runAgent(
                         const patchResult = applyPatch(originalContent, snippet);
 
                         if (patchResult.success && patchResult.patchedCode) {
-                            // Write patched content to VFS (Supabase)
+                            // Persist patched content to the project (DB) and push it
+                            // live into the IDE via the same file_created event writes use.
                             const saveResult = await vfs.writeFile(userId, filePath, patchResult.patchedCode);
                             if (saveResult.success) {
-                                toolResult = `[SUCCESS]: Patched ${filePath} using ${patchResult.method} method and saved to workspace.`;
+                                toolResult = `[SUCCESS]: Patched ${filePath} using ${patchResult.method} method and saved to the project.`;
+                                yield { type: "file_created", fileName: filePath, content: patchResult.patchedCode };
                             } else {
                                 toolResult = `[ERROR]: Failed to save patched file: ${saveResult.error || "Unknown error"}`;
                             }
@@ -414,44 +416,18 @@ export async function* runAgent(
                     }
 
                     case "search_files": {
-                        if (!currentRuntime.canExecuteCommands) {
-                             toolResult = `[ERROR]: search_files relies on shell execution which is disabled in ${currentRuntime.runtimeName}.`;
-                             break;
-                        }
-                        const execFn = await getExecFile();
-                        if (!execFn) {
-                            toolResult = `[ERROR]: Command execution unavailable in this runtime.`;
-                            break;
-                        }
-                        const pattern = args[0];
-                        try {
-                            const res = await execFn("find", [".", "-type", "f", "-name", `*${pattern}*`, "-not", "-path", "*/node_modules/*", "-not", "-path", "*/.git/*"], { cwd, timeout: 15000 });
-                            const lines = (res.stdout || "").split("\n").slice(0, 25).join("\n");
-                            toolResult = `[RESULTS]:\n${lines || "None found."}`;
-                        } catch {
-                            toolResult = `[RESULTS]:\nNone found.`;
-                        }
+                        // Search the user's real project files (DB), not the server FS.
+                        const pattern = args[0] || "";
+                        const results = await vfs.searchByName(userId, pattern);
+                        toolResult = `[RESULTS]:\n${results.length ? results.join("\n") : "None found."}`;
                         break;
                     }
 
                     case "grep_search": {
-                        if (!currentRuntime.canExecuteCommands) {
-                             toolResult = `[ERROR]: grep_search relies on shell execution which is disabled in ${currentRuntime.runtimeName}.`;
-                             break;
-                        }
-                        const execFn = await getExecFile();
-                        if (!execFn) {
-                            toolResult = `[ERROR]: Command execution unavailable in this runtime.`;
-                            break;
-                        }
-                        const query = args[0];
-                        try {
-                            const res = await execFn("grep", ["-r", query, ".", "--exclude-dir=node_modules", "--exclude-dir=.git"], { cwd, timeout: 15000 });
-                            const lines = (res.stdout || "").split("\n").slice(0, 25).join("\n");
-                            toolResult = `[RESULTS]:\n${lines || "None found."}`;
-                        } catch {
-                            toolResult = `[RESULTS]:\nNone found.`;
-                        }
+                        // Grep the user's real project file contents (DB).
+                        const query = args[0] || "";
+                        const results = await vfs.grepContent(userId, query);
+                        toolResult = `[RESULTS]:\n${results.length ? results.join("\n") : "None found."}`;
                         break;
                     }
 

@@ -46,18 +46,36 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // For folders, we create a placeholder file. This is a simplification.
-    // A more robust solution might involve a separate model for folders.
-    const newFile = await db.file.create({
-      data: {
-        name: type === "folder" ? `${finalName}/` : finalName,
-        userId: teamId ? null : session.user.id,
-        teamId: teamId,
-        content: normalizedContent,
-        language: normalizedLanguage,
-        size: normalizedContent.length,
-      },
-    });
+    // Upsert by (owner, name): if a file with this path already exists, update it
+    // in place instead of creating a duplicate. This keeps the file tree clean and
+    // lets the in-IDE agent (which persists edits to the DB directly) and this
+    // endpoint converge on a single record. For folders we keep the placeholder.
+    const storedName = type === "folder" ? `${finalName}/` : finalName;
+    const ownerWhere = teamId
+      ? { teamId, name: storedName }
+      : { userId: session.user.id, teamId: null, name: storedName };
+
+    const existing = await db.file.findFirst({ where: ownerWhere, select: { id: true } });
+
+    const newFile = existing
+      ? await db.file.update({
+          where: { id: existing.id },
+          data: {
+            content: normalizedContent,
+            language: normalizedLanguage,
+            size: normalizedContent.length,
+          },
+        })
+      : await db.file.create({
+          data: {
+            name: storedName,
+            userId: teamId ? null : session.user.id,
+            teamId: teamId,
+            content: normalizedContent,
+            language: normalizedLanguage,
+            size: normalizedContent.length,
+          },
+        });
 
     await logAudit({
       userId: session.user.id,
