@@ -9,9 +9,12 @@ import {
     Sparkles,
     X,
     Bug,
+    Key,
     MoreHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ApiKeyManager } from "@/components/api-key-manager";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn, extractCodeBlocks } from "@/lib/utils";
 import { applyPatch } from "@/lib/code-patcher";
 import { useToast } from "../toast";
@@ -228,6 +231,7 @@ export function AIChatPanel({
     const [selectedModel, setSelectedModel] = useState<string>("google/gemini-2.5-flash");
     const [reasoningEffort, setReasoningEffort] = useState<"low" | "medium">("low");
     const [autoFixErrors, setAutoFixErrors] = useState(true);
+    const [showApiKeyModal, setShowApiKeyModal] = useState(false);
 
     useEffect(() => {
         // Only restore a stored model if it's still a valid option — the model
@@ -1005,7 +1009,25 @@ export function AIChatPanel({
                             <option value="low">Fast</option>
                             <option value="medium">Deep</option>
                         </select>
+                        <button
+                            type="button"
+                            onClick={() => setShowApiKeyModal(true)}
+                            title="Connect your free Gemini API key"
+                            className="flex items-center gap-1 bg-black/50 border border-white/10 text-white/70 text-[10px] rounded px-2 py-1 hover:bg-black/80 hover:text-white transition-colors"
+                        >
+                            <Key className="w-3 h-3" />
+                            API Key
+                        </button>
                     </div>
+
+                    <Dialog open={showApiKeyModal} onOpenChange={setShowApiKeyModal}>
+                        <DialogContent className="max-w-lg border-white/10 bg-zinc-950">
+                            <DialogHeader>
+                                <DialogTitle className="text-white">Connect your Gemini API key</DialogTitle>
+                            </DialogHeader>
+                            <ApiKeyManager />
+                        </DialogContent>
+                    </Dialog>
 
                     <div className="absolute bottom-3 right-3 flex items-center gap-2">
                         <span className="text-[10px] text-white/20 font-mono hidden md:inline-block">RETURN to send</span>
