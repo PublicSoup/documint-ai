@@ -5,6 +5,11 @@ import { db } from "@/lib/db";
 import { getFileContent } from "@/lib/files";
 import { buildProjectGraph, GraphNode, ProjectGraph } from "@/lib/graph/project-graph";
 import { projectGraphToMermaidResult } from "@/lib/graph/mermaid-adapter";
+import {
+    projectGraphToSequenceDiagram,
+    projectGraphToClassDiagram,
+    projectGraphToMindmap,
+} from "@/lib/graph/mermaid-views";
 import { checkTeamPermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, ApiErrors } from "@/lib/api-utils";
@@ -35,6 +40,11 @@ interface GraphFileSummary {
 interface GraphResponse {
     isRealData: true;
     mermaid: string;
+    views: {
+        sequence: string;
+        class: string;
+        mindmap: string;
+    };
     nodeMap: Record<string, string>;
     stats: {
         totalFilesScanned: number;
@@ -62,6 +72,20 @@ function classifyRisk(score: number): "high" | "med" | "low" {
 function safeTruncate(content: string, max: number): string {
     if (content.length <= max) return content;
     return content.slice(0, max);
+}
+
+/** Best-effort project name from package.json (for the mindmap root label). */
+function inferProjectName(files: Array<{ path: string; content: string }>): string {
+    const pkg = files.find((file) => file.path.endsWith("package.json"));
+    if (pkg) {
+        try {
+            const name = (JSON.parse(pkg.content) as { name?: unknown }).name;
+            if (typeof name === "string" && name.trim()) return name.trim();
+        } catch {
+            // Malformed package.json — fall through to the default label.
+        }
+    }
+    return "Project";
 }
 
 /**
@@ -162,9 +186,15 @@ export async function GET(request: NextRequest) {
             }
         }
 
-        // 3. Build the graph and convert to Mermaid.
+        // 3. Build the graph and convert to Mermaid (dependency flowchart plus
+        //    the alternate sequence / class / mindmap views, all from one crawl).
         const graph: ProjectGraph = await buildProjectGraph(files);
         const renderedGraph = projectGraphToMermaidResult(graph);
+        const views = {
+            sequence: projectGraphToSequenceDiagram(graph),
+            class: projectGraphToClassDiagram(graph).mermaid,
+            mindmap: projectGraphToMindmap(graph, inferProjectName(files)),
+        };
 
         // 4. Aggregate stats.
         const types: Record<GraphNode["type"], number> = {
@@ -190,6 +220,7 @@ export async function GET(request: NextRequest) {
         const response: GraphResponse = {
             isRealData: true,
             mermaid: renderedGraph.mermaid,
+            views,
             nodeMap: renderedGraph.nodeMap,
             stats: {
                 totalFilesScanned: files.length,

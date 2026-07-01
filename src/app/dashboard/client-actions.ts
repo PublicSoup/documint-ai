@@ -37,9 +37,24 @@ export interface GraphFileSummary {
     imports: number;
 }
 
+/** The visualization modes the Architecture tab can switch between. */
+export type GraphViewKey = "flowchart" | "sequence" | "class" | "mindmap";
+
+/**
+ * Alternate Mermaid renderings of the same project graph. The `flowchart` mode
+ * uses `RealGraphResponse.mermaid`; the rest come from here so the server only
+ * crawls the workspace once.
+ */
+export interface ProjectViews {
+    sequence: string;
+    class: string;
+    mindmap: string;
+}
+
 export interface RealGraphResponse {
     isRealData: true;
     mermaid: string;
+    views?: ProjectViews;
     nodeMap?: Record<string, string>;
     stats: GraphStats;
     files: GraphFileSummary[];
@@ -77,6 +92,7 @@ export class GraphApiError extends Error {
 interface RawGraphResponse {
     isRealData?: boolean;
     mermaid?: string;
+    views?: ProjectViews;
     stats?: GraphStats;
     files?: GraphFileSummary[];
     error?: string;

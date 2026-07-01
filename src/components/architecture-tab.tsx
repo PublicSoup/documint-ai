@@ -6,16 +6,20 @@ import { useRouter } from "next/navigation";
 import {
     AlertCircle,
     AlertTriangle,
+    Boxes,
     CheckCircle2,
     Filter,
     FileCode2,
     Info,
+    ListTree,
     Loader2,
     Network,
     RefreshCcw,
     Search,
     Sparkles,
     Upload,
+    Workflow,
+    type LucideIcon,
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -23,6 +27,7 @@ import { ProBadge } from "@/components/ui/pro-badge";
 import {
     type GraphFileSummary,
     type GraphStats,
+    type GraphViewKey,
 } from "@/app/dashboard/client-actions";
 import { SAMPLE_ARCHITECTURE_DIAGRAM } from "@/components/architecture/sample-diagram";
 import { useProjectGraph } from "@/components/architecture/use-project-graph";
@@ -64,6 +69,13 @@ const FILTER_OPTIONS: Array<{ value: FilterType; label: string; icon: string }> 
     { value: "unknown", label: "Other", icon: "📦" },
 ];
 
+const VIEW_OPTIONS: Array<{ value: GraphViewKey; label: string; icon: LucideIcon; hint: string }> = [
+    { value: "flowchart", label: "Dependencies", icon: Network, hint: "File import & dependency graph" },
+    { value: "sequence", label: "Sequence", icon: Workflow, hint: "Layered request flow: Page → Component → Hook → API → Lib" },
+    { value: "class", label: "Classes", icon: Boxes, hint: "Each file as a class with its exports" },
+    { value: "mindmap", label: "Mindmap", icon: ListTree, hint: "Folder & file tree overview" },
+];
+
 interface ArchitectureTabProps {
     teamId?: string;
 }
@@ -84,6 +96,7 @@ export function ArchitectureTab({ teamId }: ArchitectureTabProps) {
 
     const [filter, setFilter] = useState<FilterState>(DEFAULT_FILTER);
     const [showFilters, setShowFilters] = useState(false);
+    const [viewMode, setViewMode] = useState<GraphViewKey>("flowchart");
 
     const isRealData = graph?.isRealData === true;
     const stats: GraphStats | null = isRealData ? graph.stats : null;
@@ -113,7 +126,18 @@ export function ArchitectureTab({ teamId }: ArchitectureTabProps) {
         });
     }, [files, filter]);
 
-    const mermaidCode = isRealData ? graph.mermaid : SAMPLE_ARCHITECTURE_DIAGRAM;
+    // Alternate views (sequence/class/mindmap) only exist for real server data.
+    // Everything falls back to the dependency flowchart otherwise.
+    const views = isRealData ? graph.views : undefined;
+    const canSwitchViews = Boolean(views);
+    const activeViewMode: GraphViewKey = canSwitchViews ? viewMode : "flowchart";
+    const isFlowchartView = activeViewMode === "flowchart";
+    const activeCode = (() => {
+        if (!isRealData) return SAMPLE_ARCHITECTURE_DIAGRAM;
+        if (activeViewMode === "flowchart" || !views) return graph.mermaid;
+        return views[activeViewMode];
+    })();
+    const activeViewHint = VIEW_OPTIONS.find((v) => v.value === activeViewMode)?.hint;
 
     const handleNodeClick = useCallback(
         (filePath: string) => {
@@ -282,9 +306,21 @@ export function ArchitectureTab({ teamId }: ArchitectureTabProps) {
                     <Info className="w-4 h-4" />
                     <AlertTitle>Live Graph</AlertTitle>
                     <AlertDescription>
-                        This diagram is auto-generated from your actual source code. Node border
-                        color indicates risk (green=low, amber=med, red=high). Click a node to open
-                        it in the Cloud IDE. {stats?.renderedNodes ?? stats?.totalNodes} files and {stats?.renderedEdges ?? stats?.totalEdges} dependencies are currently rendered.
+                        {isFlowchartView ? (
+                            <>
+                                This diagram is auto-generated from your actual source code. Node border
+                                color indicates risk (green=low, amber=med, red=high). Click a node to open
+                                it in the Cloud IDE. {stats?.renderedNodes ?? stats?.totalNodes} files and{" "}
+                                {stats?.renderedEdges ?? stats?.totalEdges} dependencies are currently rendered.
+                            </>
+                        ) : (
+                            <>
+                                Auto-generated from your actual source code, shown as the{" "}
+                                <strong>{activeViewMode}</strong> view. Use the tabs above to switch
+                                perspectives — the Dependencies view is interactive (click a node to open it
+                                in the Cloud IDE).
+                            </>
+                        )}
                     </AlertDescription>
                 </Alert>
             )}
@@ -391,14 +427,53 @@ export function ArchitectureTab({ teamId }: ArchitectureTabProps) {
                 </div>
             )}
 
+            {/* View-mode switcher — visualize the same project graph in different ways. */}
+            {canSwitchViews && (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div
+                        className="flex items-center gap-1 rounded-lg border border-white/5 bg-black/20 p-1"
+                        role="tablist"
+                        aria-label="Visualization mode"
+                    >
+                        {VIEW_OPTIONS.map((opt) => {
+                            const Icon = opt.icon;
+                            const active = activeViewMode === opt.value;
+                            return (
+                                <button
+                                    key={opt.value}
+                                    role="tab"
+                                    aria-selected={active}
+                                    title={opt.hint}
+                                    onClick={() => setViewMode(opt.value)}
+                                    className={
+                                        "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors " +
+                                        (active
+                                            ? "bg-primary/20 text-white border border-primary/40"
+                                            : "text-zinc-400 hover:text-white hover:bg-white/5 border border-transparent")
+                                    }
+                                >
+                                    <Icon className="w-3.5 h-3.5" />
+                                    {opt.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    {activeViewHint && (
+                        <span className="text-[11px] text-muted-foreground hidden sm:inline">
+                            {activeViewHint}
+                        </span>
+                    )}
+                </div>
+            )}
+
             {/* Diagram */}
             <div className="border border-zinc-800 rounded-xl overflow-hidden shadow-2xl bg-zinc-950/50">
                 <DiagramViewer
-                    code={mermaidCode}
-                    type="flowchart"
-                    nodeMap={isRealData ? graph.nodeMap : undefined}
+                    code={activeCode}
+                    type={activeViewMode}
+                    nodeMap={isRealData && isFlowchartView ? graph.nodeMap : undefined}
                     onError={setRenderError}
-                    onNodeClick={handleNodeClick}
+                    onNodeClick={isFlowchartView ? handleNodeClick : undefined}
                 />
             </div>
 
