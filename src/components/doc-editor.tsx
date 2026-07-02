@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "./toast";
+import { useConfirm } from "./ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 
@@ -150,6 +151,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
     const pathname = usePathname();
     const searchParams = useSearchParams();
     const { toast } = useToast();
+    const confirm = useConfirm();
     const [isEditing, setIsEditing] = useState(false);
     const [content, setContent] = useState<DocContent>(initialContent);
     const [isPublic, setIsPublic] = useState(initialPublicState);
@@ -249,10 +251,14 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                     const res = await fetch(`/api/files/${fileId}/raw`);
 
                     if (res.status === 402 || res.status === 403) {
-                        toast("Code View is a Pro feature. Please upgrade.", "error");
                         handleModeChange("docs");
-                        // Optional: Redirect to billing or show upgrade modal
-                        if (confirm("Code View is available on Pro & Team plans. Upgrade now?")) {
+                        const upgrade = await confirm({
+                            title: "Code View is a Pro feature",
+                            description: "Code View is available on Pro & Team plans. Upgrade to unlock it.",
+                            confirmLabel: "View Plans",
+                            cancelLabel: "Not Now",
+                        });
+                        if (upgrade) {
                             router.push("/dashboard/billing");
                         }
                         return;
@@ -372,7 +378,13 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
             const data = await res.json();
 
             if (data.error === "Unauthorized" || (data.demo && !data.connected)) {
-                if (confirm("You need to connect GitHub first. Go to settings?")) {
+                const goToSettings = await confirm({
+                    title: "GitHub not connected",
+                    description: "Connect your GitHub account in settings to push documentation as a pull request.",
+                    confirmLabel: "Open Settings",
+                    cancelLabel: "Not Now",
+                });
+                if (goToSettings) {
                     router.push("/dashboard/settings?tab=integrations");
                 }
                 return;
@@ -401,8 +413,14 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
 
             if (res.ok) {
                 setShowGithubModal(false);
-                if (confirm(`Pull Request created successfully! View it on GitHub?`)) {
-                    window.open(data.prUrl, '_blank');
+                const viewPr = await confirm({
+                    title: "Pull request created",
+                    description: "Your documentation was pushed to GitHub as a pull request.",
+                    confirmLabel: "View on GitHub",
+                    cancelLabel: "Done",
+                });
+                if (viewPr) {
+                    window.open(data.prUrl, "_blank");
                 }
             } else {
                 toast(data.error || "Failed to create PR", "error");
@@ -430,10 +448,16 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                 setDiagramCode(data.diagram);
             } else {
                 if (data.upgradeUrl) {
-                    if (confirm(data.message + "\nGo to billing?")) {
+                    setShowDiagramModal(false);
+                    const goToBilling = await confirm({
+                        title: "Upgrade required",
+                        description: data.message,
+                        confirmLabel: "Go to Billing",
+                        cancelLabel: "Not Now",
+                    });
+                    if (goToBilling) {
                         router.push(data.upgradeUrl);
                     }
-                    setShowDiagramModal(false);
                 } else {
                     toast(data.error || "Failed to generate diagram", "error");
                 }

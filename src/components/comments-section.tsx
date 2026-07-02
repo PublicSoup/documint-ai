@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "./ui/button";
+import { useConfirm } from "./ui/confirm-dialog";
 
 interface Comment {
     id: string;
@@ -21,6 +22,7 @@ interface Comment {
 
 export default function CommentsSection({ fileId }: { fileId: string }) {
     const { data: session } = useSession();
+    const confirm = useConfirm();
     const [comments, setComments] = useState<Comment[]>([]);
     const [loading, setLoading] = useState(true);
     const [newComment, setNewComment] = useState("");
@@ -106,7 +108,13 @@ export default function CommentsSection({ fileId }: { fileId: string }) {
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm("Are you sure you want to delete this comment?")) return;
+        const confirmed = await confirm({
+            title: "Delete comment",
+            description: "This comment will be permanently deleted.",
+            confirmLabel: "Delete",
+            variant: "destructive",
+        });
+        if (!confirmed) return;
 
         try {
             const res = await fetch(`/api/comments?id=${id}`, {

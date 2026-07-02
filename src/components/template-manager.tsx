@@ -12,9 +12,11 @@ interface DocTemplate {
 }
 
 import { useToast } from "./toast";
+import { useConfirm } from "./ui/confirm-dialog";
 
 export function TemplateManager() {
     const { toast } = useToast();
+    const confirm = useConfirm();
     const [templates, setTemplates] = useState<DocTemplate[]>([]);
     const [loading, setLoading] = useState(true);
     const [isCreating, setIsCreating] = useState(false);
@@ -69,7 +71,13 @@ export function TemplateManager() {
                 toast("Template created successfully", "success");
             } else {
                 if (data.upgradeUrl) {
-                    if (confirm(data.message + "\nGo to billing?")) {
+                    const goToBilling = await confirm({
+                        title: "Upgrade required",
+                        description: data.message,
+                        confirmLabel: "Go to Billing",
+                        cancelLabel: "Not Now",
+                    });
+                    if (goToBilling) {
                         window.location.href = data.upgradeUrl;
                     }
                 } else {
@@ -84,7 +92,13 @@ export function TemplateManager() {
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm("Are you sure you want to delete this template?")) return;
+        const confirmed = await confirm({
+            title: "Delete template",
+            description: "This template will be permanently deleted. This action cannot be undone.",
+            confirmLabel: "Delete",
+            variant: "destructive",
+        });
+        if (!confirmed) return;
 
         try {
             const res = await fetch(`/api/templates/${id}`, {

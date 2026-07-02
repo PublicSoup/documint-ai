@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { History, RotateCcw, Eye, Clock, Loader2, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { useToast } from "./toast";
+import { useConfirm } from "./ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 import { DiffViewer } from "./diff-viewer";
 import {
@@ -29,6 +30,7 @@ interface VersionHistoryProps {
 
 export function VersionHistory({ fileId, onRollback }: VersionHistoryProps) {
     const { toast } = useToast();
+    const confirm = useConfirm();
     const [versions, setVersions] = useState<Version[]>([]);
     const [loading, setLoading] = useState(true);
     const [rollingBack, setRollingBack] = useState<string | null>(null);
@@ -84,9 +86,12 @@ export function VersionHistory({ fileId, onRollback }: VersionHistoryProps) {
     };
 
     const handleRollback = async (version: Version) => {
-        if (!confirm(`Are you sure you want to rollback to version ${version.version}? This will create a new version of the current state before reverting.`)) {
-            return;
-        }
+        const confirmed = await confirm({
+            title: `Roll back to version ${version.version}`,
+            description: "A new version of the current state will be created before reverting, so no work is lost.",
+            confirmLabel: "Roll Back",
+        });
+        if (!confirmed) return;
 
         setRollingBack(version.id);
         try {

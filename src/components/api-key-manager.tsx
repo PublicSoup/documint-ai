@@ -5,6 +5,7 @@ import { KeyRound, Check, X, Loader2, Eye, EyeOff, ExternalLink, Trash2 } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 interface AiUsageData {
     queryCount: number;
@@ -14,6 +15,7 @@ interface AiUsageData {
 }
 
 export function ApiKeyManager() {
+    const confirm = useConfirm();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [usage, setUsage] = useState<AiUsageData | null>(null);
@@ -70,7 +72,13 @@ export function ApiKeyManager() {
     };
 
     const handleRemove = async () => {
-        if (!confirm("Remove your API key? You'll need to use the shared key quota or upgrade your plan.")) return;
+        const confirmed = await confirm({
+            title: "Remove API key",
+            description: "You'll need to use the shared key quota or upgrade your plan.",
+            confirmLabel: "Remove",
+            variant: "destructive",
+        });
+        if (!confirmed) return;
 
         try {
             const res = await fetch("/api/user/api-key", { method: "DELETE" });

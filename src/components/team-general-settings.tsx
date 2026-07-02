@@ -8,6 +8,7 @@ import { Input } from "./ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "./ui/card";
 import { Label } from "./ui/label";
 import { useToast } from "./toast";
+import { useConfirm } from "./ui/confirm-dialog";
 
 interface TeamSettingsProps {
     teamId: string;
@@ -48,6 +49,7 @@ function normalizeSlug(value: string): string {
 
 export function TeamGeneralSettings({ teamId, teamName: initialName, teamSlug: initialSlug }: TeamSettingsProps) {
     const { toast } = useToast();
+    const confirm = useConfirm();
     const router = useRouter();
 
     const [name, setName] = useState(initialName);
@@ -115,9 +117,13 @@ export function TeamGeneralSettings({ teamId, teamName: initialName, teamSlug: i
     };
 
     const handleDelete = async () => {
-        if (!confirm(`Are you sure you want to delete the team "${name}"? This will permanently remove all files and documentation associated with this team. This action cannot be undone.`)) {
-            return;
-        }
+        const confirmed = await confirm({
+            title: "Delete team",
+            description: `This will permanently delete "${name}" along with all files and documentation associated with this team. This action cannot be undone.`,
+            confirmLabel: "Delete Team",
+            variant: "destructive",
+        });
+        if (!confirmed) return;
 
         setDeleteError("");
         setDeleting(true);

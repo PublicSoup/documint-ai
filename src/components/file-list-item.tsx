@@ -18,9 +18,11 @@ interface FileListItemProps {
 }
 
 import { useToast } from "./toast";
+import { useConfirm } from "./ui/confirm-dialog";
 
 export default function FileListItem({ file, isSelected }: FileListItemProps) {
     const { toast } = useToast();
+    const confirm = useConfirm();
     const router = useRouter();
     const [deleting, setDeleting] = useState(false);
 
@@ -28,7 +30,13 @@ export default function FileListItem({ file, isSelected }: FileListItemProps) {
         e.preventDefault(); // Prevent navigation
         e.stopPropagation();
 
-        if (!confirm("Are you sure you want to delete this file? This cannot be undone.")) return;
+        const confirmed = await confirm({
+            title: "Delete file",
+            description: `"${file.name}" and its documentation will be permanently deleted. This action cannot be undone.`,
+            confirmLabel: "Delete",
+            variant: "destructive",
+        });
+        if (!confirmed) return;
 
         setDeleting(true);
         try {

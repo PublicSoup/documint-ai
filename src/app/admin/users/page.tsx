@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 
 import { toast } from 'sonner';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 interface User {
     id: string;
@@ -49,6 +50,7 @@ export default function AdminUsersPage() {
     const [resetResult, setResetResult] = useState<{ email: string; password: string } | null>(null);
     const [copied, setCopied] = useState(false);
     const router = useRouter();
+    const confirm = useConfirm();
 
     const fetchUsers = async () => {
         try {
@@ -75,7 +77,13 @@ export default function AdminUsersPage() {
     }, []);
 
     const handleDelete = async (id: string) => {
-        if (!confirm("Are you sure you want to PERMANENTLY delete this user? This action cannot be undone.")) return;
+        const confirmed = await confirm({
+            title: "Delete user",
+            description: "This user and all of their data will be permanently deleted. This action cannot be undone.",
+            confirmLabel: "Delete User",
+            variant: "destructive",
+        });
+        if (!confirmed) return;
 
         try {
             const res = await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
@@ -110,7 +118,12 @@ export default function AdminUsersPage() {
     };
 
     const handleResetPassword = async (user: User) => {
-        if (!confirm(`Are you sure you want to reset the password for ${user.email}?`)) return;
+        const confirmed = await confirm({
+            title: "Reset password",
+            description: `A new password will be generated for ${user.email}. Their current password will stop working immediately.`,
+            confirmLabel: "Reset Password",
+        });
+        if (!confirmed) return;
 
         try {
             const res = await fetch(`/api/admin/users/${user.id}/reset-password`, {
