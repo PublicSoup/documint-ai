@@ -138,7 +138,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ file
             }
         });
 
-        let intentDrift = null;
+        const intentDrift = null;
 
         // Automatic Event-Driven Triggers (Audits & Drift)
         (async () => {

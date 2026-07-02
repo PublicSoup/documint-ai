@@ -154,7 +154,6 @@ export async function* runAgent(
                 messages = compactPersistedHistory(parsedState.history || []);
                 toolAttempts = new Map(Object.entries(parsedState.toolAttempts || {}));
                 // Restore other state variables here if needed
-                console.log(`Agent state loaded for session ${sessionId}. History length: ${messages.length}`);
             } else {
                 console.warn(`Agent state for session ${sessionId} is not a valid object. Initializing fresh state.`);
                 messages = compactPersistedHistory(initialHistory);
@@ -502,7 +501,6 @@ async function saveAgentState(
                 stateJson: sanitizedState as unknown as Prisma.InputJsonValue,
             },
         });
-        // console.log(`Agent state saved for session ${sessionId}.`);
     } catch (e) {
         console.error(`Failed to save agent state for session ${sessionId}:`, e);
     }

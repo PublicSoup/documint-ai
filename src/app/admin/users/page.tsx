@@ -24,7 +24,7 @@ import {
     DialogFooter,
 } from "@/components/ui/dialog";
 
-import { toast } from 'sonner';
+import { useToast } from '@/components/toast';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 
 interface User {
@@ -50,6 +50,7 @@ export default function AdminUsersPage() {
     const [resetResult, setResetResult] = useState<{ email: string; password: string } | null>(null);
     const [copied, setCopied] = useState(false);
     const router = useRouter();
+    const { toast } = useToast();
     const confirm = useConfirm();
 
     const fetchUsers = async () => {
@@ -66,7 +67,7 @@ export default function AdminUsersPage() {
             }
             setUsers(data.users);
         } catch (error) {
-            toast.error("Failed to fetch users");
+            toast("Failed to fetch users", "error");
         } finally {
             setIsLoading(false);
         }
@@ -88,13 +89,13 @@ export default function AdminUsersPage() {
         try {
             const res = await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
             if (res.ok) {
-                toast.success("User deleted");
+                toast("User deleted", "success");
                 setUsers(users.filter(u => u.id !== id));
             } else {
-                toast.error("Failed to delete user");
+                toast("Failed to delete user", "error");
             }
         } catch (e) {
-            toast.error("Error deleting user");
+            toast("Error deleting user", "error");
         }
     };
 
@@ -107,13 +108,13 @@ export default function AdminUsersPage() {
             });
 
             if (res.ok) {
-                toast.success("User updated");
+                toast("User updated", "success");
                 fetchUsers(); // Refresh to get latest data
             } else {
-                toast.error("Update failed");
+                toast("Update failed", "error");
             }
         } catch (e) {
-            toast.error("Error updating user");
+            toast("Error updating user", "error");
         }
     };
 
@@ -133,12 +134,12 @@ export default function AdminUsersPage() {
             if (res.ok) {
                 const data = await res.json();
                 setResetResult({ email: user.email || '', password: data.password });
-                toast.success("Password reset successfully");
+                toast("Password reset successfully", "success");
             } else {
-                toast.error("Failed to reset password");
+                toast("Failed to reset password", "error");
             }
         } catch (e) {
-            toast.error("Error resetting password");
+            toast("Error resetting password", "error");
         }
     };
 
@@ -147,7 +148,7 @@ export default function AdminUsersPage() {
             navigator.clipboard.writeText(resetResult.password);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
-            toast.success("Password copied to clipboard");
+            toast("Password copied to clipboard", "success");
         }
     };
 

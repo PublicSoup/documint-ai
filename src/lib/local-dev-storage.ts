@@ -85,7 +85,6 @@ export async function createLocalFile(name: string, content: string = ''): Promi
     const filePath = path.join(DEV_WORKSPACE_DIR, name);
     await fs.writeFile(filePath, content, 'utf-8');
 
-    console.log(`📁 [Local Dev] Created file: ${name} (${id})`);
     return file;
 }
 
@@ -121,7 +120,6 @@ export async function updateLocalFile(id: string, content: string): Promise<bool
     try {
         const filePath = path.join(DEV_WORKSPACE_DIR, file.name);
         await fs.writeFile(filePath, content, 'utf-8');
-        console.log(`💾 [Local Dev] Saved file: ${file.name}`);
         return true;
     } catch (e) {
         console.error(`[Local Dev] Failed to save ${file.name}:`, e);
@@ -140,7 +138,6 @@ export async function deleteLocalFile(id: string): Promise<boolean> {
     try {
         const filePath = path.join(DEV_WORKSPACE_DIR, file.name);
         await fs.unlink(filePath);
-        console.log(`🗑️ [Local Dev] Deleted file: ${file.name}`);
         return true;
     } catch {
         return true; // File might not exist on disk

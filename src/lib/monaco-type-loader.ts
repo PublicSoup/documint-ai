@@ -102,7 +102,6 @@ export async function loadTypesFromWebContainer(
     const jsDefaults = monaco.languages.typescript.javascriptDefaults;
     let loadedCount = 0;
 
-    console.log("🔧 [TypeLoader] Loading type definitions from WebContainer...");
 
     // 1. Load known type packages
     for (const pkg of TYPE_PACKAGES) {
@@ -171,7 +170,6 @@ export async function loadTypesFromWebContainer(
         noSuggestionDiagnostics: false,
     });
 
-    console.log(`✅ [TypeLoader] Loaded ${loadedCount} type definition files`);
     return loadedCount;
 }
 

@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { FileText, Search, Filter, Download, Clock, User, Activity, ShieldCheck, ShieldAlert, X } from 'lucide-react';
-import { toast } from 'sonner';
+import { useToast } from '@/components/toast';
 
 interface AuditEntry {
     id: string;
@@ -22,6 +22,7 @@ interface AuditEntry {
 export default function AdminAuditPage() {
     const searchParams = useSearchParams();
     const router = useRouter();
+    const { toast } = useToast();
     const filterUserId = searchParams.get('userId');
 
     const [logs, setLogs] = useState<AuditEntry[]>([]);
@@ -45,7 +46,7 @@ export default function AdminAuditPage() {
                 setVerificationStatus('idle'); // Reset verification on new fetch
             } catch (err) {
                 console.error('Audit fetch error:', err);
-                toast.error("Failed to fetch audit logs");
+                toast("Failed to fetch audit logs", "error");
             } finally {
                 setLoading(false);
             }
@@ -66,15 +67,15 @@ export default function AdminAuditPage() {
 
             if (data.success) {
                 setVerificationStatus('valid');
-                toast.success(`Chain integrity verified (${data.totalVerified} entries)`);
+                toast(`Chain integrity verified (${data.totalVerified} entries)`, "success");
             } else {
                 setVerificationStatus('invalid');
-                toast.error(`Integrity check failed (${data.summary?.tamperedCount || 0} tampered entries)`);
+                toast(`Integrity check failed (${data.summary?.tamperedCount || 0} tampered entries)`, "error");
             }
         } catch (error) {
             console.error('Audit verify error:', error);
             setVerificationStatus('invalid');
-            toast.error('Failed to verify audit chain integrity');
+            toast('Failed to verify audit chain integrity', "error");
         }
     };
 
@@ -119,7 +120,7 @@ export default function AdminAuditPage() {
             a.click();
         } catch (err) {
             console.error('Export error:', err);
-            toast.error("Export failed");
+            toast("Export failed", "error");
         }
     };
 

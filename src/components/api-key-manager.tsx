@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { KeyRound, Check, X, Loader2, Eye, EyeOff, ExternalLink, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { toast } from "sonner";
+import { useToast } from "@/components/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
 interface AiUsageData {
@@ -15,6 +15,7 @@ interface AiUsageData {
 }
 
 export function ApiKeyManager() {
+    const { toast } = useToast();
     const confirm = useConfirm();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -43,7 +44,7 @@ export function ApiKeyManager() {
 
     const handleSave = async () => {
         if (!apiKey.trim()) {
-            toast.error("Please enter an API key");
+            toast("Please enter an API key", "error");
             return;
         }
 
@@ -56,15 +57,15 @@ export function ApiKeyManager() {
             });
 
             if (res.ok) {
-                toast.success("API key saved successfully");
+                toast("API key saved successfully", "success");
                 setApiKey("");
                 fetchStatus();
             } else {
                 const err = await res.json();
-                toast.error(err.error || "Failed to save API key");
+                toast(err.error || "Failed to save API key", "error");
             }
         } catch {
-            toast.error("Failed to save API key");
+            toast("Failed to save API key", "error");
         } finally {
             setValidating(false);
             setSaving(false);
@@ -83,11 +84,11 @@ export function ApiKeyManager() {
         try {
             const res = await fetch("/api/user/api-key", { method: "DELETE" });
             if (res.ok) {
-                toast.success("API key removed");
+                toast("API key removed", "success");
                 fetchStatus();
             }
         } catch {
-            toast.error("Failed to remove API key");
+            toast("Failed to remove API key", "error");
         }
     };
 

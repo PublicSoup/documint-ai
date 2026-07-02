@@ -1194,8 +1194,7 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                             ].map(p => (
                                                 <button
                                                     key={p.id}
-                                                    // @ts-ignore
-                                                    onClick={() => handlePersonaExplain(p.id)}
+                                                    onClick={() => onPersonaExplain(p.id)}
                                                     disabled={personaLoading}
                                                     className="p-4 border rounded-xl hover:border-blue-500 hover:bg-blue-500/10 text-left transition-all group"
                                                 >

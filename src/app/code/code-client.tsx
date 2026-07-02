@@ -69,6 +69,7 @@ function useCrossOriginIsolationGuard(): IsolationStatus {
       } catch {
         /* sessionStorage may be unavailable in some privacy modes. */
       }
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- crossOriginIsolated is only readable client-side, so this must run in an effect
       setStatus("ready");
       return;
     }
@@ -109,6 +110,7 @@ function IsolationBlocked() {
   const [diag, setDiag] = useState<IsolationDiagnostics | null>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- window/navigator diagnostics are only readable client-side
     setDiag({
       coi: window.crossOriginIsolated,
       sab: typeof SharedArrayBuffer !== "undefined",
