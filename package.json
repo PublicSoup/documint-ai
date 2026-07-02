@@ -13,8 +13,10 @@
     "ci:checks": "npm run typecheck && npm run lint && npm run check:api-authz && npm run check:api-no-any"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.92",
     "@ai-sdk/gateway": "^3.0.104",
     "@ai-sdk/google": "^3.0.64",
+    "@ai-sdk/openai": "^3.0.80",
     "@ai-sdk/react": "^3.0.170",
     "@google/generative-ai": "^0.24.1",
     "@monaco-editor/react": "^4.7.0",

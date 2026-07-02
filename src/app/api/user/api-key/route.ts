@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { z } from "zod";
-import { saveUserApiKey, deleteUserApiKey, getUserAiUsage } from "@/lib/ai-usage";
-import { validateApiKey as validateGoogleApiKey } from "@/lib/ai";
+import { saveUserApiKey, deleteUserApiKey, getUserAiUsage, AI_KEY_PROVIDERS } from "@/lib/ai-usage";
+import { validateProviderApiKey } from "@/lib/ai";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, validateBody } from "@/lib/api-utils";
 import { db } from "@/lib/db";
 
 const saveKeySchema = z.object({
+    provider: z.enum(AI_KEY_PROVIDERS).default("google"),
     apiKey: z
         .string()
         .trim()
@@ -17,9 +18,15 @@ const saveKeySchema = z.object({
         .regex(/^[A-Za-z0-9_\-]+$/, "API key contains invalid characters"),
 }).strict();
 
+const PROVIDER_LABELS: Record<(typeof AI_KEY_PROVIDERS)[number], string> = {
+    google: "Google AI",
+    anthropic: "Anthropic",
+    openai: "OpenAI",
+};
+
 /**
  * GET /api/user/api-key
- * Returns whether the user has a saved API key (never exposes the key itself).
+ * Returns which providers have a saved API key (never exposes the keys themselves).
  */
 export async function GET() {
     try {
@@ -47,7 +54,7 @@ export async function GET() {
 
 /**
  * POST /api/user/api-key
- * Save the user's API key (encrypted at rest).
+ * Save one of the user's API keys (encrypted at rest).
  */
 export async function POST(req: NextRequest) {
     try {
@@ -58,17 +65,17 @@ export async function POST(req: NextRequest) {
 
         await enforceRateLimit(session.user.id, "security");
 
-        const { apiKey } = await validateBody(req, saveKeySchema);
+        const { provider, apiKey } = await validateBody(req, saveKeySchema);
 
-        const validation = await validateGoogleApiKey(apiKey);
+        const validation = await validateProviderApiKey(provider, apiKey);
         if (!validation.valid) {
             return NextResponse.json(
-                { error: validation.error || "Invalid Google API key" },
+                { error: validation.error || `Invalid ${PROVIDER_LABELS[provider]} API key` },
                 { status: 400 }
             );
         }
 
-        await saveUserApiKey(session.user.id, apiKey);
+        await saveUserApiKey(session.user.id, provider, apiKey);
 
         return NextResponse.json({ success: true });
     } catch (error) {
@@ -77,17 +84,23 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * DELETE /api/user/api-key
- * Remove the user's API key.
+ * DELETE /api/user/api-key?provider=google|anthropic|openai
+ * Remove one of the user's API keys, or all of them when no provider is given.
  */
-export async function DELETE() {
+export async function DELETE(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        await deleteUserApiKey(session.user.id);
+        const providerParam = req.nextUrl.searchParams.get("provider");
+        const provider = AI_KEY_PROVIDERS.find(p => p === providerParam);
+        if (providerParam && !provider) {
+            return NextResponse.json({ error: "Unknown provider" }, { status: 400 });
+        }
+
+        await deleteUserApiKey(session.user.id, provider);
 
         return NextResponse.json({ success: true });
     } catch (error) {

@@ -1,9 +1,11 @@
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createOpenAI } from "@ai-sdk/openai";
 import { generateText as aiSDKGenerateText, generateObject, streamText as aiSDKStreamText } from "ai";
 import { z } from "zod";
 import { env } from "./env";
 import { createGateway } from "@ai-sdk/gateway";
-import { AiQuotaExceededError, assertAiUsageBudget, getUserApiKey, trackAiUsage } from "./ai-usage";
+import { AiQuotaExceededError, assertAiUsageBudget, getUserApiKeys, trackAiUsage, type AiKeyProvider } from "./ai-usage";
 
 /**
  * AI Provider Utility - Refactored for Vercel AI SDK (@ai-sdk/google)
@@ -63,6 +65,29 @@ function isGoogleModel(modelName: string): boolean {
 }
 
 /**
+ * Which BYO-key provider serves a given model, or null when the model's
+ * provider doesn't support user-supplied keys (e.g. deepseek/xai via gateway).
+ */
+function byokProviderForModel(modelName: string): AiKeyProvider | null {
+    if (isGoogleModel(modelName)) return "google";
+    if (modelName.startsWith("anthropic/")) return "anthropic";
+    if (modelName.startsWith("openai/")) return "openai";
+    return null;
+}
+
+function createUserProviderModel(provider: AiKeyProvider, apiKey: string, modelName: string) {
+    const directModelName = modelName.replace(/^[a-z]+\//, "");
+    switch (provider) {
+        case "google":
+            return createGoogleGenerativeAI({ apiKey })(directModelName);
+        case "anthropic":
+            return createAnthropic({ apiKey })(directModelName);
+        case "openai":
+            return createOpenAI({ apiKey })(directModelName);
+    }
+}
+
+/**
  * Base AI Model selector (uses the shared API key)
  */
 function getModel(modelName: string = "google/gemini-2.0-flash") {
@@ -93,12 +118,13 @@ async function getModelForUser(
     modelName: string = "google/gemini-2.0-flash"
 ): Promise<{ model: ReturnType<typeof getModel>; usingOwnKey: boolean }> {
     // Check for BYO API key
-    if (userId && isGoogleModel(modelName)) {
-        const userKey = await getUserApiKey(userId);
-        if (userKey) {
-            const userGenAI = createGoogleGenerativeAI({ apiKey: userKey });
-            const directModelName = modelName.replace(/^google\//, "");
-            return { model: userGenAI(directModelName), usingOwnKey: true };
+    if (userId) {
+        const provider = byokProviderForModel(modelName);
+        if (provider) {
+            const userKey = (await getUserApiKeys(userId))[provider];
+            if (userKey) {
+                return { model: createUserProviderModel(provider, userKey, modelName), usingOwnKey: true };
+            }
         }
     }
 
@@ -106,15 +132,23 @@ async function getModelForUser(
     return { model: getModel(modelName), usingOwnKey: false };
 }
 
+/** Cheapest model per provider, used only for key validation. */
+const VALIDATION_MODELS: Record<AiKeyProvider, string> = {
+    google: "gemini-2.0-flash",
+    anthropic: "claude-haiku-4-5",
+    openai: "gpt-4o-mini",
+};
+
 /**
- * Validate a Google API key by making a lightweight list models call.
+ * Validate a provider API key by making a minimal one-token completion call.
  */
-export async function validateApiKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
+export async function validateProviderApiKey(
+    provider: AiKeyProvider,
+    apiKey: string
+): Promise<{ valid: boolean; error?: string }> {
     try {
-        const testAI = createGoogleGenerativeAI({ apiKey });
-        const model = testAI("gemini-2.0-flash");
         await aiSDKGenerateText({
-            model,
+            model: createUserProviderModel(provider, apiKey, VALIDATION_MODELS[provider]),
             messages: [{ role: "user", content: "Hi" }],
             maxOutputTokens: 1,
         });
@@ -122,6 +156,13 @@ export async function validateApiKey(apiKey: string): Promise<{ valid: boolean; 
     } catch (e: unknown) {
         return { valid: false, error: e instanceof Error ? e.message : "Invalid API key" };
     }
+}
+
+/**
+ * Validate a Google API key (legacy alias for validateProviderApiKey).
+ */
+export async function validateApiKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
+    return validateProviderApiKey("google", apiKey);
 }
 
 /**

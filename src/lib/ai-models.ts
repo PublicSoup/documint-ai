@@ -8,7 +8,9 @@
 export const AVAILABLE_MODELS = [
     { id: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "Google", tier: "pro" },
     { id: "google/gemini-2.0-flash", label: "Gemini 2.0 Flash", provider: "Google", tier: "free" },
-    { id: "anthropic/claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet", provider: "Anthropic", tier: "pro" },
+    { id: "anthropic/claude-opus-4-5", label: "Claude Opus 4.5", provider: "Anthropic", tier: "pro" },
+    { id: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5", provider: "Anthropic", tier: "pro" },
+    { id: "anthropic/claude-haiku-4-5", label: "Claude Haiku 4.5", provider: "Anthropic", tier: "free" },
     { id: "openai/gpt-4o", label: "GPT-4o", provider: "OpenAI", tier: "pro" },
     { id: "openai/gpt-4o-mini", label: "GPT-4o Mini", provider: "OpenAI", tier: "free" },
     { id: "openai/o3-mini", label: "o3-mini", provider: "OpenAI", tier: "pro" },

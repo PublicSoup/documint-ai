@@ -10,8 +10,11 @@ import {
     X,
     Bug,
     MoreHorizontal,
+    KeyRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { ApiKeyManager } from "@/components/api-key-manager";
 import { cn, extractCodeBlocks } from "@/lib/utils";
 import { applyPatch } from "@/lib/code-patcher";
 import { useToast } from "../toast";
@@ -226,6 +229,7 @@ export function AIChatPanel({
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [selectedModel, setSelectedModel] = useState<string>("google/gemini-2.0-flash");
+    const [showApiKeys, setShowApiKeys] = useState(false);
     const [reasoningEffort, setReasoningEffort] = useState<"low" | "medium">("low");
     const [autoFixErrors, setAutoFixErrors] = useState(true);
 
@@ -1000,7 +1004,30 @@ export function AIChatPanel({
                             <option value="low">Fast</option>
                             <option value="medium">Deep</option>
                         </select>
+                        <button
+                            type="button"
+                            onClick={() => setShowApiKeys(true)}
+                            className="p-1 rounded border border-white/10 bg-black/50 text-white/40 hover:text-white hover:bg-black/80 transition-colors"
+                            title="API Keys — use your own Google, Anthropic, or OpenAI key"
+                        >
+                            <KeyRound className="w-3.5 h-3.5" />
+                        </button>
                     </div>
+
+                    <Dialog open={showApiKeys} onOpenChange={setShowApiKeys}>
+                        <DialogContent className="glass-card border-white/10 max-w-lg max-h-[85vh] overflow-y-auto custom-scrollbar">
+                            <DialogHeader>
+                                <DialogTitle className="text-white flex items-center gap-2">
+                                    <KeyRound className="w-4 h-4 text-primary" />
+                                    API Keys
+                                </DialogTitle>
+                                <DialogDescription>
+                                    Bring your own key to run models on your own account, without plan limits.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <ApiKeyManager />
+                        </DialogContent>
+                    </Dialog>
 
                     <div className="absolute bottom-3 right-3 flex items-center gap-2">
                         <span className="text-[10px] text-white/20 font-mono hidden md:inline-block">RETURN to send</span>
