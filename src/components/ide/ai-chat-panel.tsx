@@ -9,6 +9,7 @@ import {
     Sparkles,
     X,
     Bug,
+    Key,
     MoreHorizontal,
     KeyRound,
 } from "lucide-react";
@@ -228,14 +229,19 @@ export function AIChatPanel({
     ]);
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
-    const [selectedModel, setSelectedModel] = useState<string>("google/gemini-2.0-flash");
-    const [showApiKeys, setShowApiKeys] = useState(false);
+    const [selectedModel, setSelectedModel] = useState<string>("google/gemini-2.5-flash");
     const [reasoningEffort, setReasoningEffort] = useState<"low" | "medium">("low");
     const [autoFixErrors, setAutoFixErrors] = useState(true);
+    const [showApiKeyModal, setShowApiKeyModal] = useState(false);
 
     useEffect(() => {
+        // Only restore a stored model if it's still a valid option — the model
+        // list is Gemini-only now, so a previously selected non-Google model
+        // would otherwise be sent and rejected by the API.
         const stored = localStorage.getItem("documint_model");
-        if (stored) setSelectedModel(stored);
+        if (stored && AVAILABLE_MODELS.some((m) => m.id === stored)) {
+            setSelectedModel(stored);
+        }
 
         const storedEffort = localStorage.getItem("documint_reasoning_effort");
         if (storedEffort === "low" || storedEffort === "medium") setReasoningEffort(storedEffort);
@@ -1006,16 +1012,17 @@ export function AIChatPanel({
                         </select>
                         <button
                             type="button"
-                            onClick={() => setShowApiKeys(true)}
-                            className="p-1 rounded border border-white/10 bg-black/50 text-white/40 hover:text-white hover:bg-black/80 transition-colors"
+                            onClick={() => setShowApiKeyModal(true)}
                             title="API Keys — bring your own provider key (Google, Anthropic, OpenAI, xAI, DeepSeek, or a custom endpoint)"
+                            className="flex items-center gap-1 bg-black/50 border border-white/10 text-white/70 text-[10px] rounded px-2 py-1 hover:bg-black/80 hover:text-white transition-colors"
                         >
-                            <KeyRound className="w-3.5 h-3.5" />
+                            <Key className="w-3 h-3" />
+                            API Key
                         </button>
                     </div>
 
-                    <Dialog open={showApiKeys} onOpenChange={setShowApiKeys}>
-                        <DialogContent className="glass-card border-white/10 max-w-lg max-h-[85vh] overflow-y-auto custom-scrollbar">
+                    <Dialog open={showApiKeyModal} onOpenChange={setShowApiKeyModal}>
+                        <DialogContent className="glass-card border-white/10 bg-zinc-950 max-w-lg max-h-[85vh] overflow-y-auto custom-scrollbar">
                             <DialogHeader>
                                 <DialogTitle className="text-white flex items-center gap-2">
                                     <KeyRound className="w-4 h-4 text-primary" />

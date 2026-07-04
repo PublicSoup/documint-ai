@@ -198,10 +198,19 @@ export async function getUserAiUsage(userId: string): Promise<{
  * Get all of the user's stored API keys, decrypted.
  */
 export async function getUserApiKeys(userId: string): Promise<UserApiKeys> {
-    const user = await db.user.findUnique({
-        where: { id: userId },
-        select: { encryptedApiKey: true },
-    });
+    let user: { encryptedApiKey: string | null } | null = null;
+    try {
+        user = await db.user.findUnique({
+            where: { id: userId },
+            select: { encryptedApiKey: true },
+        });
+    } catch {
+        // The `encrypted_api_key` column may be missing on an out-of-date database
+        // (pending migration). Degrade to "no BYO key" and fall back to the shared
+        // key instead of crashing the AI request; the build's ensure-ai-schema
+        // step adds the column so BYO keys start working after the next deploy.
+        return {};
+    }
 
     if (!user?.encryptedApiKey) return {};
 

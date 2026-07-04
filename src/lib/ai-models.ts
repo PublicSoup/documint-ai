@@ -5,9 +5,15 @@
  * server-only dependencies (env.ts, @ai-sdk/*) into client bundles.
  */
 
+// Gemini models run on the shared GOOGLE_API_KEY (or a BYO Google key) and are
+// free-tier friendly. The other providers work through the AI Gateway when one
+// is configured, or through the user's own key for that provider (added via the
+// API Keys dialog) — a BYO key also bypasses the shared plan limits.
 export const AVAILABLE_MODELS = [
-    { id: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "Google", tier: "pro" },
+    { id: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "Google", tier: "free" },
+    { id: "google/gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite", provider: "Google", tier: "free" },
     { id: "google/gemini-2.0-flash", label: "Gemini 2.0 Flash", provider: "Google", tier: "free" },
+    { id: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "Google", tier: "free" },
     { id: "anthropic/claude-opus-4-5", label: "Claude Opus 4.5", provider: "Anthropic", tier: "pro" },
     { id: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5", provider: "Anthropic", tier: "pro" },
     { id: "anthropic/claude-haiku-4-5", label: "Claude Haiku 4.5", provider: "Anthropic", tier: "free" },
