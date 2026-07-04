@@ -18,7 +18,8 @@ export function ApiKeySettings() {
                     AI & API Settings
                 </CardTitle>
                 <CardDescription>
-                    Connect your own Google AI, Anthropic (Claude), or OpenAI key to use AI features without plan limits
+                    Connect your own key from Google AI, Anthropic (Claude), OpenAI (ChatGPT), xAI, DeepSeek,
+                    or any OpenAI-compatible endpoint to use AI features without plan limits
                 </CardDescription>
             </CardHeader>
             <CardContent>

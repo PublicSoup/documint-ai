@@ -1,11 +1,14 @@
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
+import { createXai } from "@ai-sdk/xai";
+import { createDeepSeek } from "@ai-sdk/deepseek";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { generateText as aiSDKGenerateText, generateObject, streamText as aiSDKStreamText } from "ai";
 import { z } from "zod";
 import { env } from "./env";
 import { createGateway } from "@ai-sdk/gateway";
-import { AiQuotaExceededError, assertAiUsageBudget, getUserApiKeys, trackAiUsage, type AiKeyProvider } from "./ai-usage";
+import { AiQuotaExceededError, assertAiUsageBudget, getUserApiKeys, parseCustomProviderConfig, trackAiUsage, type AiKeyProvider } from "./ai-usage";
 
 /**
  * AI Provider Utility - Refactored for Vercel AI SDK (@ai-sdk/google)
@@ -65,25 +68,56 @@ function isGoogleModel(modelName: string): boolean {
 }
 
 /**
- * Which BYO-key provider serves a given model, or null when the model's
- * provider doesn't support user-supplied keys (e.g. deepseek/xai via gateway).
+ * Which BYO-key provider serves a given model.
  */
 function byokProviderForModel(modelName: string): AiKeyProvider | null {
     if (isGoogleModel(modelName)) return "google";
     if (modelName.startsWith("anthropic/")) return "anthropic";
     if (modelName.startsWith("openai/")) return "openai";
+    if (modelName.startsWith("xai/")) return "xai";
+    if (modelName.startsWith("deepseek/")) return "deepseek";
+    if (modelName.startsWith("custom/")) return "custom";
     return null;
 }
 
-function createUserProviderModel(provider: AiKeyProvider, apiKey: string, modelName: string) {
-    const directModelName = modelName.replace(/^[a-z]+\//, "");
+/**
+ * Gateway catalog IDs that differ from the provider's native model ID
+ * when calling the provider's own API directly with a user key.
+ */
+const DIRECT_MODEL_OVERRIDES: Record<string, string> = {
+    "deepseek/deepseek-r1": "deepseek-reasoner",
+};
+
+/**
+ * Build a model instance backed by the user's own credentials.
+ * `storedValue` is the bare API key, except for "custom" where it is the
+ * JSON config produced by the API key settings ({ apiKey, baseUrl, modelId }).
+ */
+function createUserProviderModel(provider: AiKeyProvider, storedValue: string, modelName: string) {
+    const directModelName =
+        DIRECT_MODEL_OVERRIDES[modelName] ?? modelName.replace(/^[a-z]+\//, "");
     switch (provider) {
         case "google":
-            return createGoogleGenerativeAI({ apiKey })(directModelName);
+            return createGoogleGenerativeAI({ apiKey: storedValue })(directModelName);
         case "anthropic":
-            return createAnthropic({ apiKey })(directModelName);
+            return createAnthropic({ apiKey: storedValue })(directModelName);
         case "openai":
-            return createOpenAI({ apiKey })(directModelName);
+            return createOpenAI({ apiKey: storedValue })(directModelName);
+        case "xai":
+            return createXai({ apiKey: storedValue })(directModelName);
+        case "deepseek":
+            return createDeepSeek({ apiKey: storedValue })(directModelName);
+        case "custom": {
+            const config = parseCustomProviderConfig(storedValue);
+            if (!config) {
+                throw new Error("Custom provider is not configured. Add its endpoint and key in API Keys.");
+            }
+            return createOpenAICompatible({
+                name: "custom",
+                baseURL: config.baseUrl,
+                apiKey: config.apiKey,
+            })(config.modelId);
+        }
     }
 }
 
@@ -91,6 +125,10 @@ function createUserProviderModel(provider: AiKeyProvider, apiKey: string, modelN
  * Base AI Model selector (uses the shared API key)
  */
 function getModel(modelName: string = "google/gemini-2.0-flash") {
+    if (modelName.startsWith("custom/")) {
+        throw new Error("Custom Provider is not configured. Open API Keys and add your endpoint, model ID, and key first.");
+    }
+
     if (gatewayProvider) {
         return gatewayProvider(modelName);
     }
@@ -137,18 +175,22 @@ const VALIDATION_MODELS: Record<AiKeyProvider, string> = {
     google: "gemini-2.0-flash",
     anthropic: "claude-haiku-4-5",
     openai: "gpt-4o-mini",
+    xai: "grok-3-mini",
+    deepseek: "deepseek-chat",
+    custom: "", // the custom config carries its own model ID
 };
 
 /**
- * Validate a provider API key by making a minimal one-token completion call.
+ * Validate provider credentials by making a minimal one-token completion call.
+ * For "custom", pass the JSON config string as `storedValue`.
  */
 export async function validateProviderApiKey(
     provider: AiKeyProvider,
-    apiKey: string
+    storedValue: string
 ): Promise<{ valid: boolean; error?: string }> {
     try {
         await aiSDKGenerateText({
-            model: createUserProviderModel(provider, apiKey, VALIDATION_MODELS[provider]),
+            model: createUserProviderModel(provider, storedValue, VALIDATION_MODELS[provider]),
             messages: [{ role: "user", content: "Hi" }],
             maxOutputTokens: 1,
         });

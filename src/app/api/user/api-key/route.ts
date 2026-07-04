@@ -8,20 +8,34 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, validateBody } from "@/lib/api-utils";
 import { db } from "@/lib/db";
 
+const apiKeyField = z
+    .string()
+    .trim()
+    .min(16, "API key seems too short")
+    .max(256, "API key seems too long")
+    .regex(/^[A-Za-z0-9_.\-]+$/, "API key contains invalid characters");
+
 const saveKeySchema = z.object({
     provider: z.enum(AI_KEY_PROVIDERS).default("google"),
-    apiKey: z
+    apiKey: apiKeyField,
+    // Required when provider is "custom" (enforced in the handler)
+    baseUrl: z
         .string()
         .trim()
-        .min(20, "API key seems too short")
-        .max(200, "API key seems too long")
-        .regex(/^[A-Za-z0-9_\-]+$/, "API key contains invalid characters"),
+        .url("Base URL must be a valid URL")
+        .max(300)
+        .refine(url => url.startsWith("https://"), "Base URL must use HTTPS")
+        .optional(),
+    modelId: z.string().trim().min(1).max(120).optional(),
 }).strict();
 
 const PROVIDER_LABELS: Record<(typeof AI_KEY_PROVIDERS)[number], string> = {
     google: "Google AI",
     anthropic: "Anthropic",
     openai: "OpenAI",
+    xai: "xAI",
+    deepseek: "DeepSeek",
+    custom: "custom provider",
 };
 
 /**
@@ -65,9 +79,20 @@ export async function POST(req: NextRequest) {
 
         await enforceRateLimit(session.user.id, "security");
 
-        const { provider, apiKey } = await validateBody(req, saveKeySchema);
+        const { provider, apiKey, baseUrl, modelId } = await validateBody(req, saveKeySchema);
 
-        const validation = await validateProviderApiKey(provider, apiKey);
+        let storedValue = apiKey;
+        if (provider === "custom") {
+            if (!baseUrl || !modelId) {
+                return NextResponse.json(
+                    { error: "Custom providers require a base URL and a model ID" },
+                    { status: 400 }
+                );
+            }
+            storedValue = JSON.stringify({ apiKey, baseUrl, modelId });
+        }
+
+        const validation = await validateProviderApiKey(provider, storedValue);
         if (!validation.valid) {
             return NextResponse.json(
                 { error: validation.error || `Invalid ${PROVIDER_LABELS[provider]} API key` },
@@ -75,7 +100,7 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        await saveUserApiKey(session.user.id, provider, apiKey);
+        await saveUserApiKey(session.user.id, provider, storedValue);
 
         return NextResponse.json({ success: true });
     } catch (error) {

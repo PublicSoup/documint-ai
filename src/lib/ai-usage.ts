@@ -101,11 +101,40 @@ export async function assertAiUsageBudget(
 
 /**
  * Providers a user can bring their own API key for.
+ * "custom" is any OpenAI-compatible endpoint; its stored value is a JSON
+ * config ({ apiKey, baseUrl, modelId }) rather than a bare key.
  */
-export const AI_KEY_PROVIDERS = ["google", "anthropic", "openai"] as const;
+export const AI_KEY_PROVIDERS = ["google", "anthropic", "openai", "xai", "deepseek", "custom"] as const;
 export type AiKeyProvider = (typeof AI_KEY_PROVIDERS)[number];
 
 export type UserApiKeys = Partial<Record<AiKeyProvider, string>>;
+
+export interface CustomProviderConfig {
+    apiKey: string;
+    baseUrl: string;
+    modelId: string;
+}
+
+/**
+ * Parse the stored value for the "custom" provider into a config object.
+ * Returns null when the value is missing or malformed.
+ */
+export function parseCustomProviderConfig(value: string | undefined): CustomProviderConfig | null {
+    if (!value) return null;
+    try {
+        const parsed = JSON.parse(value) as Record<string, unknown>;
+        if (
+            typeof parsed.apiKey === "string" && parsed.apiKey.length > 0 &&
+            typeof parsed.baseUrl === "string" && parsed.baseUrl.length > 0 &&
+            typeof parsed.modelId === "string" && parsed.modelId.length > 0
+        ) {
+            return { apiKey: parsed.apiKey, baseUrl: parsed.baseUrl, modelId: parsed.modelId };
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
 
 /**
  * The encrypted column historically held a single raw Google key. It now holds
@@ -159,11 +188,9 @@ export async function getUserAiUsage(userId: string): Promise<{
         quota: limits.aiQueries,
         tokenQuota: limits.aiTokenAllowance,
         hasApiKey: Object.keys(keys).length > 0,
-        providers: {
-            google: !!keys.google,
-            anthropic: !!keys.anthropic,
-            openai: !!keys.openai,
-        },
+        providers: Object.fromEntries(
+            AI_KEY_PROVIDERS.map(provider => [provider, !!keys[provider]])
+        ) as Record<AiKeyProvider, boolean>,
     };
 }
 

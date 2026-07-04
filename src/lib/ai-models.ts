@@ -16,6 +16,8 @@ export const AVAILABLE_MODELS = [
     { id: "openai/o3-mini", label: "o3-mini", provider: "OpenAI", tier: "pro" },
     { id: "deepseek/deepseek-r1", label: "DeepSeek R1", provider: "DeepSeek", tier: "pro" },
     { id: "xai/grok-2-latest", label: "Grok 2", provider: "xAI", tier: "pro" },
+    // Served by the user's own OpenAI-compatible endpoint, configured in API Keys.
+    { id: "custom/model", label: "Custom Provider", provider: "Custom", tier: "free" },
 ] as const;
 
 export type AIModelId = typeof AVAILABLE_MODELS[number]["id"];

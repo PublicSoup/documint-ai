@@ -1008,7 +1008,7 @@ export function AIChatPanel({
                             type="button"
                             onClick={() => setShowApiKeys(true)}
                             className="p-1 rounded border border-white/10 bg-black/50 text-white/40 hover:text-white hover:bg-black/80 transition-colors"
-                            title="API Keys — use your own Google, Anthropic, or OpenAI key"
+                            title="API Keys — bring your own provider key (Google, Anthropic, OpenAI, xAI, DeepSeek, or a custom endpoint)"
                         >
                             <KeyRound className="w-3.5 h-3.5" />
                         </button>
@@ -1022,7 +1022,8 @@ export function AIChatPanel({
                                     API Keys
                                 </DialogTitle>
                                 <DialogDescription>
-                                    Bring your own key to run models on your own account, without plan limits.
+                                    Bring your own key from a frontier provider — or connect any
+                                    OpenAI-compatible endpoint — to run models on your own account, without plan limits.
                                 </DialogDescription>
                             </DialogHeader>
                             <ApiKeyManager />
