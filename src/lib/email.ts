@@ -1,7 +1,17 @@
 import { Resend } from 'resend';
 import { env } from './env';
 
-const resend = new Resend(env.RESEND_API_KEY);
+// Lazily construct Resend so importing this module never throws at build /
+// module-load time. `new Resend(undefined)` throws "Missing API key", which
+// previously crashed Next's page-data collection on any route importing this.
+let cachedResend: Resend | null = null;
+
+function getResend(): Resend {
+  if (!cachedResend) {
+    cachedResend = new Resend(env.RESEND_API_KEY);
+  }
+  return cachedResend;
+}
 
 interface EmailData {
   to: string;
@@ -20,7 +30,7 @@ export async function sendEmail(data: EmailData) {
       return { success: true, id: 'demo' }; // Demo mode for development
     }
 
-    const result = await resend.emails.send({
+    const result = await getResend().emails.send({
       from: data.from || env.EMAIL_FROM,
       to: data.to,
       subject: data.subject,
