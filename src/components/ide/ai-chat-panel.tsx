@@ -25,7 +25,8 @@ import { ThinkingProcess } from "./thinking-process";
 import { AVAILABLE_MODELS } from "@/lib/ai-models";
 import { parseAgentEvent, type AgentEvent } from "@/lib/agent/events";
 import { getRuntimeErrorFingerprint, type RuntimeLogLine, type RuntimeErrorSummary } from "@/lib/ide/runtime-events";
-import { getLocalModelConfig, streamLocalChatCompletion } from "@/lib/local-model";
+import { getLocalModelConfig } from "@/lib/local-model";
+import { runLocalAgent } from "@/lib/local-agent";
 
 // ============================================================================
 // Types & Interfaces
@@ -63,12 +64,6 @@ const generateId = () => Math.random().toString(36).substring(2, 9);
 
 /** Pseudo model id for a locally-running server — intercepted before /api/chat, never sent to it. */
 const LOCAL_MODEL_ID = "local/browser";
-
-const LOCAL_MODEL_SYSTEM_PROMPT = `You are DocuMint AI, a coding assistant, currently running on a model the \
-user is hosting locally on their own machine. You do not have tools or the ability to search the codebase or \
-run commands — you can only see the context included in this conversation. When proposing a code change, put \
-the full file contents in a fenced code block with the language and file path on the opening fence line, e.g. \
-\`\`\`tsx src/components/Button.tsx, so the user can apply it directly.`;
 
 type ChatFileRef = NonNullable<AIChatPanelProps["allFiles"]>[number];
 
@@ -771,9 +766,11 @@ export function AIChatPanel({
                 budget: reasoningEffort === "medium" ? 5_000 : 3_500,
             });
 
-            // Local models run entirely in the browser — talk to the user's own
-            // server directly instead of routing through /api/chat. There's no
-            // tool-use loop here, just a plain streamed chat completion.
+            // Local models run entirely in the browser — the model call goes
+            // straight to the user's own server instead of through /api/chat,
+            // but it drives the exact same tool-using agent loop (file reads/
+            // writes, search, commands): each tool call is executed server-side
+            // via /api/agent/local-tool, scoped to this session's workspace.
             if (selectedModel === LOCAL_MODEL_ID) {
                 const localConfig = getLocalModelConfig();
                 if (!localConfig) {
@@ -791,31 +788,20 @@ export function AIChatPanel({
                     timestamp: Date.now()
                 }]);
 
-                const localMessages = [
-                    { role: "system" as const, content: LOCAL_MODEL_SYSTEM_PROMPT },
-                    ...buildCompactChatHistory(messages),
-                    {
-                        role: "user" as const,
-                        content: additionalContext ? `${userMsg}\n\nAdditional Context:\n${additionalContext}` : userMsg,
-                    },
-                ];
-
-                const streamed: AssistantStreamState = { content: "", codeBlocks: [], fenceCount: 0, parsedFenceCount: 0 };
-                await streamLocalChatCompletion(localConfig, localMessages, {
+                const generator = runLocalAgent({
+                    config: localConfig,
+                    userMessage: userMsg,
+                    additionalContext,
+                    activeFileContent,
+                    history: buildCompactChatHistory(messages),
+                    reasoningEffort,
+                    autoFixErrors,
                     signal: abortController.current.signal,
-                    onDelta: (delta) => {
-                        streamed.content += delta;
-                        const fenceCount = countCodeFences(streamed.content);
-                        const shouldReparse = fenceCount !== streamed.parsedFenceCount && fenceCount % 2 === 0;
-                        if (shouldReparse) {
-                            streamed.codeBlocks = toStableCodeBlocks(streamed.content, assistantId);
-                            streamed.parsedFenceCount = fenceCount;
-                        }
-                        setMessages(prev => prev.map(m => m.id === assistantId
-                            ? { ...m, content: streamed.content, codeBlocks: streamed.codeBlocks }
-                            : m));
-                    },
                 });
+
+                for await (const event of generator) {
+                    handleAgentEvent(event, assistantId);
+                }
 
                 return;
             }
@@ -1101,8 +1087,8 @@ export function AIChatPanel({
                                 <div>
                                     <h3 className="text-sm font-medium text-white">Run a model on this device</h3>
                                     <p className="text-xs text-zinc-500 mt-0.5">
-                                        Point at LM Studio, Ollama, or any local OpenAI-compatible server — no key,
-                                        no account, no server round-trip.
+                                        Point at LM Studio, Ollama, or any local OpenAI-compatible server. The full
+                                        agent runs on it too — file edits, search, and commands all still work.
                                     </p>
                                 </div>
                                 <LocalModelSettings />

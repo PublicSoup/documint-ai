@@ -120,8 +120,9 @@ export function LocalModelSettings() {
 
             <p className="text-[11px] leading-relaxed text-zinc-500">
                 Nothing here is sent to our servers — the config is stored only in this browser, and requests go
-                straight from your browser to the address below. This bypasses the AI Architect&apos;s file-editing
-                tools; you get a plain chat reply (code blocks can still be applied to files manually).
+                straight from your browser to the address below. The full AI Architect agent runs on it too — file
+                reads/writes, search, and commands still execute against your workspace, the model just isn&apos;t
+                one of ours.
             </p>
 
             <div className="space-y-1">
@@ -225,6 +226,11 @@ export function LocalModelSettings() {
                     <p>
                         Only works while that server is running on this device and this browser tab is open — it
                         is never reachable from a different machine or browser.
+                    </p>
+                    <p>
+                        The agent&apos;s tool calls are plain text instructions, not the OpenAI function-calling
+                        API, so any chat model can drive them — but smaller/quantized models follow the format less
+                        reliably. A capable instruction-tuned model (7B+) works best.
                     </p>
                 </div>
             )}
