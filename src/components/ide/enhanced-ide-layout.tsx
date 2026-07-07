@@ -20,6 +20,7 @@ import { SecretsManager } from "./secrets-manager";
 import { IDEStatusBar } from "./status-bar";
 import { ContextualHeader } from "./contextual-header";
 import { getProjectGraphMermaid } from "@/app/dashboard/client-actions";
+import type { ProjectGraphData } from "@/lib/graph/graph-data";
 import { CommandPalette } from "./command-palette";
 import { DiffModal } from "./diff-modal";
 import { useIDESettings } from "@/hooks/use-ide-settings";
@@ -143,7 +144,7 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
     const showLocalTopology = settings.showLocalTopology;
     const setShowLocalTopology = useCallback((val: boolean) => updateSetting("showLocalTopology", val), [updateSetting]);
 
-    const [localMermaid, setLocalMermaid] = useState<string>("");
+    const [localGraph, setLocalGraph] = useState<ProjectGraphData | null>(null);
     const editorRef = useRef<SimpleEnhancedEditorRef>(null);
     const [cursorLine, setCursorLine] = useState(1);
     const [cursorColumn, setCursorColumn] = useState(1);
@@ -187,13 +188,9 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
         if (showLocalTopology) {
             getProjectGraphMermaid()
                 .then((result) => {
-                    if (result.isRealData) {
-                        setLocalMermaid(result.mermaid);
-                    } else {
-                        setLocalMermaid("");
-                    }
+                    setLocalGraph(result.isRealData ? result.graphData : null);
                 })
-                .catch(() => setLocalMermaid(""));
+                .catch(() => setLocalGraph(null));
         }
     }, [showLocalTopology, activeFileId]);
 
@@ -543,7 +540,7 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
                         files={files}
                         showDocPreview={showDocPreview}
                         showLocalTopology={showLocalTopology}
-                        localMermaid={localMermaid}
+                        localGraph={localGraph}
                         onCloseDocPreview={() => setShowDocPreview(false)}
                         onCloseLocalTopology={() => setShowLocalTopology(false)}
                         onSelectFile={handleFileSelect}
