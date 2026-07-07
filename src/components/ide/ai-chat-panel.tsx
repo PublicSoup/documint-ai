@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ApiKeyManager } from "@/components/api-key-manager";
+import { LocalModelSettings } from "@/components/local-model-settings";
 import { cn, extractCodeBlocks } from "@/lib/utils";
 import { applyPatch } from "@/lib/code-patcher";
 import { useToast } from "../toast";
@@ -24,6 +25,7 @@ import { ThinkingProcess } from "./thinking-process";
 import { AVAILABLE_MODELS } from "@/lib/ai-models";
 import { parseAgentEvent, type AgentEvent } from "@/lib/agent/events";
 import { getRuntimeErrorFingerprint, type RuntimeLogLine, type RuntimeErrorSummary } from "@/lib/ide/runtime-events";
+import { getLocalModelConfig, streamLocalChatCompletion } from "@/lib/local-model";
 
 // ============================================================================
 // Types & Interfaces
@@ -58,6 +60,15 @@ interface AIChatPanelProps {
 // ============================================================================
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
+
+/** Pseudo model id for a locally-running server — intercepted before /api/chat, never sent to it. */
+const LOCAL_MODEL_ID = "local/browser";
+
+const LOCAL_MODEL_SYSTEM_PROMPT = `You are DocuMint AI, a coding assistant, currently running on a model the \
+user is hosting locally on their own machine. You do not have tools or the ability to search the codebase or \
+run commands — you can only see the context included in this conversation. When proposing a code change, put \
+the full file contents in a fenced code block with the language and file path on the opening fence line, e.g. \
+\`\`\`tsx src/components/Button.tsx, so the user can apply it directly.`;
 
 type ChatFileRef = NonNullable<AIChatPanelProps["allFiles"]>[number];
 
@@ -239,7 +250,7 @@ export function AIChatPanel({
         // list is Gemini-only now, so a previously selected non-Google model
         // would otherwise be sent and rejected by the API.
         const stored = localStorage.getItem("documint_model");
-        if (stored && AVAILABLE_MODELS.some((m) => m.id === stored)) {
+        if (stored && (stored === LOCAL_MODEL_ID || AVAILABLE_MODELS.some((m) => m.id === stored))) {
             setSelectedModel(stored);
         }
 
@@ -760,6 +771,55 @@ export function AIChatPanel({
                 budget: reasoningEffort === "medium" ? 5_000 : 3_500,
             });
 
+            // Local models run entirely in the browser — talk to the user's own
+            // server directly instead of routing through /api/chat. There's no
+            // tool-use loop here, just a plain streamed chat completion.
+            if (selectedModel === LOCAL_MODEL_ID) {
+                const localConfig = getLocalModelConfig();
+                if (!localConfig) {
+                    throw new Error("Local model isn't configured yet. Open API Keys → Local Model to set it up.");
+                }
+
+                if (onAgentAction) onAgentAction(null);
+
+                const assistantId = generateId();
+                setMessages(prev => [...prev, {
+                    id: assistantId,
+                    role: "assistant",
+                    content: "",
+                    codeBlocks: [],
+                    timestamp: Date.now()
+                }]);
+
+                const localMessages = [
+                    { role: "system" as const, content: LOCAL_MODEL_SYSTEM_PROMPT },
+                    ...buildCompactChatHistory(messages),
+                    {
+                        role: "user" as const,
+                        content: additionalContext ? `${userMsg}\n\nAdditional Context:\n${additionalContext}` : userMsg,
+                    },
+                ];
+
+                const streamed: AssistantStreamState = { content: "", codeBlocks: [], fenceCount: 0, parsedFenceCount: 0 };
+                await streamLocalChatCompletion(localConfig, localMessages, {
+                    signal: abortController.current.signal,
+                    onDelta: (delta) => {
+                        streamed.content += delta;
+                        const fenceCount = countCodeFences(streamed.content);
+                        const shouldReparse = fenceCount !== streamed.parsedFenceCount && fenceCount % 2 === 0;
+                        if (shouldReparse) {
+                            streamed.codeBlocks = toStableCodeBlocks(streamed.content, assistantId);
+                            streamed.parsedFenceCount = fenceCount;
+                        }
+                        setMessages(prev => prev.map(m => m.id === assistantId
+                            ? { ...m, content: streamed.content, codeBlocks: streamed.codeBlocks }
+                            : m));
+                    },
+                });
+
+                return;
+            }
+
             if (onAgentAction) onAgentAction("RESEARCHING CODEBASE...");
 
             const res = await fetch("/api/chat", {
@@ -999,6 +1059,9 @@ export function AIChatPanel({
                                     {model.label}{model.tier === "pro" ? " (Pro)" : ""}
                                 </option>
                             ))}
+                            <optgroup label="Local (this device)">
+                                <option value={LOCAL_MODEL_ID}>Local Model (LM Studio, Ollama…)</option>
+                            </optgroup>
                         </select>
                         <select
                             value={reasoningEffort}
@@ -1034,6 +1097,16 @@ export function AIChatPanel({
                                 </DialogDescription>
                             </DialogHeader>
                             <ApiKeyManager />
+                            <div className="pt-2 border-t border-white/[0.06] space-y-3">
+                                <div>
+                                    <h3 className="text-sm font-medium text-white">Run a model on this device</h3>
+                                    <p className="text-xs text-zinc-500 mt-0.5">
+                                        Point at LM Studio, Ollama, or any local OpenAI-compatible server — no key,
+                                        no account, no server round-trip.
+                                    </p>
+                                </div>
+                                <LocalModelSettings />
+                            </div>
                         </DialogContent>
                     </Dialog>
 
