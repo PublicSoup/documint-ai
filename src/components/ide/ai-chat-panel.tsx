@@ -1030,7 +1030,7 @@ export function AIChatPanel({
                         onChange={handleInputChange}
                         onKeyDown={handleKeyDown}
                         placeholder="Ask AI or type '/' for commands..."
-                        className="w-full pl-4 pr-12 py-3 bg-[#0a0a0a] border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 resize-none h-[180px] md:h-[100px] custom-scrollbar placeholder:text-white/20 transition-all font-light"
+                        className="w-full px-4 py-3 bg-[#0a0a0a] border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 resize-none h-[150px] md:h-[92px] custom-scrollbar placeholder:text-white/20 transition-all font-light"
                     />
 
                     <Dialog open={showApiKeyModal} onOpenChange={setShowApiKeyModal}>
@@ -1058,47 +1058,57 @@ export function AIChatPanel({
                             </div>
                         </DialogContent>
                     </Dialog>
+                </div>
 
-                    {/* Single flex row so the left controls and the send button can never overlap */}
-                    <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-2 pointer-events-none">
-                        <div className="flex items-center gap-2 min-w-0 pointer-events-auto">
-                            <select
-                                value={selectedModel}
-                                onChange={handleModelChange}
-                                className="bg-black/50 border border-white/10 text-white/70 text-[10px] rounded px-2 py-1 outline-none focus:border-indigo-500/50 appearance-none cursor-pointer hover:bg-black/80 hover:text-white transition-colors custom-scrollbar min-w-0 max-w-[130px] truncate"
-                                style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff40%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .5rem top 50%', backgroundSize: '.65rem auto', paddingRight: '1.5rem' }}
-                            >
-                                {AVAILABLE_MODELS.map(model => (
-                                    <option key={model.id} value={model.id}>
-                                        {model.label}{model.tier === "pro" ? " (Pro)" : ""}
-                                    </option>
-                                ))}
-                                <optgroup label="Local (this device)">
-                                    <option value={LOCAL_MODEL_ID}>Local Model (LM Studio, Ollama…)</option>
-                                </optgroup>
-                            </select>
-                            <select
-                                value={reasoningEffort}
-                                onChange={handleReasoningEffortChange}
-                                className="bg-black/50 border border-white/10 text-white/70 text-[10px] rounded px-2 py-1 outline-none focus:border-indigo-500/50 appearance-none cursor-pointer hover:bg-black/80 hover:text-white transition-colors custom-scrollbar shrink-0"
-                                style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff40%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .5rem top 50%', backgroundSize: '.65rem auto', paddingRight: '1.5rem' }}
-                                title="Reasoning effort"
-                            >
-                                <option value="low">Fast</option>
-                                <option value="medium">Deep</option>
-                            </select>
-                            <button
-                                type="button"
-                                onClick={() => setShowApiKeyModal(true)}
-                                title="API Keys — bring your own provider key (Google, Anthropic, OpenAI, xAI, DeepSeek, or a custom endpoint)"
-                                aria-label="API Keys"
-                                className="flex items-center justify-center shrink-0 bg-black/50 border border-white/10 text-white/70 rounded p-1.5 hover:bg-black/80 hover:text-white transition-colors"
-                            >
-                                <Key className="w-3.5 h-3.5" />
-                            </button>
-                        </div>
+                {/* Control toolbar — kept below the textarea so the full model
+                    name and reasoning effort are always visible, not squeezed
+                    into a strip inside the input. */}
+                <div className="mt-2 space-y-2">
+                    <div className="flex items-center gap-2">
+                        <label htmlFor="chat-model-select" className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-white/35">
+                            Model
+                        </label>
+                        <select
+                            id="chat-model-select"
+                            value={selectedModel}
+                            onChange={handleModelChange}
+                            title={AVAILABLE_MODELS.find(m => m.id === selectedModel)?.label ?? "Local Model"}
+                            className="min-w-0 flex-1 bg-black/50 border border-white/10 text-white/80 text-xs rounded-md px-2.5 py-1.5 outline-none focus:border-indigo-500/50 appearance-none cursor-pointer hover:bg-black/80 hover:text-white transition-colors"
+                            style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff40%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .55rem top 50%', backgroundSize: '.65rem auto', paddingRight: '1.6rem' }}
+                        >
+                            {AVAILABLE_MODELS.map(model => (
+                                <option key={model.id} value={model.id}>
+                                    {model.label}{model.tier === "pro" ? " (Pro)" : ""}
+                                </option>
+                            ))}
+                            <optgroup label="Local (this device)">
+                                <option value={LOCAL_MODEL_ID}>Local Model (LM Studio, Ollama…)</option>
+                            </optgroup>
+                        </select>
+                    </div>
 
-                        <div className="flex items-center gap-2 shrink-0 pointer-events-auto">
+                    <div className="flex items-center gap-2">
+                        <select
+                            value={reasoningEffort}
+                            onChange={handleReasoningEffortChange}
+                            className="bg-black/50 border border-white/10 text-white/80 text-xs rounded-md px-2.5 py-1.5 outline-none focus:border-indigo-500/50 appearance-none cursor-pointer hover:bg-black/80 hover:text-white transition-colors"
+                            style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff40%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .55rem top 50%', backgroundSize: '.65rem auto', paddingRight: '1.6rem' }}
+                            title="Reasoning effort"
+                        >
+                            <option value="low">Fast</option>
+                            <option value="medium">Deep</option>
+                        </select>
+                        <button
+                            type="button"
+                            onClick={() => setShowApiKeyModal(true)}
+                            title="API Keys — bring your own provider key (Google, Anthropic, OpenAI, xAI, DeepSeek), a custom endpoint, or a local model"
+                            className="flex items-center gap-1.5 bg-black/50 border border-white/10 text-white/80 text-xs rounded-md px-2.5 py-1.5 hover:bg-black/80 hover:text-white transition-colors"
+                        >
+                            <Key className="w-3.5 h-3.5" />
+                            API Key
+                        </button>
+
+                        <div className="ml-auto flex items-center gap-2">
                             <span className="text-[10px] text-white/20 font-mono hidden lg:inline-block">RETURN to send</span>
                             {loading ? (
                                 <button
