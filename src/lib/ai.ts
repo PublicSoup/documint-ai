@@ -8,7 +8,7 @@ import { generateText as aiSDKGenerateText, generateObject, streamText as aiSDKS
 import { z } from "zod";
 import { env } from "./env";
 import { createGateway } from "@ai-sdk/gateway";
-import { AiQuotaExceededError, assertAiUsageBudget, getUserApiKeys, parseCustomProviderConfig, parseOpenRouterConfig, trackAiUsage, OPENROUTER_BASE_URL, type AiKeyProvider } from "./ai-usage";
+import { AiQuotaExceededError, assertAiUsageBudget, getUserApiKeys, parseCustomProviderConfig, trackAiUsage, OPENROUTER_BASE_URL, type AiKeyProvider } from "./ai-usage";
 
 /**
  * AI Provider Utility - Refactored for Vercel AI SDK (@ai-sdk/google)
@@ -120,15 +120,15 @@ function createUserProviderModel(provider: AiKeyProvider, storedValue: string, m
             })(config.modelId);
         }
         case "openrouter": {
-            const config = parseOpenRouterConfig(storedValue);
-            if (!config) {
-                throw new Error("OpenRouter is not configured. Add your OpenRouter key and a model ID in API Keys.");
-            }
+            // storedValue is the bare OpenRouter key; the model id is whatever
+            // follows "openrouter/" in the requested model name (OpenRouter ids
+            // are themselves "vendor/model", e.g. "anthropic/claude-3.5-sonnet").
+            const orModel = modelName.replace(/^openrouter\//, "").trim() || "openai/gpt-4o-mini";
             return createOpenAICompatible({
                 name: "openrouter",
                 baseURL: OPENROUTER_BASE_URL,
-                apiKey: config.apiKey,
-            })(config.modelId);
+                apiKey: storedValue,
+            })(orModel);
         }
     }
 }
@@ -192,18 +192,41 @@ const VALIDATION_MODELS: Record<AiKeyProvider, string> = {
     openai: "gpt-4o-mini",
     xai: "grok-3-mini",
     deepseek: "deepseek-chat",
-    openrouter: "", // the openrouter config carries its own model ID
+    openrouter: "", // validated via the OpenRouter key endpoint, not a completion
     custom: "", // the custom config carries its own model ID
 };
 
 /**
  * Validate provider credentials by making a minimal one-token completion call.
  * For "custom", pass the JSON config string as `storedValue`.
+ *
+ * OpenRouter is validated differently: a bare key with zero credits would fail
+ * a completion (402) even though the key itself is valid, so we check it against
+ * OpenRouter's key-info endpoint, which only cares about authentication.
  */
 export async function validateProviderApiKey(
     provider: AiKeyProvider,
     storedValue: string
 ): Promise<{ valid: boolean; error?: string }> {
+    if (provider === "openrouter") {
+        try {
+            const res = await fetch(`${OPENROUTER_BASE_URL}/auth/key`, {
+                headers: { Authorization: `Bearer ${storedValue}` },
+                signal: AbortSignal.timeout(10_000),
+            });
+            if (res.status === 401 || res.status === 403) {
+                return { valid: false, error: "OpenRouter rejected this API key." };
+            }
+            // Any non-auth response (200, or even a transient 5xx) means the key
+            // itself isn't being rejected; don't block the user on that.
+            return { valid: true };
+        } catch {
+            // Network hiccup reaching OpenRouter — allow the save rather than
+            // hard-blocking; a bad key surfaces on first use.
+            return { valid: true };
+        }
+    }
+
     try {
         await aiSDKGenerateText({
             model: createUserProviderModel(provider, storedValue, VALIDATION_MODELS[provider]),

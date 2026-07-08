@@ -91,14 +91,6 @@ export async function POST(req: NextRequest) {
                 );
             }
             storedValue = JSON.stringify({ apiKey, baseUrl, modelId });
-        } else if (provider === "openrouter") {
-            if (!modelId) {
-                return NextResponse.json(
-                    { error: "OpenRouter requires a model ID (e.g. anthropic/claude-3.5-sonnet)" },
-                    { status: 400 }
-                );
-            }
-            storedValue = JSON.stringify({ apiKey, modelId });
         }
 
         const validation = await validateProviderApiKey(provider, storedValue);

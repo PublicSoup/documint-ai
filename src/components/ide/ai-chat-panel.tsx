@@ -27,6 +27,7 @@ import { parseAgentEvent, type AgentEvent } from "@/lib/agent/events";
 import { getRuntimeErrorFingerprint, type RuntimeLogLine, type RuntimeErrorSummary } from "@/lib/ide/runtime-events";
 import { getLocalModelConfig } from "@/lib/local-model";
 import { runLocalAgent } from "@/lib/local-agent";
+import { OpenRouterModelPicker } from "./openrouter-model-picker";
 
 // ============================================================================
 // Types & Interfaces
@@ -64,6 +65,9 @@ const generateId = () => Math.random().toString(36).substring(2, 9);
 
 /** Pseudo model id for a locally-running server — intercepted before /api/chat, never sent to it. */
 const LOCAL_MODEL_ID = "local/browser";
+
+/** Model-picker sentinel for OpenRouter; the concrete model is chosen separately. */
+const OPENROUTER_PICKER_ID = "openrouter/model";
 
 type ChatFileRef = NonNullable<AIChatPanelProps["allFiles"]>[number];
 
@@ -236,6 +240,7 @@ export function AIChatPanel({
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [selectedModel, setSelectedModel] = useState<string>("google/gemini-2.5-flash");
+    const [openRouterModel, setOpenRouterModel] = useState<string>("");
     const [reasoningEffort, setReasoningEffort] = useState<"low" | "medium">("low");
     const [autoFixErrors, setAutoFixErrors] = useState(true);
     const [showApiKeyModal, setShowApiKeyModal] = useState(false);
@@ -249,6 +254,9 @@ export function AIChatPanel({
             setSelectedModel(stored);
         }
 
+        const storedOpenRouter = localStorage.getItem("documint_openrouter_model");
+        if (storedOpenRouter) setOpenRouterModel(storedOpenRouter);
+
         const storedEffort = localStorage.getItem("documint_reasoning_effort");
         if (storedEffort === "low" || storedEffort === "medium") setReasoningEffort(storedEffort);
 
@@ -261,6 +269,13 @@ export function AIChatPanel({
         setSelectedModel(val);
         localStorage.setItem("documint_model", val);
     };
+
+    const handleOpenRouterModelChange = (modelId: string) => {
+        setOpenRouterModel(modelId);
+        localStorage.setItem("documint_openrouter_model", modelId);
+    };
+
+    const isOpenRouter = selectedModel === OPENROUTER_PICKER_ID;
 
     const handleReasoningEffortChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const val = e.target.value === "medium" ? "medium" : "low";
@@ -735,6 +750,16 @@ export function AIChatPanel({
         const messageToSend = customInput || input;
         if (!messageToSend.trim() || loading) return;
 
+        if (selectedModel === OPENROUTER_PICKER_ID && !openRouterModel) {
+            toast("Pick an OpenRouter model first (next to the model selector).", "error");
+            return;
+        }
+        // OpenRouter's concrete model is chosen separately; everything else uses
+        // the picker value directly.
+        const effectiveModel = selectedModel === OPENROUTER_PICKER_ID
+            ? `openrouter/${openRouterModel}`
+            : selectedModel;
+
         const userMsg = messageToSend.trim();
         setInput("");
         setShowSlashMenu(false);
@@ -817,7 +842,7 @@ export function AIChatPanel({
                     contextFileId: activeFileId,
                     contextContent: activeFileContent,
                     additionalContext,
-                    model: selectedModel,
+                    model: effectiveModel,
                     reasoningEffort,
                     autoFixErrors
                 }),
@@ -886,7 +911,7 @@ export function AIChatPanel({
             inputRef.current?.focus();
             if (onAgentAction) onAgentAction(null);
         }
-    }, [input, loading, activeFileId, activeFileContent, allFiles, allFileContents, onAgentAction, messages, selectedModel, reasoningEffort, autoFixErrors, handleAgentEvent]);
+    }, [input, loading, activeFileId, activeFileContent, allFiles, allFileContents, onAgentAction, messages, selectedModel, openRouterModel, reasoningEffort, autoFixErrors, handleAgentEvent, toast]);
 
     useEffect(() => {
         if (!autoFixErrors || loading || runtimeErrorLines.length === 0) return;
@@ -1086,6 +1111,16 @@ export function AIChatPanel({
                             </optgroup>
                         </select>
                     </div>
+
+                    {/* OpenRouter model picker — only when OpenRouter is the provider. */}
+                    {isOpenRouter && (
+                        <div className="flex items-center gap-2">
+                            <label className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-indigo-300/50">
+                                Model
+                            </label>
+                            <OpenRouterModelPicker value={openRouterModel} onChange={handleOpenRouterModelChange} />
+                        </div>
+                    )}
 
                     <div className="flex items-center gap-2">
                         <select

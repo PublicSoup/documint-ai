@@ -47,7 +47,11 @@ export async function POST(req: Request) {
 
         const { message, history, contextFileId, contextContent, additionalContext, stream, model, reasoningEffort, autoFixErrors } = await validateBody(req, chatRequestSchema);
 
-        if (model && !AVAILABLE_MODEL_IDS.has(model)) {
+        // OpenRouter models are chosen from its live catalog, so the concrete id
+        // ("openrouter/<vendor>/<model>") won't be in the static list — allow any
+        // well-formed openrouter/* id and let the provider reject unknown models.
+        const isOpenRouterModel = typeof model === "string" && /^openrouter\/[\w./:-]+$/.test(model) && model.length <= 200;
+        if (model && !AVAILABLE_MODEL_IDS.has(model) && !isOpenRouterModel) {
             throw ApiErrors.badRequest("Unsupported AI model selected.");
         }
 
