@@ -1,13 +1,13 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { KeyRound, Check, Loader2, Eye, EyeOff, ExternalLink, Trash2, Plus, Server } from "lucide-react";
+import { KeyRound, Check, Loader2, Eye, EyeOff, ExternalLink, Trash2, Plus, Server, Waypoints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
-type AiKeyProvider = "google" | "anthropic" | "openai" | "xai" | "deepseek" | "custom";
+type AiKeyProvider = "google" | "anthropic" | "openai" | "xai" | "deepseek" | "openrouter" | "custom";
 
 interface AiUsageData {
     queryCount: number;
@@ -109,6 +109,10 @@ export function ApiKeyManager() {
             toast("Enter the endpoint base URL and model ID", "error");
             return;
         }
+        if (provider === "openrouter" && !customModelId.trim()) {
+            toast("Enter an OpenRouter model ID (e.g. anthropic/claude-3.5-sonnet)", "error");
+            return;
+        }
 
         setSaving(true);
         try {
@@ -120,6 +124,8 @@ export function ApiKeyManager() {
                     apiKey: apiKey.trim(),
                     ...(provider === "custom"
                         ? { baseUrl: customBaseUrl.trim(), modelId: customModelId.trim() }
+                        : provider === "openrouter"
+                        ? { modelId: customModelId.trim() }
                         : {}),
                 }),
             });
@@ -182,6 +188,7 @@ export function ApiKeyManager() {
         openai: false,
         xai: false,
         deepseek: false,
+        openrouter: false,
         custom: false,
         ...(usage?.providers ?? {}),
     };
@@ -327,6 +334,162 @@ export function ApiKeyManager() {
                         </div>
                     );
                 })}
+
+                {/* OpenRouter aggregator */}
+                <div className="rounded-lg border border-white/[0.06] bg-black/40 overflow-hidden">
+                    <div className="p-4 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${connected.openrouter ? "bg-emerald-500/10" : "bg-white/5"}`}>
+                                <Waypoints className={`w-5 h-5 ${connected.openrouter ? "text-emerald-400" : "text-zinc-500"}`} />
+                            </div>
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <h3 className="text-sm font-medium text-white">OpenRouter</h3>
+                                    {connected.openrouter && (
+                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2 py-0.5">
+                                            <Check className="w-2.5 h-2.5" />
+                                            Connected
+                                        </span>
+                                    )}
+                                </div>
+                                <p className="text-xs text-zinc-500 mt-0.5 truncate">
+                                    One key, hundreds of models (GPT, Claude, Llama, Qwen, ...)
+                                </p>
+                            </div>
+                        </div>
+
+                        {connected.openrouter ? (
+                            <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-red-400 hover:text-red-300 hover:bg-red-500/10 h-8 shrink-0"
+                                onClick={() => handleRemove({
+                                    id: "openrouter",
+                                    name: "OpenRouter",
+                                    description: "OpenRouter models",
+                                    placeholder: "",
+                                    consoleUrl: "",
+                                    consoleLabel: "",
+                                })}
+                                disabled={removingProvider === "openrouter"}
+                            >
+                                {removingProvider === "openrouter" ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                    <>
+                                        <Trash2 className="w-3.5 h-3.5 mr-1" />
+                                        Remove
+                                    </>
+                                )}
+                            </Button>
+                        ) : (
+                            <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-zinc-300 hover:text-white h-8 shrink-0"
+                                onClick={() => {
+                                    setEditingProvider(editingProvider === "openrouter" ? null : "openrouter");
+                                    setApiKey("");
+                                    setCustomBaseUrl("");
+                                    setCustomModelId("");
+                                    setShowKey(false);
+                                }}
+                            >
+                                <Plus className="w-3.5 h-3.5 mr-1" />
+                                Add Key
+                            </Button>
+                        )}
+                    </div>
+
+                    {editingProvider === "openrouter" && !connected.openrouter && (
+                        <div className="px-4 pb-4 space-y-3 border-t border-white/[0.06] pt-3">
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Model ID</label>
+                                <Input
+                                    type="text"
+                                    placeholder="e.g. anthropic/claude-3.5-sonnet"
+                                    value={customModelId}
+                                    onChange={(e) => setCustomModelId(e.target.value)}
+                                    autoFocus
+                                    className="bg-black/20 border-white/10 font-mono text-sm"
+                                />
+                                <a
+                                    href="https://openrouter.ai/models"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                                >
+                                    Browse model IDs
+                                    <ExternalLink className="w-3 h-3" />
+                                </a>
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">API Key</label>
+                                <div className="relative">
+                                    <Input
+                                        type={showKey ? "text" : "password"}
+                                        placeholder="sk-or-v1-..."
+                                        value={apiKey}
+                                        onChange={(e) => setApiKey(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") handleSave("openrouter");
+                                        }}
+                                        className="bg-black/20 border-white/10 pr-10 font-mono text-sm"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowKey(!showKey)}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-zinc-500 hover:text-zinc-300 transition-colors"
+                                        aria-label={showKey ? "Hide API key" : "Show API key"}
+                                    >
+                                        {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-between gap-3">
+                                <a
+                                    href="https://openrouter.ai/keys"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                                >
+                                    Get a key from OpenRouter
+                                    <ExternalLink className="w-3 h-3" />
+                                </a>
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-8 text-zinc-400"
+                                        onClick={() => {
+                                            setEditingProvider(null);
+                                            setApiKey("");
+                                            setCustomModelId("");
+                                        }}
+                                        disabled={saving}
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        className="h-8"
+                                        onClick={() => handleSave("openrouter")}
+                                        disabled={saving || !apiKey.trim() || !customModelId.trim()}
+                                    >
+                                        {saving ? (
+                                            <>
+                                                <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                                                Verifying...
+                                            </>
+                                        ) : (
+                                            "Save"
+                                        )}
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
 
                 {/* Custom OpenAI-compatible provider */}
                 <div className="rounded-lg border border-dashed border-white/10 bg-black/40 overflow-hidden">

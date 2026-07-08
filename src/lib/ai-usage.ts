@@ -103,11 +103,16 @@ export async function assertAiUsageBudget(
  * Providers a user can bring their own API key for.
  * "custom" is any OpenAI-compatible endpoint; its stored value is a JSON
  * config ({ apiKey, baseUrl, modelId }) rather than a bare key.
+ * "openrouter" is the OpenRouter aggregator (openrouter.ai) — a fixed
+ * OpenAI-compatible endpoint, so its stored value is JSON ({ apiKey, modelId }).
  */
-export const AI_KEY_PROVIDERS = ["google", "anthropic", "openai", "xai", "deepseek", "custom"] as const;
+export const AI_KEY_PROVIDERS = ["google", "anthropic", "openai", "xai", "deepseek", "openrouter", "custom"] as const;
 export type AiKeyProvider = (typeof AI_KEY_PROVIDERS)[number];
 
 export type UserApiKeys = Partial<Record<AiKeyProvider, string>>;
+
+/** Fixed OpenAI-compatible base URL for the OpenRouter aggregator. */
+export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 export interface CustomProviderConfig {
     apiKey: string;
@@ -129,6 +134,31 @@ export function parseCustomProviderConfig(value: string | undefined): CustomProv
             typeof parsed.modelId === "string" && parsed.modelId.length > 0
         ) {
             return { apiKey: parsed.apiKey, baseUrl: parsed.baseUrl, modelId: parsed.modelId };
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+export interface OpenRouterConfig {
+    apiKey: string;
+    modelId: string;
+}
+
+/**
+ * Parse the stored value for the "openrouter" provider ({ apiKey, modelId }).
+ * The base URL is fixed ({@link OPENROUTER_BASE_URL}), so it isn't stored.
+ */
+export function parseOpenRouterConfig(value: string | undefined): OpenRouterConfig | null {
+    if (!value) return null;
+    try {
+        const parsed = JSON.parse(value) as Record<string, unknown>;
+        if (
+            typeof parsed.apiKey === "string" && parsed.apiKey.length > 0 &&
+            typeof parsed.modelId === "string" && parsed.modelId.length > 0
+        ) {
+            return { apiKey: parsed.apiKey, modelId: parsed.modelId };
         }
         return null;
     } catch {

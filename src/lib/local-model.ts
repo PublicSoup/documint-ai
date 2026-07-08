@@ -84,6 +84,54 @@ const UNREACHABLE_HINT =
     "(LM Studio: Developer tab → Local Server → enable “Serve on Local Network”/CORS. " +
     "Ollama: start it with OLLAMA_ORIGINS=* set).";
 
+function isLoopbackOrPrivate(baseUrl: string): boolean {
+    try {
+        const host = new URL(baseUrl).hostname;
+        return (
+            host === "localhost" ||
+            host === "127.0.0.1" ||
+            host === "0.0.0.0" ||
+            host === "::1" ||
+            host.endsWith(".local") ||
+            /^10\./.test(host) ||
+            /^192\.168\./.test(host) ||
+            /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+        );
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Build a reachability error tuned to the most likely cause. The failure mode
+ * that trips people up most is a *deployed HTTPS* page trying to reach a plain
+ * `http://localhost` server: Chrome's Private Network Access protection blocks
+ * that even when the server is up and CORS is on, and it surfaces as a generic
+ * fetch failure. Call that out explicitly instead of blaming the server.
+ */
+function unreachableMessage(baseUrl: string): string {
+    const onHttps = typeof window !== "undefined" && window.location.protocol === "https:";
+    const targetIsHttp = baseUrl.startsWith("http://");
+    const missingVersionPath = !/\/v\d+$/.test(new URL(baseUrl).pathname.replace(/\/$/, "") || "") &&
+        !baseUrl.includes("/v1");
+
+    const parts = [`Could not reach ${baseUrl}.`];
+
+    if (onHttps && targetIsHttp && isLoopbackOrPrivate(baseUrl)) {
+        parts.push(
+            "You're on the hosted (HTTPS) site, and browsers block an HTTPS page from calling a local " +
+            "http://localhost server — even with CORS on. Either run DocuMint locally over http://localhost, " +
+            "or expose your model server over HTTPS (e.g. an ngrok/Cloudflare tunnel) and use that URL.",
+        );
+    } else if (missingVersionPath) {
+        parts.push(`The URL usually needs to end in /v1 (e.g. ${baseUrl}/v1). ${UNREACHABLE_HINT}`);
+    } else {
+        parts.push(UNREACHABLE_HINT);
+    }
+
+    return parts.join(" ");
+}
+
 export interface LocalModelTestResult {
     ok: boolean;
     models: string[];
@@ -112,7 +160,7 @@ export async function testLocalModelConnection(config: LocalModelConfig): Promis
         if (e instanceof DOMException && e.name === "TimeoutError") {
             return { ok: false, models: [], error: `Timed out reaching ${baseUrl}. ${UNREACHABLE_HINT}` };
         }
-        return { ok: false, models: [], error: `Could not reach ${baseUrl}. ${UNREACHABLE_HINT}` };
+        return { ok: false, models: [], error: unreachableMessage(baseUrl) };
     }
 }
 
@@ -155,7 +203,7 @@ export async function streamLocalChatCompletion(
         });
     } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") throw e;
-        throw new Error(`Could not reach ${baseUrl}. ${UNREACHABLE_HINT}`);
+        throw new Error(unreachableMessage(baseUrl));
     }
 
     if (!response.ok || !response.body) {

@@ -8,7 +8,7 @@ import { generateText as aiSDKGenerateText, generateObject, streamText as aiSDKS
 import { z } from "zod";
 import { env } from "./env";
 import { createGateway } from "@ai-sdk/gateway";
-import { AiQuotaExceededError, assertAiUsageBudget, getUserApiKeys, parseCustomProviderConfig, trackAiUsage, type AiKeyProvider } from "./ai-usage";
+import { AiQuotaExceededError, assertAiUsageBudget, getUserApiKeys, parseCustomProviderConfig, parseOpenRouterConfig, trackAiUsage, OPENROUTER_BASE_URL, type AiKeyProvider } from "./ai-usage";
 
 /**
  * AI Provider Utility - Refactored for Vercel AI SDK (@ai-sdk/google)
@@ -76,6 +76,7 @@ function byokProviderForModel(modelName: string): AiKeyProvider | null {
     if (modelName.startsWith("openai/")) return "openai";
     if (modelName.startsWith("xai/")) return "xai";
     if (modelName.startsWith("deepseek/")) return "deepseek";
+    if (modelName.startsWith("openrouter/")) return "openrouter";
     if (modelName.startsWith("custom/")) return "custom";
     return null;
 }
@@ -118,6 +119,17 @@ function createUserProviderModel(provider: AiKeyProvider, storedValue: string, m
                 apiKey: config.apiKey,
             })(config.modelId);
         }
+        case "openrouter": {
+            const config = parseOpenRouterConfig(storedValue);
+            if (!config) {
+                throw new Error("OpenRouter is not configured. Add your OpenRouter key and a model ID in API Keys.");
+            }
+            return createOpenAICompatible({
+                name: "openrouter",
+                baseURL: OPENROUTER_BASE_URL,
+                apiKey: config.apiKey,
+            })(config.modelId);
+        }
     }
 }
 
@@ -127,6 +139,9 @@ function createUserProviderModel(provider: AiKeyProvider, storedValue: string, m
 function getModel(modelName: string = "google/gemini-2.0-flash") {
     if (modelName.startsWith("custom/")) {
         throw new Error("Custom Provider is not configured. Open API Keys and add your endpoint, model ID, and key first.");
+    }
+    if (modelName.startsWith("openrouter/")) {
+        throw new Error("OpenRouter is not configured. Open API Keys and add your OpenRouter key and a model ID first.");
     }
 
     if (gatewayProvider) {
@@ -177,6 +192,7 @@ const VALIDATION_MODELS: Record<AiKeyProvider, string> = {
     openai: "gpt-4o-mini",
     xai: "grok-3-mini",
     deepseek: "deepseek-chat",
+    openrouter: "", // the openrouter config carries its own model ID
     custom: "", // the custom config carries its own model ID
 };
 
