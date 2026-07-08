@@ -4,12 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getFileContent } from "@/lib/files";
 import { buildProjectGraph, GraphNode, ProjectGraph } from "@/lib/graph/project-graph";
-import { projectGraphToMermaidResult } from "@/lib/graph/mermaid-adapter";
-import {
-    projectGraphToSequenceDiagram,
-    projectGraphToClassDiagram,
-    projectGraphToMindmap,
-} from "@/lib/graph/mermaid-views";
+import { projectGraphToData, type ProjectGraphData } from "@/lib/graph/graph-data";
 import { checkTeamPermission } from "@/lib/permissions";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, ApiErrors } from "@/lib/api-utils";
@@ -39,13 +34,10 @@ interface GraphFileSummary {
 
 interface GraphResponse {
     isRealData: true;
-    mermaid: string;
-    views: {
-        sequence: string;
-        class: string;
-        mindmap: string;
-    };
-    nodeMap: Record<string, string>;
+    /** Structured, client-renderable graph (React Flow canvas, sequence, mindmap). */
+    graphData: ProjectGraphData;
+    /** Best-effort project name for the mindmap root label. */
+    projectName: string;
     stats: {
         totalFilesScanned: number;
         totalNodes: number;
@@ -186,15 +178,12 @@ export async function GET(request: NextRequest) {
             }
         }
 
-        // 3. Build the graph and convert to Mermaid (dependency flowchart plus
-        //    the alternate sequence / class / mindmap views, all from one crawl).
+        // 3. Build the graph and project it into structured, client-renderable
+        //    data (one crawl powers the dependency canvas, class view, sequence
+        //    tracer, and mindmap tree — all rendered interactively on the client).
         const graph: ProjectGraph = await buildProjectGraph(files);
-        const renderedGraph = projectGraphToMermaidResult(graph);
-        const views = {
-            sequence: projectGraphToSequenceDiagram(graph),
-            class: projectGraphToClassDiagram(graph).mermaid,
-            mindmap: projectGraphToMindmap(graph, inferProjectName(files)),
-        };
+        const graphData = projectGraphToData(graph, pathToFileId);
+        const projectName = inferProjectName(files);
 
         // 4. Aggregate stats.
         const types: Record<GraphNode["type"], number> = {
@@ -219,17 +208,16 @@ export async function GET(request: NextRequest) {
 
         const response: GraphResponse = {
             isRealData: true,
-            mermaid: renderedGraph.mermaid,
-            views,
-            nodeMap: renderedGraph.nodeMap,
+            graphData,
+            projectName,
             stats: {
                 totalFilesScanned: files.length,
                 totalNodes: graph.nodes.size,
                 totalEdges: graph.edges.length,
-                truncated: truncated || renderedGraph.truncated,
-                renderTruncated: renderedGraph.truncated,
-                renderedNodes: renderedGraph.renderedNodes,
-                renderedEdges: renderedGraph.renderedEdges,
+                truncated: truncated || graphData.truncated,
+                renderTruncated: graphData.truncated,
+                renderedNodes: graphData.nodes.length,
+                renderedEdges: graphData.edges.length,
                 skippedFiles,
                 types,
                 riskBuckets,

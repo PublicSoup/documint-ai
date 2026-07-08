@@ -1,10 +1,23 @@
 "use client";
 
-import { FileText, Layout as LayoutIcon, Maximize2, X } from "lucide-react";
+import dynamic from "next/dynamic";
+import { FileText, Layout as LayoutIcon, Loader2, Maximize2, X } from "lucide-react";
 
 import ReadmeGenerator from "@/components/readme-generator";
-import { DiagramViewer } from "../diagram-viewer";
+import type { ProjectGraphData } from "@/lib/graph/graph-data";
 import type { IDEFile } from "./shared/types";
+
+const GraphCanvas = dynamic(
+    () => import("@/components/architecture/graph-canvas").then((mod) => mod.GraphCanvas),
+    {
+        ssr: false,
+        loading: () => (
+            <div className="flex h-full items-center justify-center text-zinc-500">
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
+            </div>
+        ),
+    },
+);
 
 interface IDEInspectorPanelsProps {
     activeFile?: IDEFile;
@@ -12,7 +25,7 @@ interface IDEInspectorPanelsProps {
     files: IDEFile[];
     showDocPreview: boolean;
     showLocalTopology: boolean;
-    localMermaid: string;
+    localGraph: ProjectGraphData | null;
     onCloseDocPreview: () => void;
     onCloseLocalTopology: () => void;
     onSelectFile: (fileId: string) => void;
@@ -25,7 +38,7 @@ export function IDEInspectorPanels({
     files,
     showDocPreview,
     showLocalTopology,
-    localMermaid,
+    localGraph,
     onCloseDocPreview,
     onCloseLocalTopology,
     onSelectFile,
@@ -72,21 +85,28 @@ export function IDEInspectorPanels({
                     fileName={activeFile.name}
                     onClose={onCloseLocalTopology}
                 >
-                    <div className="flex-1 p-4 overflow-hidden relative">
-                        <DiagramViewer
-                            code={localMermaid}
-                            type="flowchart"
-                            onNodeClick={(filePath) => {
-                                const file = files.find((candidate) => candidate.name === filePath || candidate.id === filePath || candidate.name.endsWith(filePath));
-                                if (!file) {
-                                    onNotify(`File not found: ${filePath}`, "error");
-                                    return;
-                                }
-
-                                onSelectFile(file.id);
-                                onNotify(`Opened ${file.name}`, "success");
-                            }}
-                        />
+                    <div className="relative flex-1 overflow-hidden">
+                        {localGraph ? (
+                            <GraphCanvas
+                                data={localGraph}
+                                variant="dependency"
+                                onNodeClick={(fileId) => {
+                                    const file = files.find(
+                                        (candidate) => candidate.id === fileId || candidate.name === fileId,
+                                    );
+                                    if (!file) {
+                                        onNotify(`File not found: ${fileId}`, "error");
+                                        return;
+                                    }
+                                    onSelectFile(file.id);
+                                    onNotify(`Opened ${file.name}`, "success");
+                                }}
+                            />
+                        ) : (
+                            <div className="flex h-full items-center justify-center text-sm text-zinc-500">
+                                <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Building topology…
+                            </div>
+                        )}
                     </div>
                 </InspectorPanel>
             )}

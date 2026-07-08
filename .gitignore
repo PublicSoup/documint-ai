@@ -58,3 +58,10 @@ next-env.d.ts
 
 # reference projects (cloned, not part of main codebase)
 /vibe-coding-platform-main/
+
+# stray OS / tooling cruft (do not commit)
+/Library/
+*.deprecated
+
+# auto-generated index (regenerate with scripts/generate-index.mjs; not a source of truth)
+CODEBASE_INDEX.md

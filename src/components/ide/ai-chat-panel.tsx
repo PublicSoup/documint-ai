@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ApiKeyManager } from "@/components/api-key-manager";
+import { LocalModelSettings } from "@/components/local-model-settings";
 import { cn, extractCodeBlocks } from "@/lib/utils";
 import { applyPatch } from "@/lib/code-patcher";
 import { useToast } from "../toast";
@@ -24,6 +25,8 @@ import { ThinkingProcess } from "./thinking-process";
 import { AVAILABLE_MODELS } from "@/lib/ai-models";
 import { parseAgentEvent, type AgentEvent } from "@/lib/agent/events";
 import { getRuntimeErrorFingerprint, type RuntimeLogLine, type RuntimeErrorSummary } from "@/lib/ide/runtime-events";
+import { getLocalModelConfig } from "@/lib/local-model";
+import { runLocalAgent } from "@/lib/local-agent";
 
 // ============================================================================
 // Types & Interfaces
@@ -58,6 +61,9 @@ interface AIChatPanelProps {
 // ============================================================================
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
+
+/** Pseudo model id for a locally-running server — intercepted before /api/chat, never sent to it. */
+const LOCAL_MODEL_ID = "local/browser";
 
 type ChatFileRef = NonNullable<AIChatPanelProps["allFiles"]>[number];
 
@@ -239,7 +245,7 @@ export function AIChatPanel({
         // list is Gemini-only now, so a previously selected non-Google model
         // would otherwise be sent and rejected by the API.
         const stored = localStorage.getItem("documint_model");
-        if (stored && AVAILABLE_MODELS.some((m) => m.id === stored)) {
+        if (stored && (stored === LOCAL_MODEL_ID || AVAILABLE_MODELS.some((m) => m.id === stored))) {
             setSelectedModel(stored);
         }
 
@@ -760,6 +766,46 @@ export function AIChatPanel({
                 budget: reasoningEffort === "medium" ? 5_000 : 3_500,
             });
 
+            // Local models run entirely in the browser — the model call goes
+            // straight to the user's own server instead of through /api/chat,
+            // but it drives the exact same tool-using agent loop (file reads/
+            // writes, search, commands): each tool call is executed server-side
+            // via /api/agent/local-tool, scoped to this session's workspace.
+            if (selectedModel === LOCAL_MODEL_ID) {
+                const localConfig = getLocalModelConfig();
+                if (!localConfig) {
+                    throw new Error("Local model isn't configured yet. Open API Keys → Local Model to set it up.");
+                }
+
+                if (onAgentAction) onAgentAction(null);
+
+                const assistantId = generateId();
+                setMessages(prev => [...prev, {
+                    id: assistantId,
+                    role: "assistant",
+                    content: "",
+                    codeBlocks: [],
+                    timestamp: Date.now()
+                }]);
+
+                const generator = runLocalAgent({
+                    config: localConfig,
+                    userMessage: userMsg,
+                    additionalContext,
+                    activeFileContent,
+                    history: buildCompactChatHistory(messages),
+                    reasoningEffort,
+                    autoFixErrors,
+                    signal: abortController.current.signal,
+                });
+
+                for await (const event of generator) {
+                    handleAgentEvent(event, assistantId);
+                }
+
+                return;
+            }
+
             if (onAgentAction) onAgentAction("RESEARCHING CODEBASE...");
 
             const res = await fetch("/api/chat", {
@@ -1000,6 +1046,16 @@ export function AIChatPanel({
                                 </DialogDescription>
                             </DialogHeader>
                             <ApiKeyManager />
+                            <div className="pt-2 border-t border-white/[0.06] space-y-3">
+                                <div>
+                                    <h3 className="text-sm font-medium text-white">Run a model on this device</h3>
+                                    <p className="text-xs text-zinc-500 mt-0.5">
+                                        Point at LM Studio, Ollama, or any local OpenAI-compatible server. The full
+                                        agent runs on it too — file edits, search, and commands all still work.
+                                    </p>
+                                </div>
+                                <LocalModelSettings />
+                            </div>
                         </DialogContent>
                     </Dialog>
 
@@ -1017,6 +1073,9 @@ export function AIChatPanel({
                                         {model.label}{model.tier === "pro" ? " (Pro)" : ""}
                                     </option>
                                 ))}
+                                <optgroup label="Local (this device)">
+                                    <option value={LOCAL_MODEL_ID}>Local Model (LM Studio, Ollama…)</option>
+                                </optgroup>
                             </select>
                             <select
                                 value={reasoningEffort}

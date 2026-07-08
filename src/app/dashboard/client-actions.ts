@@ -13,6 +13,8 @@
  * the diagram.
  */
 
+import type { ProjectGraphData } from "@/lib/graph/graph-data";
+
 export interface GraphStats {
     totalFilesScanned: number;
     totalNodes: number;
@@ -40,22 +42,11 @@ export interface GraphFileSummary {
 /** The visualization modes the Architecture tab can switch between. */
 export type GraphViewKey = "flowchart" | "sequence" | "class" | "mindmap";
 
-/**
- * Alternate Mermaid renderings of the same project graph. The `flowchart` mode
- * uses `RealGraphResponse.mermaid`; the rest come from here so the server only
- * crawls the workspace once.
- */
-export interface ProjectViews {
-    sequence: string;
-    class: string;
-    mindmap: string;
-}
-
 export interface RealGraphResponse {
     isRealData: true;
-    mermaid: string;
-    views?: ProjectViews;
-    nodeMap?: Record<string, string>;
+    /** Structured graph rendered client-side (React Flow canvas, sequence, mindmap). */
+    graphData: ProjectGraphData;
+    projectName?: string;
     stats: GraphStats;
     files: GraphFileSummary[];
 }
@@ -91,8 +82,8 @@ export class GraphApiError extends Error {
 
 interface RawGraphResponse {
     isRealData?: boolean;
-    mermaid?: string;
-    views?: ProjectViews;
+    graphData?: ProjectGraphData;
+    projectName?: string;
     stats?: GraphStats;
     files?: GraphFileSummary[];
     error?: string;
@@ -160,7 +151,7 @@ export async function getProjectGraphMermaid(
         }
 
         const data = await parseResponse<RealGraphResponse>(res);
-        if (!data?.mermaid) {
+        if (!data?.graphData) {
             return {
                 isRealData: false,
                 code: "UNKNOWN",

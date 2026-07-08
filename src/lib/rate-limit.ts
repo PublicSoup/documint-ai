@@ -111,9 +111,18 @@ const limiters = {
         limiter: Ratelimit.slidingWindow(10, "1 h"),
         prefix: "rl:architect"
     }) : null,
+
+    // Local-model agent tool calls: one request per tool invocation in a
+    // client-orchestrated tool loop (up to MAX_TURNS turns, several tools
+    // per turn), so this needs more headroom than a typical action endpoint.
+    agent_tool: redis ? new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(60, "1 m"),
+        prefix: "rl:agent_tool"
+    }) : null,
 };
 
-type RateLimitTier = "auth" | "auth-ip" | "pro" | "api" | "upload" | "security" | "file_create" | "file_delete" | "project_delete" | "file_rename" | "file_create_bulk" | "architect" | "chat";
+type RateLimitTier = "auth" | "auth-ip" | "pro" | "api" | "upload" | "security" | "file_create" | "file_delete" | "project_delete" | "file_rename" | "file_create_bulk" | "architect" | "chat" | "agent_tool";
 
 const fallbackLimits: Record<RateLimitTier, { requests: number; windowMs: number }> = {
     auth: { requests: 5, windowMs: 15 * 60 * 1000 },
@@ -129,6 +138,7 @@ const fallbackLimits: Record<RateLimitTier, { requests: number; windowMs: number
     file_rename: { requests: 10, windowMs: 5 * 60 * 1000 },
     file_create_bulk: { requests: 5, windowMs: 60 * 1000 },
     architect: { requests: 10, windowMs: 60 * 60 * 1000 },
+    agent_tool: { requests: 60, windowMs: 60 * 1000 },
 };
 
 const memoryFallbackStore = new Map<string, { count: number; windowStart: number }>();
