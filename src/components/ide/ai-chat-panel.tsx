@@ -987,40 +987,6 @@ export function AIChatPanel({
                         className="w-full pl-4 pr-12 py-3 bg-[#0a0a0a] border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 resize-none h-[180px] md:h-[100px] custom-scrollbar placeholder:text-white/20 transition-all font-light"
                     />
 
-                    <div className="absolute bottom-3 left-3 flex items-center gap-2">
-                        <select
-                            value={selectedModel}
-                            onChange={handleModelChange}
-                            className="bg-black/50 border border-white/10 text-white/70 text-[10px] rounded px-2 py-1 outline-none focus:border-indigo-500/50 appearance-none cursor-pointer hover:bg-black/80 hover:text-white transition-colors custom-scrollbar"
-                            style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff40%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .5rem top 50%', backgroundSize: '.65rem auto', paddingRight: '1.5rem' }}
-                        >
-                            {AVAILABLE_MODELS.map(model => (
-                                <option key={model.id} value={model.id}>
-                                    {model.label}{model.tier === "pro" ? " (Pro)" : ""}
-                                </option>
-                            ))}
-                        </select>
-                        <select
-                            value={reasoningEffort}
-                            onChange={handleReasoningEffortChange}
-                            className="bg-black/50 border border-white/10 text-white/70 text-[10px] rounded px-2 py-1 outline-none focus:border-indigo-500/50 appearance-none cursor-pointer hover:bg-black/80 hover:text-white transition-colors custom-scrollbar"
-                            style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff40%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .5rem top 50%', backgroundSize: '.65rem auto', paddingRight: '1.5rem' }}
-                            title="Reasoning effort"
-                        >
-                            <option value="low">Fast</option>
-                            <option value="medium">Deep</option>
-                        </select>
-                        <button
-                            type="button"
-                            onClick={() => setShowApiKeyModal(true)}
-                            title="API Keys — bring your own provider key (Google, Anthropic, OpenAI, xAI, DeepSeek, or a custom endpoint)"
-                            className="flex items-center gap-1 bg-black/50 border border-white/10 text-white/70 text-[10px] rounded px-2 py-1 hover:bg-black/80 hover:text-white transition-colors"
-                        >
-                            <Key className="w-3 h-3" />
-                            API Key
-                        </button>
-                    </div>
-
                     <Dialog open={showApiKeyModal} onOpenChange={setShowApiKeyModal}>
                         <DialogContent className="glass-card border-white/10 bg-zinc-950 max-w-lg max-h-[85vh] overflow-y-auto custom-scrollbar">
                             <DialogHeader>
@@ -1037,25 +1003,62 @@ export function AIChatPanel({
                         </DialogContent>
                     </Dialog>
 
-                    <div className="absolute bottom-3 right-3 flex items-center gap-2">
-                        <span className="text-[10px] text-white/20 font-mono hidden md:inline-block">RETURN to send</span>
-                        {loading ? (
-                            <button
-                                onClick={handleCancel}
-                                className="p-1.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/30 transition-all shadow-lg shadow-red-500/10"
-                                title="Stop Generating"
+                    {/* Single flex row so the left controls and the send button can never overlap */}
+                    <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-2 pointer-events-none">
+                        <div className="flex items-center gap-2 min-w-0 pointer-events-auto">
+                            <select
+                                value={selectedModel}
+                                onChange={handleModelChange}
+                                className="bg-black/50 border border-white/10 text-white/70 text-[10px] rounded px-2 py-1 outline-none focus:border-indigo-500/50 appearance-none cursor-pointer hover:bg-black/80 hover:text-white transition-colors custom-scrollbar min-w-0 max-w-[130px] truncate"
+                                style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff40%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .5rem top 50%', backgroundSize: '.65rem auto', paddingRight: '1.5rem' }}
                             >
-                                <X className="w-4 h-4" />
-                            </button>
-                        ) : (
-                            <button
-                                onClick={() => handleSend()}
-                                disabled={!input.trim()}
-                                className="p-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-500/20"
+                                {AVAILABLE_MODELS.map(model => (
+                                    <option key={model.id} value={model.id}>
+                                        {model.label}{model.tier === "pro" ? " (Pro)" : ""}
+                                    </option>
+                                ))}
+                            </select>
+                            <select
+                                value={reasoningEffort}
+                                onChange={handleReasoningEffortChange}
+                                className="bg-black/50 border border-white/10 text-white/70 text-[10px] rounded px-2 py-1 outline-none focus:border-indigo-500/50 appearance-none cursor-pointer hover:bg-black/80 hover:text-white transition-colors custom-scrollbar shrink-0"
+                                style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff40%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .5rem top 50%', backgroundSize: '.65rem auto', paddingRight: '1.5rem' }}
+                                title="Reasoning effort"
                             >
-                                <Send className="w-4 h-4" />
+                                <option value="low">Fast</option>
+                                <option value="medium">Deep</option>
+                            </select>
+                            <button
+                                type="button"
+                                onClick={() => setShowApiKeyModal(true)}
+                                title="API Keys — bring your own provider key (Google, Anthropic, OpenAI, xAI, DeepSeek, or a custom endpoint)"
+                                aria-label="API Keys"
+                                className="flex items-center justify-center shrink-0 bg-black/50 border border-white/10 text-white/70 rounded p-1.5 hover:bg-black/80 hover:text-white transition-colors"
+                            >
+                                <Key className="w-3.5 h-3.5" />
                             </button>
-                        )}
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0 pointer-events-auto">
+                            <span className="text-[10px] text-white/20 font-mono hidden lg:inline-block">RETURN to send</span>
+                            {loading ? (
+                                <button
+                                    onClick={handleCancel}
+                                    className="p-1.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/30 transition-all shadow-lg shadow-red-500/10"
+                                    title="Stop Generating"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            ) : (
+                                <button
+                                    onClick={() => handleSend()}
+                                    disabled={!input.trim()}
+                                    className="p-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-500/20"
+                                >
+                                    <Send className="w-4 h-4" />
+                                </button>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>
