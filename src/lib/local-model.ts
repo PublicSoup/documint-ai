@@ -145,14 +145,35 @@ function unreachableMessage(baseUrl: string): string {
     ];
 
     if (onHttps && targetIsHttp && isLoopbackOrPrivate(baseUrl)) {
-        parts.push(
-            "If the address and CORS are both right, your browser may be stopping this HTTPS site from " +
-            "calling a local http:// server — allow the local-network permission prompt if one appears. " +
-            "If it's blocked outright, run DocuMint locally or expose the server via an HTTPS tunnel.",
-        );
+        if (isSafari()) {
+            parts.push(
+                "Heads up: you're in Safari, which blocks an HTTPS page from calling a local http:// server " +
+                "and — unlike Chrome — offers no permission prompt to allow it. For the Local Model feature use " +
+                "a Chromium browser (Chrome, Edge, Brave, Arc) and allow the local-network prompt, or run " +
+                "DocuMint locally over http://localhost. (Or use OpenRouter, which needs no local server at all.)",
+            );
+        } else {
+            parts.push(
+                "If the address and CORS are both right, your browser may be stopping this HTTPS site from " +
+                "calling a local http:// server — allow the local-network permission prompt if one appears. " +
+                "If it's blocked outright, run DocuMint locally or expose the server via an HTTPS tunnel.",
+            );
+        }
     }
 
     return parts.join(" ");
+}
+
+/**
+ * Detect Safari (desktop or iOS), excluding the other engines that borrow its
+ * UA tokens. Safari matters here because it has no Private Network Access
+ * permission prompt — unlike Chromium it silently refuses an HTTPS→local-http
+ * request with no user override, so it needs different advice.
+ */
+function isSafari(): boolean {
+    if (typeof navigator === "undefined") return false;
+    const ua = navigator.userAgent;
+    return /Safari/.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Android/.test(ua);
 }
 
 /** Which PNA address space a target belongs to, for Chrome's fetch hint. */

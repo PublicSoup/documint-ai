@@ -263,6 +263,11 @@ export function LocalModelSettings() {
                         same machine. If the browser asks for permission to access your local network, allow it.
                         Only works while that server is running on this device and this browser tab is open.
                     </p>
+                    <p className="text-amber-300/80">
+                        <strong className="text-amber-300">Safari won&apos;t work here.</strong> It blocks HTTPS pages
+                        from reaching local http:// servers with no way to allow it. Use Chrome, Edge, Brave, or Arc
+                        for a local model — or use OpenRouter, which runs in the cloud and needs no local server.
+                    </p>
                     <p>
                         The agent&apos;s tool calls are plain text instructions, not the OpenAI function-calling
                         API, so any chat model can drive them — but smaller/quantized models follow the format less
