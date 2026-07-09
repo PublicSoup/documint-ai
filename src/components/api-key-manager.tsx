@@ -82,6 +82,7 @@ export function ApiKeyManager() {
     const confirm = useConfirm();
     const [loading, setLoading] = useState(true);
     const [usage, setUsage] = useState<AiUsageData | null>(null);
+    const [keyStorageReady, setKeyStorageReady] = useState(true);
     const [editingProvider, setEditingProvider] = useState<AiKeyProvider | null>(null);
     const [apiKey, setApiKey] = useState("");
     const [customBaseUrl, setCustomBaseUrl] = useState("");
@@ -96,6 +97,7 @@ export function ApiKeyManager() {
             if (res.ok) {
                 const data = await res.json();
                 setUsage(data.usage);
+                setKeyStorageReady(data.keyStorageReady !== false);
             }
         } catch {
             // Silent fail
@@ -208,6 +210,17 @@ export function ApiKeyManager() {
 
     return (
         <div className="space-y-6">
+            {!keyStorageReady && (
+                <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
+                    <p className="font-semibold text-red-200">Key storage isn&apos;t configured on the server</p>
+                    <p className="mt-1 leading-relaxed">
+                        Saving will fail because <code className="text-red-200">ENCRYPTION_KEY</code> is not set (it must
+                        be a 64-hex-character value). Generate one with <code className="text-red-200">openssl rand -hex 32</code>,
+                        add it to the deployment environment, and redeploy. Until then, use a shared-quota model or a
+                        Local Model instead.
+                    </p>
+                </div>
+            )}
             <p className="text-xs text-zinc-500">
                 Connect a key from any provider below to run that provider&apos;s models on your own account,
                 without your plan&apos;s AI limits. Keys are encrypted at rest and never shown again after saving.

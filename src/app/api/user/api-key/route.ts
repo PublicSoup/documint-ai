@@ -6,6 +6,7 @@ import { saveUserApiKey, deleteUserApiKey, getUserAiUsage, AI_KEY_PROVIDERS } fr
 import { validateProviderApiKey } from "@/lib/ai";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, validateBody } from "@/lib/api-utils";
+import { isEncryptionConfigured } from "@/lib/security/encryption";
 import { db } from "@/lib/db";
 
 const apiKeyField = z
@@ -50,6 +51,8 @@ export async function GET() {
 
         return NextResponse.json({
             hasKey: !!user?.encryptedApiKey,
+            // Lets the UI warn upfront when the server can't store keys at all.
+            keyStorageReady: isEncryptionConfigured(),
             usage,
         });
     } catch (error) {
