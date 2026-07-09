@@ -118,6 +118,22 @@ function unreachableMessage(baseUrl: string): string {
     const targetIsHttp = baseUrl.startsWith("http://");
     const missingVersionPath = !/\/v\d+$/.test(pathname);
 
+    // A LAN IP (192.168.x, 10.x, ...) over http from an HTTPS page is mixed
+    // content, which browsers block outright — and unlike localhost, a LAN IP
+    // gets no exemption. This is the single most confusing case, because LM
+    // Studio's "Serve on Local Network" advertises exactly that LAN-IP URL.
+    if (onHttps && targetIsHttp && targetAddressSpaceFor(baseUrl) === "private") {
+        let port = "1234";
+        try { port = new URL(baseUrl).port || "1234"; } catch { /* keep default */ }
+        return (
+            `Could not reach ${baseUrl}. This is the hard case: you're on the HTTPS site and pointed it at a ` +
+            `LAN IP over plain http, which browsers block as “mixed content” (a local ${"`"}localhost${"`"} address ` +
+            `is exempt, but a 192.168.x / 10.x address is not). Fix: in LM Studio turn OFF “Serve on Local ` +
+            `Network” so it binds to localhost, then use http://localhost:${port}/v1 here. If you need the LAN ` +
+            `IP, you'll have to run DocuMint locally or put the server behind HTTPS.`
+        );
+    }
+
     const parts = [
         `Could not reach ${baseUrl}.`,
         "Double-check the address — LM Studio prints its server URL in the Developer tab " +
