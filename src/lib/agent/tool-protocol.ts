@@ -71,6 +71,29 @@ export function splitCommand(command: string): string[] {
     return tokens;
 }
 
+/**
+ * Named-argument keywords the models use in practice (Python/JSON-kwarg style),
+ * e.g. `read_file(path="a.ts")` or `read_file_chunk(path="a.ts", startLine=1)`.
+ * We accept positional args but strip a leading `<keyword>=`/`<keyword>:` so the
+ * value isn't polluted with the parameter name — the single biggest cause of
+ * "file not found: path=..." with smaller local models.
+ */
+const TOOL_ARG_KEYWORD = /^\s*(?:path|filepath|filename|file|dir|directory|folder|query|q|pattern|search|command|cmd|content|code|body|text|snippet|patch|start|end|start_?line|end_?line|line|lines|from|to)\s*[:=]\s*/i;
+
+/** Strip a leading kwarg name and any wrapping quotes from a single argument. */
+function cleanToolArg(arg: string): string {
+    let cleaned = arg.replace(TOOL_ARG_KEYWORD, "");
+    // A quote may now lead/trail (e.g. the value was `path="x"` → `"x"`).
+    if (cleaned.length >= 2) {
+        const first = cleaned[0];
+        const last = cleaned[cleaned.length - 1];
+        if ((first === '"' || first === "'" || first === "`") && last === first) {
+            cleaned = cleaned.slice(1, -1);
+        }
+    }
+    return cleaned.trim();
+}
+
 /** Parse a `<tool_code>` argument list: `arg1, "arg 2", arg3` → ["arg1", "arg 2", "arg3"]. */
 export function parseToolArgs(raw: string): string[] {
     const args: string[] = [];
@@ -89,14 +112,14 @@ export function parseToolArgs(raw: string): string[] {
                 current += char;
             }
         } else if (char === "," && !inQuotes) {
-            args.push(current.trim());
+            args.push(cleanToolArg(current));
             current = "";
         } else {
             current += char;
         }
         i++;
     }
-    args.push(current.trim());
+    args.push(cleanToolArg(current));
     return args;
 }
 

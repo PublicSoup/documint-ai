@@ -30,6 +30,40 @@ async function getExecFile() {
     }
 }
 
+function normalizeRequested(requested: string): string {
+    return requested.replace(/^\.?\/+/, "").replace(/\/+$/g, "").trim();
+}
+
+/**
+ * Resolve a model-supplied path to a real file, or produce a helpful, agent-
+ * readable error when it can't. On an exact miss we hand back a "did you mean"
+ * list (or a hint to run list_files) rather than a dead end, so the model can
+ * recover in the next turn instead of giving up.
+ */
+async function resolvePathOrError(
+    userId: string,
+    requested: string,
+): Promise<{ path: string } | { error: string }> {
+    if (!requested || !requested.trim()) {
+        return { error: `[ERROR]: No file path given. Call list_files(".") to see the workspace, then retry.` };
+    }
+    let resolved: Awaited<ReturnType<typeof vfs.resolveFilePath>>;
+    try {
+        resolved = await vfs.resolveFilePath(userId, requested);
+    } catch (e) {
+        return { error: `[ERROR]: ${e instanceof Error ? e.message : "Could not resolve path."}` };
+    }
+    if (resolved.path) return { path: resolved.path };
+    if (resolved.candidates.length > 0) {
+        return {
+            error: `[NOT_FOUND]: No exact match for "${requested}". Closest files — call the tool again with the full path:\n${resolved.candidates.join("\n")}`,
+        };
+    }
+    return {
+        error: `[NOT_FOUND]: "${requested}" is not in the workspace. Call list_files(".") to see the real paths, then retry.`,
+    };
+}
+
 /** Remove accidental JSON-stringification some models produce for write_to_file content. */
 function sanitizeContent(content: string): string {
     if (!content) return "";
@@ -62,22 +96,31 @@ export async function executeAgentTool({ userId, cwd, toolName, args }: ExecuteT
     try {
         switch (toolName) {
             case "read_file": {
-                const content = await vfs.readFile(userId, args[0], cwd);
-                const result = `[FILE_CONTENT: ${args[0]}]:\n${truncateMiddle(content, 12_000)}${content.length > 12_000 ? "\n[NOTE]: File truncated. Use read_file_chunk for exact sections." : ""}`;
+                const resolved = await resolvePathOrError(userId, args[0]);
+                if ("error" in resolved) return { result: resolved.error };
+                const content = await vfs.readFile(userId, resolved.path, cwd);
+                const note = resolved.path !== normalizeRequested(args[0])
+                    ? `[RESOLVED]: "${args[0]}" → ${resolved.path}\n`
+                    : "";
+                const result = `${note}[FILE_CONTENT: ${resolved.path}]:\n${truncateMiddle(content, 12_000)}${content.length > 12_000 ? "\n[NOTE]: File truncated. Use read_file_chunk for exact sections." : ""}`;
                 return { result };
             }
 
             case "read_file_chunk": {
+                const resolved = await resolvePathOrError(userId, args[0]);
+                if ("error" in resolved) return { result: resolved.error };
                 const start = parseInt(args[1]) || 0;
                 const end = parseInt(args[2]) || 100;
-                const content = await vfs.readFile(userId, args[0], cwd);
+                const content = await vfs.readFile(userId, resolved.path, cwd);
                 const lines = content.split("\n");
                 const chunk = lines.slice(start - 1, end).join("\n");
-                return { result: `[FILE_CHUNK_LINES_${start}_TO_${end}]:\n${truncateMiddle(chunk, 12_000)}` };
+                return { result: `[FILE_CHUNK_LINES_${start}_TO_${end} of ${resolved.path}]:\n${truncateMiddle(chunk, 12_000)}` };
             }
 
             case "apply_patch": {
-                const filePath = args[0];
+                const resolved = await resolvePathOrError(userId, args[0]);
+                if ("error" in resolved) return { result: resolved.error };
+                const filePath = resolved.path;
                 const snippet = args[1];
                 const originalContent = await vfs.readFile(userId, filePath, cwd);
 
@@ -114,7 +157,15 @@ export async function executeAgentTool({ userId, cwd, toolName, args }: ExecuteT
             case "list_files": {
                 const dir = args[0] || ".";
                 const files = await vfs.listFiles(userId, dir, cwd);
-                return { result: `[FILES]:\n${files.join("\n")}` };
+                if (files.length > 0) {
+                    return { result: `[FILES under ${dir}]:\n${files.join("\n")}` };
+                }
+                // Empty usually means the directory name is wrong — show the whole
+                // workspace so the model can correct itself instead of retrying blind.
+                const all = await vfs.listFiles(userId, ".", cwd);
+                return {
+                    result: `[FILES]: nothing under "${dir}". Full workspace (${all.length} files):\n${all.slice(0, 200).join("\n")}`,
+                };
             }
 
             case "execute_command": {

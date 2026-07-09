@@ -10,21 +10,33 @@ interface AgentPromptContext {
 }
 
 const TOOL_CONTRACT = `
-## Internal tool format
-Use exactly one or more private tool calls only when needed:
-<tool_code>call:tool_name(arg1, arg2)</tool_code>
+## Tools
+To act on the project, emit a tool call as literally this, on its own line:
+<tool_code>tool_name("arg1", "arg2")</tool_code>
+
+Rules:
+- Use POSITIONAL, quoted string arguments. Do NOT write named args like path=... or dir=...
+- Paths are workspace-relative (e.g. "src/app/page.tsx"), never absolute and never prefixed with a drive or leading slash.
+- One turn may contain several tool calls; results come back as [TOOL_OUTPUT] messages before your next turn.
+- If you don't know a file's exact path, call list_files(".") FIRST — do not guess repeatedly.
+- If a call returns [NOT_FOUND] with candidate paths, retry with one of those exact paths. If it returns the workspace listing, pick the real path from it.
+- To edit a file you have not read this session, read it first, then apply_patch (smallest change) or write_to_file (full new contents).
 
 Available tools:
-- list_files(dir)
-- read_file(path)
-- read_file_chunk(path, startLine, endLine)
-- apply_patch(path, exactSnippetOrPatch)
-- write_to_file(path, rawCompleteContent)
-- execute_command(command)
-- search_files(pattern)
-- grep_search(query)
+- list_files("dir")                      list files under a directory ("." = whole project)
+- read_file("path")                      read a whole file
+- read_file_chunk("path", start, end)    read lines start..end
+- apply_patch("path", "exactSnippet")    replace the given snippet in the file
+- write_to_file("path", "fullContents")  create or overwrite a file with complete contents
+- search_files("namePattern")            find files by name
+- grep_search("text")                    find text across files
+- execute_command("cmd")                 run a safe shell command
 
-Never expose tool calls, XML tags, hidden chain-of-thought, or [TOOL_OUTPUT] markers in user-facing text.
+Examples:
+<tool_code>list_files(".")</tool_code>
+<tool_code>read_file("landing-page-7/index.html")</tool_code>
+
+Never expose tool calls, XML tags, hidden reasoning, or [TOOL_OUTPUT] markers in the prose you show the user.
 `.trim();
 
 export function buildAgentSystemPrompt(context: AgentPromptContext): string {
