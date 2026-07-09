@@ -133,7 +133,13 @@ export function ApiKeyManager() {
             });
 
             if (res.ok) {
-                toast("API key saved and verified", "success");
+                const data = await res.json().catch(() => ({ verified: true }));
+                toast(
+                    data?.verified === false
+                        ? "API key saved (couldn't verify right now — it'll be used as-is)"
+                        : "API key saved and verified",
+                    "success",
+                );
                 setApiKey("");
                 setCustomBaseUrl("");
                 setCustomModelId("");
@@ -141,7 +147,7 @@ export function ApiKeyManager() {
                 setShowKey(false);
                 fetchStatus();
             } else {
-                const err = await res.json();
+                const err = await res.json().catch(() => ({}));
                 toast(err.error || "Failed to save API key", "error");
             }
         } catch {

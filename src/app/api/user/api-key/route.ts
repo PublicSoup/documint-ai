@@ -29,16 +29,6 @@ const saveKeySchema = z.object({
     modelId: z.string().trim().min(1).max(120).optional(),
 }).strict();
 
-const PROVIDER_LABELS: Record<(typeof AI_KEY_PROVIDERS)[number], string> = {
-    google: "Google AI",
-    anthropic: "Anthropic",
-    openai: "OpenAI",
-    xai: "xAI",
-    deepseek: "DeepSeek",
-    openrouter: "OpenRouter",
-    custom: "custom provider",
-};
-
 /**
  * GET /api/user/api-key
  * Returns which providers have a saved API key (never exposes the keys themselves).
@@ -93,17 +83,45 @@ export async function POST(req: NextRequest) {
             storedValue = JSON.stringify({ apiKey, baseUrl, modelId });
         }
 
-        const validation = await validateProviderApiKey(provider, storedValue);
-        if (!validation.valid) {
-            return NextResponse.json(
-                { error: validation.error || `Invalid ${PROVIDER_LABELS[provider]} API key` },
-                { status: 400 }
-            );
+        // Verify the key, but never let a flaky/slow live check block the save —
+        // a valid key can fail verification (no credits, model access, network),
+        // and blocking left users unable to save at all. Bounded so it can't hang.
+        let verified = false;
+        let verifyError: string | undefined;
+        try {
+            const validation = await Promise.race([
+                validateProviderApiKey(provider, storedValue),
+                new Promise<{ valid: boolean; error?: string }>((resolve) =>
+                    setTimeout(() => resolve({ valid: false, error: "verification timed out" }), 12_000),
+                ),
+            ]);
+            verified = validation.valid;
+            verifyError = validation.error;
+        } catch (e) {
+            verifyError = e instanceof Error ? e.message : "verification failed";
         }
 
-        await saveUserApiKey(session.user.id, provider, storedValue);
+        try {
+            await saveUserApiKey(session.user.id, provider, storedValue);
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : "Unknown error";
+            // Storing BYO keys requires ENCRYPTION_KEY (a 64-hex-char secret). If
+            // it's missing/misconfigured, saving throws — surface that precisely so
+            // the operator can fix the env var instead of chasing a generic 500.
+            if (/ENCRYPTION_KEY/i.test(msg)) {
+                return NextResponse.json(
+                    { error: "Server can't store API keys: ENCRYPTION_KEY is not set (needs a 64-hex-character value). Set it in the deployment env and redeploy." },
+                    { status: 500 }
+                );
+            }
+            return NextResponse.json({ error: `Could not save API key: ${msg}` }, { status: 500 });
+        }
 
-        return NextResponse.json({ success: true });
+        return NextResponse.json({
+            success: true,
+            verified,
+            warning: verified ? undefined : `Saved, but couldn't verify the key right now${verifyError ? ` (${verifyError})` : ""}. It'll be used as-is.`,
+        });
     } catch (error) {
         return errorResponse(error);
     }
