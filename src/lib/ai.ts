@@ -141,7 +141,7 @@ function getModel(modelName: string = "google/gemini-2.0-flash") {
         throw new Error("Custom Provider is not configured. Open API Keys and add your endpoint, model ID, and key first.");
     }
     if (modelName.startsWith("openrouter/")) {
-        throw new Error("OpenRouter is not configured. Open API Keys and add your OpenRouter key and a model ID first.");
+        throw new Error("No OpenRouter API key found on your account. Open API Keys → OpenRouter, paste your sk-or-v1-… key, and Save — then try again.");
     }
 
     if (gatewayProvider) {

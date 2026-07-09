@@ -244,6 +244,8 @@ export function AIChatPanel({
     const [reasoningEffort, setReasoningEffort] = useState<"low" | "medium">("low");
     const [autoFixErrors, setAutoFixErrors] = useState(true);
     const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+    // null = not yet checked; true/false = whether an OpenRouter key is saved.
+    const [hasOpenRouterKey, setHasOpenRouterKey] = useState<boolean | null>(null);
 
     useEffect(() => {
         // Restore the last model only if it's still selectable. Don't strand the
@@ -280,6 +282,25 @@ export function AIChatPanel({
     };
 
     const isOpenRouter = selectedModel === OPENROUTER_PICKER_ID;
+
+    // Know whether an OpenRouter key is actually saved so we can prompt inline
+    // instead of failing on send with a confusing server error. Re-checks when
+    // OpenRouter becomes the provider and after the API Keys dialog closes.
+    useEffect(() => {
+        if (!isOpenRouter || showApiKeyModal) return;
+        let cancelled = false;
+        fetch("/api/user/api-key", { credentials: "include" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data) => {
+                if (!cancelled) setHasOpenRouterKey(Boolean(data?.usage?.providers?.openrouter));
+            })
+            .catch(() => {
+                if (!cancelled) setHasOpenRouterKey(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpenRouter, showApiKeyModal]);
 
     const handleReasoningEffortChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const val = e.target.value === "medium" ? "medium" : "low";
@@ -754,9 +775,16 @@ export function AIChatPanel({
         const messageToSend = customInput || input;
         if (!messageToSend.trim() || loading) return;
 
-        if (selectedModel === OPENROUTER_PICKER_ID && !openRouterModel) {
-            toast("Pick an OpenRouter model first (next to the model selector).", "error");
-            return;
+        if (selectedModel === OPENROUTER_PICKER_ID) {
+            if (hasOpenRouterKey === false) {
+                toast("Add your OpenRouter API key first (API Keys → OpenRouter).", "error");
+                setShowApiKeyModal(true);
+                return;
+            }
+            if (!openRouterModel) {
+                toast("Pick an OpenRouter model first (next to the model selector).", "error");
+                return;
+            }
         }
         // OpenRouter's concrete model is chosen separately; everything else uses
         // the picker value directly.
@@ -915,7 +943,7 @@ export function AIChatPanel({
             inputRef.current?.focus();
             if (onAgentAction) onAgentAction(null);
         }
-    }, [input, loading, activeFileId, activeFileContent, allFiles, allFileContents, onAgentAction, messages, selectedModel, openRouterModel, reasoningEffort, autoFixErrors, handleAgentEvent, toast]);
+    }, [input, loading, activeFileId, activeFileContent, allFiles, allFileContents, onAgentAction, messages, selectedModel, openRouterModel, hasOpenRouterKey, reasoningEffort, autoFixErrors, handleAgentEvent, toast]);
 
     useEffect(() => {
         if (!autoFixErrors || loading || runtimeErrorLines.length === 0) return;
@@ -1118,12 +1146,23 @@ export function AIChatPanel({
 
                     {/* OpenRouter model picker — only when OpenRouter is the provider. */}
                     {isOpenRouter && (
-                        <div className="flex items-center gap-2">
-                            <label className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-indigo-300/50">
-                                Model
-                            </label>
-                            <OpenRouterModelPicker value={openRouterModel} onChange={handleOpenRouterModelChange} />
-                        </div>
+                        hasOpenRouterKey === false ? (
+                            <button
+                                type="button"
+                                onClick={() => setShowApiKeyModal(true)}
+                                className="flex w-full items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-left text-xs text-amber-300 transition-colors hover:bg-amber-500/20"
+                            >
+                                <Key className="h-3.5 w-3.5 shrink-0" />
+                                No OpenRouter key saved — click to add one, then pick a model.
+                            </button>
+                        ) : (
+                            <div className="flex items-center gap-2">
+                                <label className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-indigo-300/50">
+                                    Model
+                                </label>
+                                <OpenRouterModelPicker value={openRouterModel} onChange={handleOpenRouterModelChange} />
+                            </div>
+                        )
                     )}
 
                     <div className="flex items-center gap-2">
