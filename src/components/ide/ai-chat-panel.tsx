@@ -1091,8 +1091,10 @@ export function AIChatPanel({
                     />
 
                     <Dialog open={showApiKeyModal} onOpenChange={setShowApiKeyModal}>
-                        <DialogContent className="glass-card border-white/10 bg-zinc-950 max-w-lg max-h-[85vh] overflow-y-auto custom-scrollbar">
-                            <DialogHeader>
+                        {/* Header + close button stay fixed; only the body scrolls,
+                            so the X is always reachable no matter how tall the content. */}
+                        <DialogContent className="glass-card border-white/10 bg-zinc-950 max-w-lg max-h-[85vh] flex flex-col p-0 overflow-hidden">
+                            <DialogHeader className="p-6 pb-4 shrink-0">
                                 <DialogTitle className="text-white flex items-center gap-2">
                                     <KeyRound className="w-4 h-4 text-primary" />
                                     API Keys
@@ -1102,16 +1104,18 @@ export function AIChatPanel({
                                     OpenAI-compatible endpoint — to run models on your own account, without plan limits.
                                 </DialogDescription>
                             </DialogHeader>
-                            <ApiKeyManager />
-                            <div className="pt-2 border-t border-white/[0.06] space-y-3">
-                                <div>
-                                    <h3 className="text-sm font-medium text-white">Run a model on this device</h3>
-                                    <p className="text-xs text-zinc-500 mt-0.5">
-                                        Point at LM Studio, Ollama, or any local OpenAI-compatible server. The full
-                                        agent runs on it too — file edits, search, and commands all still work.
-                                    </p>
+                            <div className="flex-1 overflow-y-auto custom-scrollbar px-6 pb-6 space-y-6">
+                                <ApiKeyManager />
+                                <div className="pt-2 border-t border-white/[0.06] space-y-3">
+                                    <div>
+                                        <h3 className="text-sm font-medium text-white">Run a model on this device</h3>
+                                        <p className="text-xs text-zinc-500 mt-0.5">
+                                            Point at LM Studio, Ollama, or any local OpenAI-compatible server. The full
+                                            agent runs on it too — file edits, search, and commands all still work.
+                                        </p>
+                                    </div>
+                                    <LocalModelSettings />
                                 </div>
-                                <LocalModelSettings />
                             </div>
                         </DialogContent>
                     </Dialog>
