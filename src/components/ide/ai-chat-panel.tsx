@@ -25,7 +25,7 @@ import { ThinkingProcess } from "./thinking-process";
 import { AVAILABLE_MODELS } from "@/lib/ai-models";
 import { parseAgentEvent, type AgentEvent } from "@/lib/agent/events";
 import { getRuntimeErrorFingerprint, type RuntimeLogLine, type RuntimeErrorSummary } from "@/lib/ide/runtime-events";
-import { getLocalModelConfig } from "@/lib/local-model";
+import { getLocalModelConfig, hasLocalModelConfig } from "@/lib/local-model";
 import { runLocalAgent } from "@/lib/local-agent";
 import { OpenRouterModelPicker } from "./openrouter-model-picker";
 
@@ -246,11 +246,15 @@ export function AIChatPanel({
     const [showApiKeyModal, setShowApiKeyModal] = useState(false);
 
     useEffect(() => {
-        // Only restore a stored model if it's still a valid option — the model
-        // list is Gemini-only now, so a previously selected non-Google model
-        // would otherwise be sent and rejected by the API.
+        // Restore the last model only if it's still selectable. Don't strand the
+        // user on "Local Model" from a one-off test when no local server is
+        // configured (common on Safari, which can't reach localhost at all) —
+        // fall back to the default cloud model so the chat still works.
         const stored = localStorage.getItem("documint_model");
-        if (stored && (stored === LOCAL_MODEL_ID || AVAILABLE_MODELS.some((m) => m.id === stored))) {
+        if (stored === LOCAL_MODEL_ID) {
+            if (hasLocalModelConfig()) setSelectedModel(LOCAL_MODEL_ID);
+            else localStorage.removeItem("documint_model");
+        } else if (stored && AVAILABLE_MODELS.some((m) => m.id === stored)) {
             setSelectedModel(stored);
         }
 

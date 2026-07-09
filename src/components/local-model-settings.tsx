@@ -38,8 +38,14 @@ export function LocalModelSettings() {
             setBaseUrl(existing.baseUrl);
             setModelId(existing.modelId);
             setApiKey(existing.apiKey);
+            // Populate the loaded-model dropdown so the user can switch models
+            // (e.g. between multiple Qwen sizes) without re-testing by hand.
+            void runTest(existing);
         }
     }, []);
+
+    /** Chat-capable models only — hide embedding models, which can't answer. */
+    const chatModels = availableModels.filter((id) => !/embed/i.test(id));
 
     const runTest = async (config: LocalModelConfig) => {
         setConnState("testing");
@@ -144,23 +150,32 @@ export function LocalModelSettings() {
             </div>
             <div className="space-y-1">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                    Model ID <span className="normal-case font-normal text-zinc-600">(optional — most local servers ignore this and serve whatever's loaded)</span>
+                    Model{" "}
+                    <span className="normal-case font-normal text-zinc-600">
+                        {chatModels.length > 1
+                            ? "— you have several models loaded; pick which one to use"
+                            : "(which loaded model to use; leave blank to let the server choose)"}
+                    </span>
                 </label>
+                {chatModels.length > 0 && (
+                    <select
+                        value={chatModels.includes(modelId) ? modelId : ""}
+                        onChange={(e) => setModelId(e.target.value)}
+                        className="w-full bg-black/20 border border-white/10 rounded-md px-2.5 py-2 font-mono text-sm text-white outline-none focus:border-indigo-500/50"
+                    >
+                        <option value="">Server default (whatever&apos;s loaded)</option>
+                        {chatModels.map((id) => (
+                            <option key={id} value={id}>{id}</option>
+                        ))}
+                    </select>
+                )}
                 <Input
                     type="text"
-                    placeholder="e.g. llama-3.1-8b-instruct"
+                    placeholder={chatModels.length > 0 ? "…or type a model id" : "e.g. qwen/qwen3-8b (blank = server default)"}
                     value={modelId}
                     onChange={(e) => setModelId(e.target.value)}
-                    list="local-model-suggestions"
                     className="bg-black/20 border-white/10 font-mono text-sm"
                 />
-                {availableModels.length > 0 && (
-                    <datalist id="local-model-suggestions">
-                        {availableModels.map((id) => (
-                            <option key={id} value={id} />
-                        ))}
-                    </datalist>
-                )}
             </div>
             <div className="space-y-1">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
