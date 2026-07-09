@@ -26,6 +26,7 @@ import {
     MAX_TOOL_RETRIES,
     MAX_TURNS,
     isAgentToolName,
+    normalizeConversation,
     parseToolCalls,
     sanitizeAgentResponse,
     shouldShowToolResult,
@@ -124,9 +125,18 @@ export async function* runLocalAgent(params: RunLocalAgentParams): AsyncGenerato
         turns++;
         yield { type: "thought", content: "Thinking..." };
 
+        // Strip DocuMint's own UI-only bubbles (the greeting, and any "⚠️ Error"
+        // notices from earlier failed attempts) — they aren't real model turns
+        // and would otherwise leave the conversation starting with an assistant
+        // message, which strict local templates reject.
+        const conversation = normalizeConversation(
+            compactAgentMessages(messages).filter(
+                (m) => !(m.role === "assistant" && /^\s*(👋|⚠️)/.test(m.content)),
+            ),
+        );
         const promptMessages: AIMessage[] = [
             { role: "system", content: systemPrompt },
-            ...compactAgentMessages(messages),
+            ...conversation,
         ];
 
         let response: string;

@@ -136,6 +136,38 @@ export function sanitizeAgentResponse(response: string): string {
     return cleaned;
 }
 
+export interface ChatTurn {
+    role: "system" | "user" | "assistant";
+    content: string;
+}
+
+/**
+ * Normalize a conversation for a strict local chat template. Many local models
+ * (Qwen among them) render prompts with a jinja template that rejects a leading
+ * assistant turn — throwing "No user query found in messages." — or requires
+ * user/assistant turns to strictly alternate. Cloud models tolerate a looser
+ * shape, but local ones don't, so before sending we:
+ *   - drop system + empty messages (the system prompt is supplied separately),
+ *   - drop any leading non-user turns so the conversation starts with a user
+ *     message (this removes the UI greeting/error bubbles), and
+ *   - merge consecutive same-role turns so roles strictly alternate.
+ */
+export function normalizeConversation(messages: ChatTurn[]): ChatTurn[] {
+    const cleaned = messages.filter((m) => m.role !== "system" && m.content.trim().length > 0);
+    while (cleaned.length > 0 && cleaned[0].role !== "user") cleaned.shift();
+
+    const out: ChatTurn[] = [];
+    for (const m of cleaned) {
+        const last = out[out.length - 1];
+        if (last && last.role === m.role) {
+            last.content = `${last.content}\n\n${m.content}`;
+        } else {
+            out.push({ role: m.role, content: m.content });
+        }
+    }
+    return out;
+}
+
 /** Whether a tool result is worth showing in the "thinking" trace, or safe to hide as noise. */
 export function shouldShowToolResult(toolName: string, result: string): boolean {
     if (result.includes("[ERROR]") || result.includes("[EXCEPTION]") || result.includes("[MAX_RETRIES]")) {
