@@ -9,8 +9,10 @@ import {
     DEFAULT_LOCAL_MODEL_BASE_URL,
     clearLocalModelConfig,
     getLocalModelConfig,
+    probeLocalModelServers,
     saveLocalModelConfig,
     testLocalModelConnection,
+    type DetectedLocalServer,
     type LocalModelConfig,
 } from "@/lib/local-model";
 
@@ -24,6 +26,7 @@ export function LocalModelSettings() {
     const [saved, setSaved] = useState<LocalModelConfig | null>(null);
     const [connState, setConnState] = useState<ConnState>("idle");
     const [connError, setConnError] = useState<string | null>(null);
+    const [detected, setDetected] = useState<DetectedLocalServer[]>([]);
     const [availableModels, setAvailableModels] = useState<string[]>([]);
     const [showHelp, setShowHelp] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -41,6 +44,7 @@ export function LocalModelSettings() {
     const runTest = async (config: LocalModelConfig) => {
         setConnState("testing");
         setConnError(null);
+        setDetected([]);
         const result = await testLocalModelConnection(config);
         if (result.ok) {
             setConnState("ok");
@@ -48,6 +52,9 @@ export function LocalModelSettings() {
         } else {
             setConnState("error");
             setConnError(result.error ?? "Could not connect.");
+            // The wrong port is by far the most common miss — scan the ports the
+            // popular local servers use and offer any that answer as a one-click fix.
+            setDetected(await probeLocalModelServers(config.baseUrl));
         }
         return result;
     };
@@ -210,13 +217,41 @@ export function LocalModelSettings() {
             {connState === "error" && connError && (
                 <p className="text-[11px] text-red-400">{connError}</p>
             )}
+            {connState === "error" && detected.length > 0 && (
+                <div className="space-y-1.5 rounded-md border border-emerald-500/25 bg-emerald-500/5 p-2.5">
+                    <p className="text-[11px] font-medium text-emerald-300">
+                        A local server IS running — just not at the address above:
+                    </p>
+                    {detected.map((hit) => (
+                        <button
+                            key={hit.baseUrl}
+                            type="button"
+                            onClick={() => {
+                                setBaseUrl(hit.baseUrl);
+                                void runTest({ baseUrl: hit.baseUrl, modelId: modelId.trim(), apiKey: apiKey.trim() });
+                            }}
+                            className="flex w-full items-center gap-2 rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1.5 text-left font-mono text-[11px] text-emerald-200 transition-colors hover:bg-emerald-500/20"
+                        >
+                            <span className="truncate">{hit.baseUrl}</span>
+                            {hit.models.length > 0 && (
+                                <span className="ml-auto shrink-0 text-emerald-400/70">
+                                    {hit.models.length} model{hit.models.length === 1 ? "" : "s"}
+                                </span>
+                            )}
+                            <span className="shrink-0 font-sans font-medium">Use →</span>
+                        </button>
+                    ))}
+                </div>
+            )}
 
             {showHelp && (
                 <div className="space-y-2 rounded-md border border-white/5 bg-white/[0.02] p-3 text-[11px] leading-relaxed text-zinc-400">
                     <p>
                         <strong className="text-zinc-300">LM Studio:</strong> open the Developer tab, start the
-                        Local Server, and enable CORS (required — browsers block cross-origin requests otherwise).
-                        The default address is <code className="text-zinc-300">http://localhost:1234/v1</code>.
+                        Local Server, and turn on <strong className="text-zinc-300">Enable CORS</strong> — it&apos;s a
+                        separate setting from &ldquo;Serve on Local Network&rdquo;, and it&apos;s the one that matters
+                        here. Use the exact address LM Studio prints (default{" "}
+                        <code className="text-zinc-300">http://localhost:1234/v1</code> — note the port).
                     </p>
                     <p>
                         <strong className="text-zinc-300">Ollama:</strong> start it with{" "}
@@ -224,8 +259,9 @@ export function LocalModelSettings() {
                         then use <code className="text-zinc-300">http://localhost:11434/v1</code>.
                     </p>
                     <p>
-                        Only works while that server is running on this device and this browser tab is open — it
-                        is never reachable from a different machine or browser.
+                        No tunnel or port-forwarding needed — requests go from this browser to the server on the
+                        same machine. If the browser asks for permission to access your local network, allow it.
+                        Only works while that server is running on this device and this browser tab is open.
                     </p>
                     <p>
                         The agent&apos;s tool calls are plain text instructions, not the OpenAI function-calling

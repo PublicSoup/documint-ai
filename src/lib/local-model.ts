@@ -79,11 +79,6 @@ export function clearLocalModelConfig(): void {
     window.localStorage.removeItem(STORAGE_KEY);
 }
 
-const UNREACHABLE_HINT =
-    "Make sure the local server is running, the address/port is correct, and CORS is enabled " +
-    "(LM Studio: Developer tab → Local Server → enable “Serve on Local Network”/CORS. " +
-    "Ollama: start it with OLLAMA_ORIGINS=* set).";
-
 function isLoopbackOrPrivate(baseUrl: string): boolean {
     try {
         const host = new URL(baseUrl).hostname;
@@ -103,33 +98,84 @@ function isLoopbackOrPrivate(baseUrl: string): boolean {
 }
 
 /**
- * Build a reachability error tuned to the most likely cause. The failure mode
- * that trips people up most is a *deployed HTTPS* page trying to reach a plain
- * `http://localhost` server: Chrome's Private Network Access protection blocks
- * that even when the server is up and CORS is on, and it surfaces as a generic
- * fetch failure. Call that out explicitly instead of blaming the server.
+ * Build a reachability error that walks the likely causes in order. In
+ * practice the #1 cause is simply a wrong port (LM Studio defaults to 1234,
+ * Ollama to 11434), then the CORS toggle (which in LM Studio is a separate
+ * setting from "Serve on Local Network"). The hosted-HTTPS-page → local
+ * http:// server restriction comes last because it is usually NOT fatal:
+ * browsers treat localhost as a trusted target, and Chrome asks for a
+ * local-network permission rather than hard-blocking.
  */
 function unreachableMessage(baseUrl: string): string {
+    let pathname: string;
+    try {
+        pathname = new URL(baseUrl).pathname.replace(/\/$/, "");
+    } catch {
+        return `Could not reach ${baseUrl} — that doesn't look like a valid URL. Expected something like ${DEFAULT_LOCAL_MODEL_BASE_URL}.`;
+    }
+
     const onHttps = typeof window !== "undefined" && window.location.protocol === "https:";
     const targetIsHttp = baseUrl.startsWith("http://");
-    const missingVersionPath = !/\/v\d+$/.test(new URL(baseUrl).pathname.replace(/\/$/, "") || "") &&
-        !baseUrl.includes("/v1");
+    const missingVersionPath = !/\/v\d+$/.test(pathname);
 
-    const parts = [`Could not reach ${baseUrl}.`];
+    const parts = [
+        `Could not reach ${baseUrl}.`,
+        "Double-check the address — LM Studio prints its server URL in the Developer tab " +
+        `(default ${DEFAULT_LOCAL_MODEL_BASE_URL} — note the port), Ollama uses http://localhost:11434/v1` +
+        (missingVersionPath ? ", and the path usually needs to end in /v1" : "") +
+        ".",
+        "Make sure CORS is on: in LM Studio that's the “Enable CORS” toggle (a separate setting from " +
+        "“Serve on Local Network”); for Ollama set OLLAMA_ORIGINS=*.",
+    ];
 
     if (onHttps && targetIsHttp && isLoopbackOrPrivate(baseUrl)) {
         parts.push(
-            "You're on the hosted (HTTPS) site, and browsers block an HTTPS page from calling a local " +
-            "http://localhost server — even with CORS on. Either run DocuMint locally over http://localhost, " +
-            "or expose your model server over HTTPS (e.g. an ngrok/Cloudflare tunnel) and use that URL.",
+            "If the address and CORS are both right, your browser may be stopping this HTTPS site from " +
+            "calling a local http:// server — allow the local-network permission prompt if one appears. " +
+            "If it's blocked outright, run DocuMint locally or expose the server via an HTTPS tunnel.",
         );
-    } else if (missingVersionPath) {
-        parts.push(`The URL usually needs to end in /v1 (e.g. ${baseUrl}/v1). ${UNREACHABLE_HINT}`);
-    } else {
-        parts.push(UNREACHABLE_HINT);
     }
 
     return parts.join(" ");
+}
+
+/** Which PNA address space a target belongs to, for Chrome's fetch hint. */
+function targetAddressSpaceFor(baseUrl: string): "local" | "private" | null {
+    try {
+        const host = new URL(baseUrl).hostname;
+        if (host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "0.0.0.0") return "local";
+        if (
+            /^10\./.test(host) || /^192\.168\./.test(host) ||
+            /^172\.(1[6-9]|2\d|3[01])\./.test(host) || host.endsWith(".local")
+        ) {
+            return "private";
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * fetch() with Chrome's `targetAddressSpace` hint attached when a hosted
+ * HTTPS page is calling a plaintext-HTTP local/private server. The hint is
+ * what makes the browser show a local-network permission prompt instead of
+ * silently blocking the request. Browsers that don't know the option ignore
+ * it; if the call still rejects we retry once without the hint so an
+ * unsupported enum value can never be the reason a request fails.
+ */
+async function localFetch(url: string, init: RequestInit, baseUrl: string): Promise<Response> {
+    const onHttps = typeof window !== "undefined" && window.location.protocol === "https:";
+    const space = onHttps && baseUrl.startsWith("http://") ? targetAddressSpaceFor(baseUrl) : null;
+    if (space) {
+        try {
+            return await fetch(url, { ...init, targetAddressSpace: space } as RequestInit);
+        } catch (e) {
+            if (e instanceof DOMException && (e.name === "AbortError" || e.name === "TimeoutError")) throw e;
+            // Fall through and retry plain — covers browsers that reject the hint.
+        }
+    }
+    return fetch(url, init);
 }
 
 export interface LocalModelTestResult {
@@ -149,19 +195,63 @@ export async function testLocalModelConnection(config: LocalModelConfig): Promis
     if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
 
     try {
-        const res = await fetch(`${baseUrl}/models`, { headers, signal: AbortSignal.timeout(6000) });
+        const res = await localFetch(`${baseUrl}/models`, { headers, signal: AbortSignal.timeout(6000) }, baseUrl);
         if (!res.ok) {
             return { ok: false, models: [], error: `Server responded with HTTP ${res.status}.` };
         }
         const data = (await res.json().catch(() => null)) as { data?: Array<{ id?: string }> } | null;
         const models = (data?.data ?? []).map((m) => m.id).filter((id): id is string => Boolean(id));
         return { ok: true, models };
-    } catch (e) {
-        if (e instanceof DOMException && e.name === "TimeoutError") {
-            return { ok: false, models: [], error: `Timed out reaching ${baseUrl}. ${UNREACHABLE_HINT}` };
-        }
+    } catch {
         return { ok: false, models: [], error: unreachableMessage(baseUrl) };
     }
+}
+
+/** Addresses the popular local model servers listen on, most common first. */
+const PROBE_CANDIDATE_URLS = [
+    "http://localhost:1234/v1",  // LM Studio default
+    "http://127.0.0.1:1234/v1",  // LM Studio, when localhost resolution misbehaves
+    "http://localhost:11434/v1", // Ollama
+    "http://localhost:8080/v1",  // llama.cpp server
+];
+
+export interface DetectedLocalServer {
+    baseUrl: string;
+    models: string[];
+}
+
+/**
+ * Probe the well-known local model server ports and report any that answer
+ * `/models`. Used by the settings UI after a failed connection test — the
+ * most common failure is simply a wrong port, and this turns "could not
+ * reach" into "…but there IS a server at :1234, use that?".
+ */
+export async function probeLocalModelServers(excludeBaseUrl?: string): Promise<DetectedLocalServer[]> {
+    const exclude = excludeBaseUrl ? normalizeBaseUrl(excludeBaseUrl) : null;
+    const candidates = PROBE_CANDIDATE_URLS.filter((url) => url !== exclude);
+
+    const results = await Promise.all(candidates.map(async (baseUrl) => {
+        try {
+            const res = await localFetch(`${baseUrl}/models`, { signal: AbortSignal.timeout(2500) }, baseUrl);
+            if (!res.ok) return null;
+            const data = (await res.json().catch(() => null)) as { data?: Array<{ id?: string }> } | null;
+            const models = (data?.data ?? []).map((m) => m.id).filter((id): id is string => Boolean(id));
+            return { baseUrl, models };
+        } catch {
+            return null;
+        }
+    }));
+
+    // localhost and 127.0.0.1 on the same port are the same server — keep the first hit per port.
+    const seenPorts = new Set<string>();
+    return results
+        .filter((hit): hit is DetectedLocalServer => hit !== null)
+        .filter((hit) => {
+            const port = new URL(hit.baseUrl).port;
+            if (seenPorts.has(port)) return false;
+            seenPorts.add(port);
+            return true;
+        });
 }
 
 export interface StreamLocalChatOptions {
@@ -190,7 +280,7 @@ export async function streamLocalChatCompletion(
 
     let response: Response;
     try {
-        response = await fetch(`${baseUrl}/chat/completions`, {
+        response = await localFetch(`${baseUrl}/chat/completions`, {
             method: "POST",
             headers,
             body: JSON.stringify({
@@ -200,7 +290,7 @@ export async function streamLocalChatCompletion(
                 temperature: options.temperature ?? 0.4,
             }),
             signal: options.signal,
-        });
+        }, baseUrl);
     } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") throw e;
         throw new Error(unreachableMessage(baseUrl));
