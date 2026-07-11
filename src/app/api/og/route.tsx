@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { z } from "zod";
 import { errorResponse, ApiErrors } from "@/lib/api-utils";
 import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
@@ -30,11 +30,9 @@ export async function GET(req: NextRequest) {
 
         const { title, desc } = params.data;
 
-        // @vercel/og is not available on Cloudflare Workers — fallback to redirect
-        if (!process.env.VERCEL) {
-            return NextResponse.redirect(new URL("/og-image.png", req.url), 307);
-        }
-
+        // @vercel/og runs on Vercel and Node (local/serverless). On runtimes
+        // that can't load it (e.g. Cloudflare Workers) the import throws and the
+        // outer catch handles it gracefully.
         const { ImageResponse } = await import("@vercel/og");
 
         return new ImageResponse(

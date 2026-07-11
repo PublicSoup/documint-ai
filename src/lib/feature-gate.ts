@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { hasFeatureAccess } from "@/lib/subscription";
 
-export type FeatureType = "analytics" | "changelog" | "smartSuggestions" | "auditLog" | "customTemplates" | "prioritySupport" | "diagramGenerator" | "rulesetGenerator" | "aiArchitect" | "codeExplain";
+export type FeatureType = "analytics" | "changelog" | "smartSuggestions" | "auditLog" | "customTemplates" | "prioritySupport" | "diagramGenerator" | "rulesetGenerator" | "aiArchitect" | "codeExplain" | "autoCodeReview";
 
 /**
  * Middleware helper to check feature access
@@ -30,9 +30,10 @@ export async function requireFeature(feature: FeatureType): Promise<NextResponse
             rulesetGenerator: "Upgrade to Starter or Pro to generate AI IDE Rulesets",
             aiArchitect: "Upgrade to Starter or Pro to access the AI Architect",
             codeExplain: "Upgrade to Starter or Pro to use Persona-based Explanations",
+            autoCodeReview: "Upgrade to Pro or Team to enable the Automatic AI Code Reviewer",
         };
 
-        const proFeatures: FeatureType[] = ["auditLog", "customTemplates", "prioritySupport", "diagramGenerator"];
+        const proFeatures: FeatureType[] = ["auditLog", "customTemplates", "prioritySupport", "diagramGenerator", "autoCodeReview"];
 
         return NextResponse.json({
             error: "Feature not available on your plan",
@@ -138,6 +139,15 @@ export function getUpgradePrompt(feature: FeatureType) {
                 "Educational breakdowns for juniors",
                 "Concise summaries for seniors",
                 "Tailored documentation perspective",
+            ],
+        },
+        autoCodeReview: {
+            title: "Unlock the Automatic AI Code Reviewer",
+            benefits: [
+                "AI reviews every pull request automatically",
+                "Configurable security, performance & style checks",
+                "Block risky merges with a commit-status gate",
+                "Inline PR comments, Slack alerts & audit trail",
             ],
         },
     };

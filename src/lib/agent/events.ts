@@ -3,6 +3,11 @@ import { z } from "zod";
 const boundedText = (max: number) => z.string().max(max);
 
 export const agentEventSchema = z.discriminatedUnion("type", [
+    z.object({
+        type: z.literal("session_meta"),
+        sessionId: boundedText(64),
+        title: boundedText(200),
+    }).strict(),
     z.object({ type: z.literal("thought"), content: boundedText(12_000) }).strict(),
     z.object({ type: z.literal("tool_call"), tool: boundedText(120), args: boundedText(8_000) }).strict(),
     z.object({ type: z.literal("tool_result"), result: boundedText(20_000) }).strict(),

@@ -16,19 +16,25 @@ export function useProjectGraph(teamId?: string) {
   const [loadingDemo, setLoadingDemo] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [toast, setToast] = useState<ArchitectureToast | null>(null);
+  // null → visualize all files; otherwise scope to a single project (top-level folder).
+  const [project, setProjectState] = useState<string | null>(null);
   const inflightRef = useRef<AbortController | null>(null);
+  const projectRef = useRef<string | null>(null);
 
   const refreshGraph = useCallback(
-    async (mode: "initial" | "refresh" = "initial") => {
+    async (mode: "initial" | "refresh" = "initial", projectOverride?: string | null) => {
       inflightRef.current?.abort();
       const controller = new AbortController();
       inflightRef.current = controller;
+
+      const scopedProject = projectOverride !== undefined ? projectOverride : projectRef.current;
 
       setIsRefreshing(true);
       setRenderError(null);
 
       try {
         const result = await getProjectGraphMermaid(teamId, {
+          project: scopedProject,
           fresh: mode === "refresh",
           signal: controller.signal,
         });
@@ -46,6 +52,16 @@ export function useProjectGraph(teamId?: string) {
       }
     },
     [teamId],
+  );
+
+  // Changing the selected project immediately refetches the scoped graph.
+  const setProject = useCallback(
+    (next: string | null) => {
+      projectRef.current = next;
+      setProjectState(next);
+      void refreshGraph("refresh", next);
+    },
+    [refreshGraph],
   );
 
   const loadDemoProject = useCallback(async () => {
@@ -83,6 +99,8 @@ export function useProjectGraph(teamId?: string) {
     return () => clearTimeout(timeout);
   }, [toast]);
 
+  const projects = graph?.isRealData === true ? graph.projects ?? [] : [];
+
   return {
     graph,
     isRefreshing,
@@ -92,5 +110,8 @@ export function useProjectGraph(teamId?: string) {
     toast,
     refreshGraph,
     loadDemoProject,
+    project,
+    setProject,
+    projects,
   };
 }

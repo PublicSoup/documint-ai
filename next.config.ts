@@ -21,9 +21,10 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  // COOP/COEP for /code are set in middleware (src/proxy.ts) because the COEP
-  // mode is browser-dependent (Safari needs require-corp, others credentialless).
-  // Setting a static value here too would emit a conflicting duplicate header.
+  // NOTE: security headers (HSTS, X-Frame-Options, X-Content-Type-Options,
+  // Referrer-Policy, Permissions-Policy, COOP/COEP/CORP and a full CSP) are set
+  // per-request in middleware (src/proxy.ts). Do not also set them here — that
+  // would emit conflicting duplicate headers.
 };
 
 export default nextConfig;

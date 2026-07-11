@@ -33,9 +33,12 @@ model User {
   reviewRequestsReceived ReviewRequest[]      @relation("ReviewReviewer")
   passwordResetTokens    PasswordResetToken[]
   agentStates            AgentState[]
+  chatSessions           ChatSession[]
   deployments            Deployment[]
   encryptedApiKey        String?               @map("encrypted_api_key") // AES-256-GCM encrypted Google API key (BYO)
   aiUsage                AiUsage[]
+  codeReviews            CodeReview[]
+  reviewPolicies         ReviewPolicy[]        @relation("PolicyOwner")
 }
 
 model Subscription {
@@ -101,6 +104,7 @@ model File {
   comments      Comment[]
   views         DocView[]
   permissions   FilePermission[]
+  codeReviews   CodeReview[]
 
   @@index([userId])
   @@index([teamId])
@@ -369,6 +373,20 @@ model AgentState {
   @@index([sessionId])
 }
 
+model ChatSession {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String   @default("New chat")
+  model     String?
+  messages  Json? // UI transcript: [{ id, role, content, thoughtSteps, timestamp }]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
+}
+
 model DocShare {
   id          String    @id @default(cuid())
   docId       String
@@ -417,4 +435,71 @@ model AiUsage {
 
   @@unique([userId, month])
   @@index([userId, month])
+}
+
+// ============================================
+// AUTO CODE REVIEWER (Enterprise)
+// ============================================
+
+// Per-repository configuration for the automatic AI code reviewer.
+model ReviewPolicy {
+  id               String   @id @default(cuid())
+  repoFullName     String   @unique // e.g. "acme/api"
+  ownerUserId      String // whose GitHub token is used to fetch diffs & post reviews
+  teamId           String? // owning team (for notifications & audit scoping)
+  enabled          Boolean  @default(true)
+  autoReview       Boolean  @default(true) // review automatically on PR open/sync
+  postComments     Boolean  @default(true) // post an inline PR review back to GitHub
+  postStatus       Boolean  @default(true) // publish a commit status merge gate
+  blockingSeverity String   @default("high") // info | low | medium | high | critical
+  checks           Json? // { security, performance, style, breaking, tests, docs }
+  ignorePaths      Json? // string[] of glob-ish path prefixes to skip
+  instructions     String?  @db.Text // extra team-specific review guidelines
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  owner User @relation("PolicyOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@index([ownerUserId])
+}
+
+// A single persisted run of the AI code reviewer. Covers three subjects:
+//   FILE    — one code file in the user's Documint project
+//   PROJECT — an aggregate review across many files
+//   PR      — a GitHub pull-request diff (webhook / manual)
+model CodeReview {
+  id           String   @id @default(cuid())
+  kind         String   @default("FILE") // FILE | PROJECT | PR
+  title        String? // file name, project name, or PR title
+  fileId       String? // set for FILE reviews
+  repoFullName String? // set for PR reviews (owner/repo)
+  prNumber     Int? // set for PR reviews
+  headSha      String?
+  status       String   @default("QUEUED") // QUEUED | RUNNING | COMPLETED | FAILED
+  verdict      String? // APPROVED | CHANGES_REQUESTED | COMMENTED
+  summary      String?  @db.Text
+  qualityScore Int      @default(0) // 0-100 overall code quality
+  grade        String? // A | B | C | D | F
+  impactScore  Int      @default(0) // 0-100 (PR blast radius)
+  riskLevel    String   @default("LOW") // LOW | MEDIUM | HIGH | CRITICAL
+  strengths    Json? // string[] of what the code does well
+  findings     Json? // structured findings array
+  blocking     Boolean  @default(false) // did a policy gate fail? (PR)
+  source       String   @default("MANUAL") // AUTO (webhook) | MANUAL (dashboard)
+  model        String?
+  error        String?  @db.Text
+  userId       String? // actor / owner
+  teamId       String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  file File? @relation(fields: [fileId], references: [id], onDelete: SetNull)
+
+  @@index([repoFullName, prNumber])
+  @@index([fileId])
+  @@index([userId])
+  @@index([teamId])
+  @@index([createdAt])
 }

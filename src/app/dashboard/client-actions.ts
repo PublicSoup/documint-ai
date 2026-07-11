@@ -51,9 +51,16 @@ export interface ProjectViews {
     mindmap: string;
 }
 
+export interface ProjectSummary {
+    name: string;
+    fileCount: number;
+}
+
 export interface RealGraphResponse {
     isRealData: true;
     mermaid: string;
+    projects?: ProjectSummary[];
+    activeProject?: string | null;
     views?: ProjectViews;
     nodeMap?: Record<string, string>;
     stats: GraphStats;
@@ -92,6 +99,8 @@ export class GraphApiError extends Error {
 interface RawGraphResponse {
     isRealData?: boolean;
     mermaid?: string;
+    projects?: ProjectSummary[];
+    activeProject?: string | null;
     views?: ProjectViews;
     stats?: GraphStats;
     files?: GraphFileSummary[];
@@ -121,6 +130,8 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
 export interface GetProjectGraphOptions {
     teamId?: string;
+    /** Scope the graph to a single project (top-level folder). Omit for all files. */
+    project?: string | null;
     fresh?: boolean;
     signal?: AbortSignal;
 }
@@ -138,6 +149,7 @@ export async function getProjectGraphMermaid(
     try {
         const params = new URLSearchParams();
         if (teamId) params.set("teamId", teamId);
+        if (options.project) params.set("project", options.project);
         if (options.fresh) params.set("fresh", "1");
         const qs = params.toString();
         const url = `/api/graph/project${qs ? `?${qs}` : ""}`;

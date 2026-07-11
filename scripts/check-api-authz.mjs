@@ -38,6 +38,11 @@ for (const file of routes) {
 
   if (!hasHandler && !usesApiHandler) continue;
 
+  // Deprecated stubs that only return HTTP 410 and never touch the database
+  // carry no data and need no auth guard — skip them.
+  const isDeprecatedStub = /\b410\b/.test(src) && !src.includes("db.") && !src.includes("prisma");
+  if (isDeprecatedStub) continue;
+
   const hasServerSessionImport = src.includes("getServerSession");
   const hasValidateAdmin = src.includes("validateAdmin(");
   const hasValidateApiKey = src.includes("validateApiKey(");

@@ -34,6 +34,83 @@ const statements = [
    )`,
   `CREATE INDEX IF NOT EXISTS "AiUsage_userId_month_idx" ON "AiUsage"("userId", "month")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "AiUsage_userId_month_key" ON "AiUsage"("userId", "month")`,
+
+  // --- Auto Code Reviewer (Enterprise) ---
+  `CREATE TABLE IF NOT EXISTS "ReviewPolicy" (
+     "id" TEXT NOT NULL,
+     "repoFullName" TEXT NOT NULL,
+     "ownerUserId" TEXT NOT NULL,
+     "teamId" TEXT,
+     "enabled" BOOLEAN NOT NULL DEFAULT true,
+     "autoReview" BOOLEAN NOT NULL DEFAULT true,
+     "postComments" BOOLEAN NOT NULL DEFAULT true,
+     "postStatus" BOOLEAN NOT NULL DEFAULT true,
+     "blockingSeverity" TEXT NOT NULL DEFAULT 'high',
+     "checks" JSONB,
+     "ignorePaths" JSONB,
+     "instructions" TEXT,
+     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     "updatedAt" TIMESTAMP(3) NOT NULL,
+     CONSTRAINT "ReviewPolicy_pkey" PRIMARY KEY ("id")
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "ReviewPolicy_repoFullName_key" ON "ReviewPolicy"("repoFullName")`,
+  `CREATE INDEX IF NOT EXISTS "ReviewPolicy_teamId_idx" ON "ReviewPolicy"("teamId")`,
+  `CREATE INDEX IF NOT EXISTS "ReviewPolicy_ownerUserId_idx" ON "ReviewPolicy"("ownerUserId")`,
+
+  `CREATE TABLE IF NOT EXISTS "CodeReview" (
+     "id" TEXT NOT NULL,
+     "kind" TEXT NOT NULL DEFAULT 'FILE',
+     "title" TEXT,
+     "fileId" TEXT,
+     "repoFullName" TEXT,
+     "prNumber" INTEGER,
+     "headSha" TEXT,
+     "status" TEXT NOT NULL DEFAULT 'QUEUED',
+     "verdict" TEXT,
+     "summary" TEXT,
+     "qualityScore" INTEGER NOT NULL DEFAULT 0,
+     "grade" TEXT,
+     "impactScore" INTEGER NOT NULL DEFAULT 0,
+     "riskLevel" TEXT NOT NULL DEFAULT 'LOW',
+     "strengths" JSONB,
+     "findings" JSONB,
+     "blocking" BOOLEAN NOT NULL DEFAULT false,
+     "source" TEXT NOT NULL DEFAULT 'MANUAL',
+     "model" TEXT,
+     "error" TEXT,
+     "userId" TEXT,
+     "teamId" TEXT,
+     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     "updatedAt" TIMESTAMP(3) NOT NULL,
+     CONSTRAINT "CodeReview_pkey" PRIMARY KEY ("id")
+   )`,
+  // Columns added after the table may already exist on earlier deploys — additive & idempotent.
+  `ALTER TABLE "CodeReview" ADD COLUMN IF NOT EXISTS "kind" TEXT NOT NULL DEFAULT 'FILE'`,
+  `ALTER TABLE "CodeReview" ADD COLUMN IF NOT EXISTS "title" TEXT`,
+  `ALTER TABLE "CodeReview" ADD COLUMN IF NOT EXISTS "fileId" TEXT`,
+  `ALTER TABLE "CodeReview" ADD COLUMN IF NOT EXISTS "qualityScore" INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE "CodeReview" ADD COLUMN IF NOT EXISTS "grade" TEXT`,
+  `ALTER TABLE "CodeReview" ADD COLUMN IF NOT EXISTS "strengths" JSONB`,
+  `ALTER TABLE "CodeReview" ALTER COLUMN "repoFullName" DROP NOT NULL`,
+  `ALTER TABLE "CodeReview" ALTER COLUMN "prNumber" DROP NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS "CodeReview_repoFullName_prNumber_idx" ON "CodeReview"("repoFullName", "prNumber")`,
+  `CREATE INDEX IF NOT EXISTS "CodeReview_fileId_idx" ON "CodeReview"("fileId")`,
+  `CREATE INDEX IF NOT EXISTS "CodeReview_userId_idx" ON "CodeReview"("userId")`,
+  `CREATE INDEX IF NOT EXISTS "CodeReview_teamId_idx" ON "CodeReview"("teamId")`,
+  `CREATE INDEX IF NOT EXISTS "CodeReview_createdAt_idx" ON "CodeReview"("createdAt")`,
+
+  // --- IDE chat sessions (persistent AI agent conversations) ---
+  `CREATE TABLE IF NOT EXISTS "ChatSession" (
+     "id" TEXT NOT NULL,
+     "userId" TEXT NOT NULL,
+     "title" TEXT NOT NULL DEFAULT 'New chat',
+     "model" TEXT,
+     "messages" JSONB,
+     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     "updatedAt" TIMESTAMP(3) NOT NULL,
+     CONSTRAINT "ChatSession_pkey" PRIMARY KEY ("id")
+   )`,
+  `CREATE INDEX IF NOT EXISTS "ChatSession_userId_updatedAt_idx" ON "ChatSession"("userId", "updatedAt")`,
 ];
 
 async function main() {
@@ -53,6 +130,34 @@ async function main() {
     try {
       await prisma.$executeRawUnsafe(
         `ALTER TABLE "AiUsage" ADD CONSTRAINT "AiUsage_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE`,
+      );
+    } catch {
+      /* constraint already exists — fine */
+    }
+    try {
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "ReviewPolicy" ADD CONSTRAINT "ReviewPolicy_ownerUserId_fkey" FOREIGN KEY ("ownerUserId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE`,
+      );
+    } catch {
+      /* constraint already exists — fine */
+    }
+    try {
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "CodeReview" ADD CONSTRAINT "CodeReview_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE`,
+      );
+    } catch {
+      /* constraint already exists — fine */
+    }
+    try {
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "CodeReview" ADD CONSTRAINT "CodeReview_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "File"("id") ON DELETE SET NULL ON UPDATE CASCADE`,
+      );
+    } catch {
+      /* constraint already exists — fine */
+    }
+    try {
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "ChatSession" ADD CONSTRAINT "ChatSession_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE`,
       );
     } catch {
       /* constraint already exists — fine */

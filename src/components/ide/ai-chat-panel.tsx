@@ -10,7 +10,10 @@ import {
     X,
     Bug,
     Key,
-    MoreHorizontal,
+    Plus,
+    History,
+    Trash2,
+    MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ApiKeyManager } from "@/components/api-key-manager";
@@ -59,6 +62,48 @@ interface AIChatPanelProps {
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
 type ChatFileRef = NonNullable<AIChatPanelProps["allFiles"]>[number];
+
+interface ModelOption {
+    id: string;
+    label: string;
+    provider: string;
+    tier: string;
+}
+
+interface ChatSessionMeta {
+    id: string;
+    title: string;
+    model: string | null;
+    messageCount: number;
+    updatedAt: string;
+}
+
+interface StoredSessionMessage {
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    thoughtSteps?: Message["thoughtSteps"];
+    timestamp: number;
+}
+
+const createWelcomeMessage = (): Message => ({
+    id: generateId(),
+    role: "assistant",
+    content: "👋 Hi! I'm your **AI Architect**. I'm ready to help.",
+    codeBlocks: [],
+    timestamp: Date.now(),
+});
+
+function formatRelativeTime(iso: string): string {
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60_000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return days < 7 ? `${days}d ago` : new Date(iso).toLocaleDateString();
+}
 
 interface ApplyCodeResult {
     content: string;
@@ -217,26 +262,22 @@ export function AIChatPanel({
     const { state: agentState, setThinking, executeTool } = useAgentLoop();
     const { toast } = useToast();
     // ... existing messages state ...
-    const [messages, setMessages] = useState<Message[]>([
-        {
-            id: generateId(),
-            role: "assistant",
-            content: "👋 Hi! I'm your **AI Architect**. I'm ready to help.",
-            codeBlocks: [],
-            timestamp: Date.now()
-        }
-    ]);
+    const [messages, setMessages] = useState<Message[]>(() => [createWelcomeMessage()]);
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [selectedModel, setSelectedModel] = useState<string>("google/gemini-2.5-flash");
     const [reasoningEffort, setReasoningEffort] = useState<"low" | "medium">("low");
     const [autoFixErrors, setAutoFixErrors] = useState(true);
     const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+    const [models, setModels] = useState<ModelOption[]>(() => AVAILABLE_MODELS.map((m) => ({ ...m })));
+    const [sessionId, setSessionId] = useState<string | null>(null);
+    const [sessions, setSessions] = useState<ChatSessionMeta[]>([]);
+    const [showHistoryMenu, setShowHistoryMenu] = useState(false);
 
     useEffect(() => {
-        // Only restore a stored model if it's still a valid option — the model
-        // list is Gemini-only now, so a previously selected non-Google model
-        // would otherwise be sent and rejected by the API.
+        // Restore a stored model immediately against the static list, then again
+        // once the server catalog (which may include gateway/OpenRouter models)
+        // arrives — so e.g. a previously selected Nemotron stays selected.
         const stored = localStorage.getItem("documint_model");
         if (stored && AVAILABLE_MODELS.some((m) => m.id === stored)) {
             setSelectedModel(stored);
@@ -247,6 +288,23 @@ export function AIChatPanel({
 
         const storedAutoFix = localStorage.getItem("documint_auto_fix_errors");
         if (storedAutoFix) setAutoFixErrors(storedAutoFix !== "false");
+
+        let cancelled = false;
+        void (async () => {
+            try {
+                const res = await fetch("/api/ai/models");
+                if (!res.ok) return;
+                const data = await res.json() as { models?: ModelOption[] };
+                if (cancelled || !Array.isArray(data.models) || data.models.length === 0) return;
+                setModels(data.models);
+                if (stored && data.models.some((m) => m.id === stored)) {
+                    setSelectedModel(stored);
+                }
+            } catch {
+                // Keep the static Gemini list.
+            }
+        })();
+        return () => { cancelled = true; };
     }, []);
 
     const handleModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -367,6 +425,89 @@ export function AIChatPanel({
             toast("Request cancelled", "success");
         }
     }, [onAgentAction, toast]);
+
+    // ------------------------------------------------------------------
+    // Chat session management (persistent history, Cursor-style)
+    // ------------------------------------------------------------------
+
+    const refreshSessions = useCallback(async (): Promise<ChatSessionMeta[]> => {
+        try {
+            const res = await fetch("/api/chat/sessions");
+            if (!res.ok) return [];
+            const data = await res.json() as { sessions?: ChatSessionMeta[] };
+            const list = Array.isArray(data.sessions) ? data.sessions : [];
+            setSessions(list);
+            return list;
+        } catch {
+            return [];
+        }
+    }, []);
+
+    const loadSession = useCallback(async (id: string) => {
+        try {
+            const res = await fetch(`/api/chat/sessions/${id}`);
+            if (!res.ok) throw new Error("Failed to load");
+            const data = await res.json() as { messages?: StoredSessionMessage[] };
+            const restored: Message[] = (data.messages || []).map((m) => ({
+                id: m.id,
+                role: m.role,
+                content: m.content,
+                codeBlocks: m.role === "assistant" ? toStableCodeBlocks(m.content, m.id) : [],
+                thoughtSteps: m.thoughtSteps,
+                timestamp: m.timestamp,
+            }));
+            setMessages(restored.length ? restored : [createWelcomeMessage()]);
+            setSessionId(id);
+            localStorage.setItem("documint_chat_session", id);
+            setShowHistoryMenu(false);
+        } catch {
+            toast("Failed to load chat session", "error");
+        }
+    }, [toast]);
+
+    const startNewChat = useCallback(() => {
+        if (abortController.current) {
+            abortController.current.abort();
+            abortController.current = null;
+        }
+        setMessages([createWelcomeMessage()]);
+        setSessionId(null);
+        setLoading(false);
+        localStorage.removeItem("documint_chat_session");
+        setShowHistoryMenu(false);
+        if (onAgentAction) onAgentAction(null);
+        inputRef.current?.focus();
+    }, [onAgentAction]);
+
+    const deleteSession = useCallback(async (id: string) => {
+        try {
+            const res = await fetch(`/api/chat/sessions/${id}`, { method: "DELETE" });
+            if (!res.ok) throw new Error("Failed to delete");
+            setSessions(prev => prev.filter(s => s.id !== id));
+            if (sessionId === id) {
+                setMessages([createWelcomeMessage()]);
+                setSessionId(null);
+                localStorage.removeItem("documint_chat_session");
+            }
+            toast("Chat deleted", "success");
+        } catch {
+            toast("Failed to delete chat", "error");
+        }
+    }, [sessionId, toast]);
+
+    // On mount: load the session list and resume the last-open conversation.
+    useEffect(() => {
+        let cancelled = false;
+        void (async () => {
+            const list = await refreshSessions();
+            if (cancelled) return;
+            const lastId = localStorage.getItem("documint_chat_session");
+            if (lastId && list.some(s => s.id === lastId)) {
+                await loadSession(lastId);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [refreshSessions, loadSession]);
 
     const appendAssistantStep = useCallback((step: NonNullable<Message["thoughtSteps"]>[number]) => {
         setMessages(prev => {
@@ -500,6 +641,15 @@ export function AIChatPanel({
     };
 
     const handleAgentEvent = useCallback((event: AgentEvent, assistantId: string) => {
+        if (event.type === "session_meta") {
+            setSessionId(event.sessionId);
+            localStorage.setItem("documint_chat_session", event.sessionId);
+            setSessions(prev => prev.some(s => s.id === event.sessionId)
+                ? prev
+                : [{ id: event.sessionId, title: event.title, model: null, messageCount: 0, updatedAt: new Date().toISOString() }, ...prev]);
+            return;
+        }
+
         if (event.type === "state_change") {
             if (event.state === "THINKING") setThinking();
             else if (event.state === "EXECUTING") executeTool(event.tool || "unknown");
@@ -767,6 +917,7 @@ export function AIChatPanel({
                 body: JSON.stringify({
                     message: userMsg,
                     history: buildCompactChatHistory(messages),
+                    sessionId: sessionId || undefined,
                     contextFileId: activeFileId,
                     contextContent: activeFileContent,
                     additionalContext,
@@ -838,8 +989,10 @@ export function AIChatPanel({
             abortController.current = null;
             inputRef.current?.focus();
             if (onAgentAction) onAgentAction(null);
+            // Refresh titles/counts/timestamps in the history menu.
+            void refreshSessions();
         }
-    }, [input, loading, activeFileId, activeFileContent, allFiles, allFileContents, onAgentAction, messages, selectedModel, reasoningEffort, autoFixErrors, handleAgentEvent]);
+    }, [input, loading, activeFileId, activeFileContent, allFiles, allFileContents, onAgentAction, messages, sessionId, selectedModel, reasoningEffort, autoFixErrors, handleAgentEvent, refreshSessions]);
 
     useEffect(() => {
         if (!autoFixErrors || loading || runtimeErrorLines.length === 0) return;
@@ -904,11 +1057,15 @@ export function AIChatPanel({
                     <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
                         <Bot className="w-4 h-4 text-primary" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                         <h3 className="text-sm font-bold text-white">DocuMint Agent</h3>
-                        <div className="flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                            <span className="text-[10px] text-muted-foreground">Online</span>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" />
+                            <span className="text-[10px] text-muted-foreground truncate max-w-[160px]">
+                                {sessionId
+                                    ? (sessions.find(s => s.id === sessionId)?.title || "Saved chat")
+                                    : "New chat"}
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -927,11 +1084,77 @@ export function AIChatPanel({
                         <Bug className="w-3 h-3" />
                         Auto-fix {autoFixErrors ? "on" : "off"}
                     </button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreHorizontal className="w-4 h-4" />
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => setShowHistoryMenu(prev => !prev)}
+                        title="Chat history"
+                    >
+                        <History className="w-4 h-4" />
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={startNewChat}
+                        title="New chat"
+                    >
+                        <Plus className="w-4 h-4" />
                     </Button>
                 </div>
             </div>
+
+            {/* Chat History Menu */}
+            {showHistoryMenu && (
+                <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowHistoryMenu(false)} />
+                    <div className="absolute right-2 top-16 z-50 w-72 max-h-96 overflow-y-auto rounded-xl border border-white/10 bg-[#111113] shadow-2xl custom-scrollbar">
+                        <div className="flex items-center justify-between px-3 py-2 border-b border-white/5 sticky top-0 bg-[#111113]">
+                            <span className="text-[11px] font-semibold text-white/70 uppercase tracking-wide">Chat history</span>
+                            <span className="text-[10px] text-white/30">{sessions.length} saved</span>
+                        </div>
+                        {sessions.length === 0 ? (
+                            <div className="px-3 py-6 text-center text-xs text-white/30">
+                                No saved chats yet — send a message to start one.
+                            </div>
+                        ) : (
+                            sessions.map(chat => (
+                                <div
+                                    key={chat.id}
+                                    className={cn(
+                                        "group flex items-start gap-2 px-3 py-2.5 cursor-pointer border-b border-white/[0.03] transition-colors",
+                                        chat.id === sessionId ? "bg-indigo-500/10" : "hover:bg-white/5"
+                                    )}
+                                    onClick={() => void loadSession(chat.id)}
+                                >
+                                    <MessageSquare className={cn(
+                                        "w-3.5 h-3.5 mt-0.5 shrink-0",
+                                        chat.id === sessionId ? "text-indigo-400" : "text-white/30"
+                                    )} />
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-xs text-white/80 truncate">{chat.title}</div>
+                                        <div className="text-[10px] text-white/30">
+                                            {chat.messageCount} message{chat.messageCount === 1 ? "" : "s"} · {formatRelativeTime(chat.updatedAt)}
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/20 text-white/30 hover:text-red-400 transition-all shrink-0"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            void deleteSession(chat.id);
+                                        }}
+                                        title="Delete chat"
+                                    >
+                                        <Trash2 className="w-3 h-3" />
+                                    </button>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </>
+            )}
 
             {/* Messages */}
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
@@ -993,10 +1216,19 @@ export function AIChatPanel({
                             className="bg-black/50 border border-white/10 text-white/70 text-[10px] rounded px-2 py-1 outline-none focus:border-indigo-500/50 appearance-none cursor-pointer hover:bg-black/80 hover:text-white transition-colors custom-scrollbar"
                             style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff40%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .5rem top 50%', backgroundSize: '.65rem auto', paddingRight: '1.5rem' }}
                         >
-                            {AVAILABLE_MODELS.map(model => (
-                                <option key={model.id} value={model.id}>
-                                    {model.label}
-                                </option>
+                            {Object.entries(
+                                models.reduce<Record<string, ModelOption[]>>((groups, model) => {
+                                    (groups[model.provider] ||= []).push(model);
+                                    return groups;
+                                }, {})
+                            ).map(([provider, group]) => (
+                                <optgroup key={provider} label={provider}>
+                                    {group.map(model => (
+                                        <option key={model.id} value={model.id}>
+                                            {model.label}
+                                        </option>
+                                    ))}
+                                </optgroup>
                             ))}
                         </select>
                         <select

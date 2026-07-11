@@ -16,6 +16,7 @@ interface AgentRunOptions {
 import { getAICompletionWithDetailedError, AIMessage } from "../ai";
 // import * as fs from "fs/promises"; // Removed for Cloudflare compatibility
 import * as vfs from "./vm-fs";
+import { AgentSandbox, detectProjectRoots } from "./agent-sandbox";
 import { buildProjectGraph, generateGraphSummary } from "../graph/project-graph";
 import { currentRuntime } from "../runtime";
 import { buildAgentSystemPrompt } from "./prompt";
@@ -68,24 +69,241 @@ const MAX_TURNS = 20;
 const ALLOWED_COMMANDS = new Set([
   'ls', 'cat', 'head', 'tail', 'wc', 'find', 'grep', 'echo', 'pwd',
   'mkdir', 'touch', 'tree',
-  'node', 'npx', 'npm', 'pnpm', 'yarn', 'tsc', 'eslint', 'prettier',
+  'node', 'npx', 'npm', 'pnpm', 'yarn', 'tsc', 'eslint', 'prettier', 'vite',
   'git'
 ]);
 
-const isDestructiveCommand = (cmd: string): boolean => {
-    const cmdLower = cmd.trim().toLowerCase();
-    const firstToken = cmdLower.split(' ')[0];
-    
-    // Explicitly blocked patterns (defense in depth)
-    if (cmdLower.includes('rm ') || cmdLower.includes('curl') || cmdLower.includes('wget') || 
-        cmdLower.includes('python') || cmdLower.includes('nc') || cmdLower.includes('kill') || 
-        cmdLower.includes('>') || cmdLower.includes('|') || cmdLower.includes('&') || cmdLower.includes('`') ||
-        cmdLower.includes('$( )')) {
-        return true;
+const COMMAND_RULES = `Allowed commands: ${[...ALLOWED_COMMANDS].join(", ")} (plus cd). Chaining with && or ; is supported; pipes (|), redirects (>/<), backticks, subshells and backgrounding (&) are not. Dev servers (npm run dev / vite / next dev) are started automatically in the background and return a public preview URL.`;
+
+type CommandSegment =
+    | { kind: "cd"; dir: string }
+    | { kind: "run" | "dev-server"; cmd: string; args: string[]; raw: string };
+
+type CommandPlan =
+    | { ok: true; segments: CommandSegment[] }
+    | { ok: false; error: string };
+
+const DEV_SERVER_RE = /^((npm|pnpm|bun)\s+(run\s+)?(dev|start)\b|yarn\s+(run\s+)?dev\b|(npx\s+)?vite\b(?!\s+build)|(npx\s+)?next\s+dev\b)/;
+
+/** Resolve `cd` targets against the current virtual cwd (project-relative). */
+function resolveCd(current: string, target: string): string {
+    if (!target || target === "/" || target === "~") return ".";
+    const base = current === "." ? [] : current.split("/");
+    const parts = target.startsWith("/") ? target.slice(1).split("/") : [...base, ...target.split("/")];
+    const stack: string[] = [];
+    for (const part of parts) {
+        if (!part || part === ".") continue;
+        if (part === "..") stack.pop();
+        else stack.push(part);
+    }
+    return stack.length ? stack.join("/") : ".";
+}
+
+/**
+ * Parse a shell-ish command line into an executable plan. Supports `cd` and
+ * `&&`/`;` chaining (each segment allowlisted), and classifies dev-server
+ * launches so they can be detached with a public preview URL instead of
+ * blocking or being rejected. Exported for tests.
+ */
+export function parseCommandPlan(raw: string, baseCwd: string): CommandPlan {
+    const cleaned = (raw || "").trim();
+    if (!cleaned) return { ok: false, error: "Empty command." };
+    if (/[|<>`]|\$\(/.test(cleaned)) {
+        return { ok: false, error: "Pipes, redirects, backticks and subshells are not supported." };
+    }
+    if (/(^|[^&])&([^&]|$)/.test(cleaned)) {
+        return { ok: false, error: "Backgrounding with & is not supported — dev servers are detached automatically." };
     }
 
-    return !ALLOWED_COMMANDS.has(firstToken);
-};
+    const segments: CommandSegment[] = [];
+    let cwd = baseCwd || ".";
+
+    for (const part of cleaned.split(/&&|;/).map((s) => s.trim()).filter(Boolean)) {
+        if (part === "cd" || part.startsWith("cd ")) {
+            cwd = resolveCd(cwd, part.slice(2).trim().replace(/^["']|["']$/g, ""));
+            segments.push({ kind: "cd", dir: cwd });
+            continue;
+        }
+
+        const tokens = splitCommand(part);
+        const bin = tokens[0] || "";
+        if (!ALLOWED_COMMANDS.has(bin)) {
+            return { ok: false, error: `Command '${bin}' is not allowed.` };
+        }
+        segments.push({
+            kind: DEV_SERVER_RE.test(part) ? "dev-server" : "run",
+            cmd: bin,
+            args: tokens.slice(1),
+            raw: part,
+        });
+    }
+
+    if (!segments.some((segment) => segment.kind !== "cd")) {
+        return { ok: false, error: "Command contains no executable segment." };
+    }
+    return { ok: true, segments };
+}
+
+/** Format "did you mean" suggestions when a project path doesn't exist. */
+async function suggestClosestPaths(userId: string, wanted: string): Promise<string> {
+    try {
+        const files = await vfs.listFiles(userId, ".", "");
+        const base = (wanted.split("/").pop() || wanted).toLowerCase();
+        const stem = base.replace(/\.[^.]+$/, "");
+        const close = files.filter((f) => {
+            const lower = f.toLowerCase();
+            return lower.includes(base) || (stem.length >= 3 && lower.includes(stem));
+        }).slice(0, 5);
+        const shown = close.length ? close : files.slice(0, 12);
+        if (!shown.length) return " The workspace has no files yet — create one with write_to_file.";
+        return close.length
+            ? `\nClosest matches:\n${shown.join("\n")}`
+            : `\nWorkspace files include:\n${shown.join("\n")}`;
+    } catch {
+        return "";
+    }
+}
+
+/**
+ * Serve file-inspection shell commands (cat/ls/grep/...) straight from the
+ * user's project VFS. The sandbox used by execute_command is an EMPTY isolated
+ * VM without the project files, so agents that "cat src/App.tsx" there always
+ * saw "No such file or directory" and spiralled. Returns null for commands
+ * that should still run in the sandbox.
+ */
+async function tryVfsCommand(userId: string, cmd: string): Promise<string | null> {
+    const parts = splitCommand(cmd.trim());
+    if (parts.length === 0) return null;
+    const bin = parts[0];
+    const rest = parts.slice(1);
+    const positional = rest.filter((token) => !token.startsWith("-"));
+
+    const readTarget = positional[0];
+
+    try {
+        switch (bin) {
+            case "pwd":
+                return `[WORKSPACE]: / (virtual project root — reference files by relative path, e.g. src/App.tsx)`;
+
+            case "ls":
+            case "tree": {
+                const dir = readTarget || ".";
+                const files = await vfs.listFiles(userId, dir, "");
+                if (!files.length) {
+                    return `[WORKSPACE ${bin}]: No files found under '${dir}'.${await suggestClosestPaths(userId, dir)}`;
+                }
+                return `[WORKSPACE ${bin} ${dir}]:\n${files.join("\n")}`;
+            }
+
+            case "cat": {
+                if (!readTarget) return `[ERROR]: cat requires a file path.`;
+                const content = await vfs.readFile(userId, readTarget, "");
+                return `[WORKSPACE cat ${readTarget}]:\n${truncateMiddle(content, 12_000)}`;
+            }
+
+            case "head":
+            case "tail": {
+                if (!readTarget) return `[ERROR]: ${bin} requires a file path.`;
+                let count = 10;
+                const nFlag = rest.findIndex((token) => token === "-n");
+                if (nFlag !== -1 && rest[nFlag + 1]) count = parseInt(rest[nFlag + 1]) || 10;
+                const shortFlag = rest.find((token) => /^-\d+$/.test(token));
+                if (shortFlag) count = parseInt(shortFlag.slice(1)) || 10;
+                const lines = (await vfs.readFile(userId, readTarget, "")).split("\n");
+                const slice = bin === "head" ? lines.slice(0, count) : lines.slice(-count);
+                return `[WORKSPACE ${bin} ${readTarget}]:\n${truncateMiddle(slice.join("\n"), 12_000)}`;
+            }
+
+            case "wc": {
+                if (!readTarget) return `[ERROR]: wc requires a file path.`;
+                const content = await vfs.readFile(userId, readTarget, "");
+                return `[WORKSPACE wc ${readTarget}]: ${content.split("\n").length} lines, ${content.length} chars`;
+            }
+
+            case "grep": {
+                const pattern = positional[0];
+                if (!pattern) return `[ERROR]: grep requires a search pattern.`;
+                const results = await vfs.grepContent(userId, pattern);
+                return `[WORKSPACE grep "${pattern}"]:\n${results.length ? results.join("\n") : "No matches."}`;
+            }
+
+            case "find": {
+                const nameFlag = rest.findIndex((token) => token === "-name" || token === "-iname");
+                const pattern = nameFlag !== -1 && rest[nameFlag + 1] ? rest[nameFlag + 1] : positional[0] || "";
+                const results = await vfs.searchByName(userId, pattern);
+                return `[WORKSPACE find "${pattern}"]:\n${results.length ? results.join("\n") : "No matches."}`;
+            }
+
+            case "touch": {
+                if (!readTarget) return `[ERROR]: touch requires a file path.`;
+                const result = await vfs.writeFile(userId, readTarget, "");
+                return result.success
+                    ? `[WORKSPACE touch]: Created empty file ${readTarget}`
+                    : `[ERROR]: ${result.error || "Failed to create file"}`;
+            }
+
+            case "mkdir":
+                return `[WORKSPACE mkdir]: Directories are implicit in the workspace — they appear when you write_to_file a path under them (e.g. write_to_file("${readTarget || "dir"}/index.ts")).`;
+
+            default:
+                return null;
+        }
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e);
+        if (readTarget && /not found/i.test(message)) {
+            return `[ERROR]: ${message}.${await suggestClosestPaths(userId, readTarget)}`;
+        }
+        return `[ERROR]: ${message}`;
+    }
+}
+
+interface ParsedToolCall {
+    name: string;
+    args: string[];
+    raw: string;
+    index: number;
+}
+
+/**
+ * Extract tool calls from a model response. Supports two forms:
+ *
+ * 1. Content block (reliable for file writes — no escaping/comma pitfalls):
+ *    <tool_code>write_to_file("path")
+ *    <content>
+ *    ...raw file content...
+ *    </content>
+ *    </tool_code>
+ *
+ * 2. Legacy inline args: <tool_code>call:name(arg1, arg2)</tool_code>
+ *
+ * Exported for tests.
+ */
+export function parseToolCalls(response: string): ParsedToolCall[] {
+    const calls: ParsedToolCall[] = [];
+    const consumed: Array<[number, number]> = [];
+
+    const blockRegex = /<tool_code>\s*(?:call:)?(\w+)\(([^)\n]*)\)\s*<content>\r?\n?([\s\S]*?)\r?\n?<\/content>\s*<\/tool_code>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = blockRegex.exec(response)) !== null) {
+        const pathArgs = parseArgs(match[2].trim()).filter(Boolean);
+        calls.push({
+            name: match[1],
+            args: [...pathArgs, match[3]],
+            raw: match[0],
+            index: match.index,
+        });
+        consumed.push([match.index, match.index + match[0].length]);
+    }
+
+    const inlineRegex = /<tool_code>(?:call:)?(\w+)\(([\s\S]*?)\)<\/tool_code>/gi;
+    while ((match = inlineRegex.exec(response)) !== null) {
+        const start = match.index;
+        if (consumed.some(([from, to]) => start >= from && start < to)) continue;
+        calls.push({ name: match[1], args: parseArgs(match[2].trim()), raw: match[0], index: start });
+    }
+
+    return calls.sort((a, b) => a.index - b.index);
+}
 
 /**
  * A Senior AI Software Engineer Agent inspired by Cline (Roo Code).
@@ -94,6 +312,29 @@ const isDestructiveCommand = (cmd: string): boolean => {
 export async function* runAgent(
     userId: string,
     sessionId: string, // Unique identifier for this agent run
+    userMessage: string,
+    contextFileId: string | undefined,
+    activeFileContent: string | undefined,
+    onStateChange?: (state: string, tool?: string) => void,
+    initialHistory: AIMessage[] = [],
+    modelName?: string,
+    options: AgentRunOptions = {}
+): AsyncGenerator<AgentEvent, void, unknown> {
+    // The workspace-seeded sandbox lives for exactly one run. Delegation via
+    // yield* guarantees dispose() runs however the run ends — completion,
+    // provider error, thrown exception, or the client disconnecting.
+    const agentSandbox = new AgentSandbox();
+    try {
+        yield* runAgentSteps(agentSandbox, userId, sessionId, userMessage, contextFileId, activeFileContent, onStateChange, initialHistory, modelName, options);
+    } finally {
+        await agentSandbox.dispose();
+    }
+}
+
+async function* runAgentSteps(
+    agentSandbox: AgentSandbox,
+    userId: string,
+    sessionId: string,
     userMessage: string,
     contextFileId: string | undefined,
     activeFileContent: string | undefined,
@@ -117,6 +358,7 @@ export async function* runAgent(
     const graphFiles = dbFiles.map((f: DbFile) => ({ path: f.name, content: f.content || "" }));
     const graph = await buildProjectGraph(graphFiles);
     const graphSummary = generateGraphSummary(graph);
+    const projectRoots = detectProjectRoots(dbFiles.map((f: DbFile) => f.name));
 
     let activeCtx = "";
     if (contextFileId && !contextFileId.includes("-")) {
@@ -134,6 +376,7 @@ export async function* runAgent(
         fileList,
         graphSummary,
         activeContext: activeCtx,
+        projectRoots,
         reasoningEffort: options.reasoningEffort,
         autoFixErrors: options.autoFixErrors,
     });
@@ -152,27 +395,29 @@ export async function* runAgent(
             if (typeof existingAgentState.stateJson === 'object' && existingAgentState.stateJson !== null) {
                 const parsedState: AgentInternalState = existingAgentState.stateJson as unknown as AgentInternalState;
                 messages = compactPersistedHistory(parsedState.history || []);
-                toolAttempts = new Map(Object.entries(parsedState.toolAttempts || {}));
-                // Restore other state variables here if needed
                 console.log(`Agent state loaded for session ${sessionId}. History length: ${messages.length}`);
             } else {
                 console.warn(`Agent state for session ${sessionId} is not a valid object. Initializing fresh state.`);
                 messages = compactPersistedHistory(initialHistory);
-                toolAttempts = new Map();
             }
         } catch (e) {
             console.error(`Failed to parse agent state for session ${sessionId}:`, e);
             messages = compactPersistedHistory(initialHistory);
-            toolAttempts = new Map();
         }
     } else {
         messages = compactPersistedHistory(initialHistory);
-        toolAttempts = new Map();
     }
+
+    // Retry counters always start fresh: with persistent sessions, carrying
+    // them over would permanently block a tool+path for the whole conversation
+    // after two failures in any earlier run.
+    toolAttempts = new Map();
 
     // Always push the current user message. The system prompt is intentionally not persisted.
     messages.push({ role: "user", content: userMessage });
     messages = compactPersistedHistory(messages);
+    // Persist immediately so the user's message survives a provider failure below.
+    await saveAgentState(userId, sessionId, { history: messages, toolAttempts: Object.fromEntries(toolAttempts) });
 
     const MAX_RETRIES = 2;
 
@@ -230,9 +475,9 @@ export async function* runAgent(
         });
         if (!result.success || !result.data || !result.data.content) {
             const errorReason = result.error || "Unknown connection error";
-            const errorMsg = `⚠️ I encountered an error connecting to the AI provider: ${errorReason}`;
+            const errorMsg = `⚠️ AI provider error: ${errorReason}\n\nYour progress is saved — send "continue" to resume${modelName ? ", or pick a different model and continue from where we left off" : ""}.`;
             yield { type: "response", content: errorMsg };
-            yield { type: "error", message: errorMsg };
+            yield { type: "error", message: errorReason };
             return;
         }
 
@@ -247,12 +492,20 @@ export async function* runAgent(
         // 1. Strip <tool_code>...</tool_code> blocks (including malformed/multiline)
         cleanedResponse = cleanedResponse.replace(/<tool_code>[\s\S]*?<\/tool_code>/gi, '');
 
-        // 2. Strip partial/unclosed tool_code tags
+        // 2. Strip partial/unclosed tool_code and content tags
         cleanedResponse = cleanedResponse.replace(/<\/?tool_code>/gi, '');
+        cleanedResponse = cleanedResponse.replace(/<\/?content>/gi, '');
 
-        // 3. Strip <thinking>...</thinking> blocks
+        // 3. Strip <thinking>/<think> reasoning blocks (Gemini prompt-style and
+        // Nemotron/DeepSeek reasoning-model style respectively)
         cleanedResponse = cleanedResponse.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
-        cleanedResponse = cleanedResponse.replace(/<\/?thinking>/gi, '');
+        cleanedResponse = cleanedResponse.replace(/<think>[\s\S]*?<\/think>/gi, '');
+        // Orphan closing tag means everything before it was reasoning
+        const lastCloseThink = cleanedResponse.toLowerCase().lastIndexOf('</think>');
+        if (lastCloseThink !== -1) {
+            cleanedResponse = cleanedResponse.slice(lastCloseThink + '</think>'.length);
+        }
+        cleanedResponse = cleanedResponse.replace(/<\/?think(?:ing)?>/gi, '');
 
         // 4. Strip stray "call:tool_name(...)" patterns that leaked outside tags
         cleanedResponse = cleanedResponse.replace(/call:(read_file|write_to_file|apply_patch|list_files|execute_command|search_files|grep_search|read_file_chunk)\([^)]*\)/gi, '');
@@ -271,17 +524,14 @@ export async function* runAgent(
             yield { type: "response", content: cleanedResponse };
         }
 
-        const toolCallRegex = /<tool_code>(?:call:)?(\w+)\(([\s\S]*?)\)<\/tool_code>/gi;
-        let match;
+        const toolCalls = parseToolCalls(response);
         let foundTool = false;
 
-        while ((match = toolCallRegex.exec(response)) !== null) {
+        for (const toolCall of toolCalls) {
             foundTool = true;
-            const toolName = match[1];
-            const rawArgsStr = match[2].trim();
-
-            // Smarter argument parsing to handle quotes and multiple args
-            const args = parseArgs(rawArgsStr);
+            const toolName = toolCall.name;
+            const args = toolCall.args;
+            const rawArgsStr = args[0] ? `${args[0]}${args.length > 1 ? ", …" : ""}` : "";
 
             // Check retry limit
             const attemptKey = `${toolName}:${args[0] || 'global'}`;
@@ -305,8 +555,13 @@ export async function* runAgent(
                 switch (toolName) {
                     case "read_file": {
                         // Use VFS to read (checks Supabase first, then Local)
-                        const content = await vfs.readFile(userId, args[0], cwd);
-                        toolResult = `[FILE_CONTENT: ${args[0]}]:\n${truncateMiddle(content, 12_000)}${content.length > 12_000 ? "\n[NOTE]: File truncated. Use read_file_chunk for exact sections." : ""}`;
+                        try {
+                            const content = await vfs.readFile(userId, args[0], cwd);
+                            toolResult = `[FILE_CONTENT: ${args[0]}]:\n${truncateMiddle(content, 12_000)}${content.length > 12_000 ? "\n[NOTE]: File truncated. Use read_file_chunk for exact sections." : ""}`;
+                        } catch (readError: unknown) {
+                            const message = readError instanceof Error ? readError.message : String(readError);
+                            toolResult = `[ERROR]: ${message}.${await suggestClosestPaths(userId, args[0] || "")}`;
+                        }
                         break;
                     }
 
@@ -375,43 +630,113 @@ export async function* runAgent(
 
                     case "execute_command": {
                         const cmd = args[0];
-                        if (isDestructiveCommand(cmd)) {
-                            toolResult = `[ERROR]: Command blocked for safety.`;
-                        } else if (!currentRuntime.canExecuteCommands && !currentRuntime.canUseSandbox) {
-                            toolResult = `[ERROR]: Command execution is disabled in the current runtime (${currentRuntime.runtimeName}). Use VFS or storage APIs instead.`;
-                        } else {
-                            // Use Vercel Sandbox where allowed or fallback to child_process
-                            if (currentRuntime.canUseSandbox) {
-                                try {
-                                    const { runInSandbox } = await import("../sandbox");
-                                    // Split command and args for sandbox
-                                    const parts = splitCommand(cmd);
-                                    const sandboxRes = await runInSandbox(parts[0], parts.slice(1));
-                                    if (sandboxRes.success) {
-                                        const out = sandboxRes.stdout ? truncateMiddle(sandboxRes.stdout, 20_000) : "(no output)";
-                                        toolResult = `[SANDBOX_STDOUT]:\n${out}`;
-                                        if (sandboxRes.stderr) {
-                                            toolResult += `\n[SANDBOX_STDERR]:\n${truncateMiddle(sandboxRes.stderr, 12_000)}`;
-                                        }
-                                    } else {
-                                        toolResult = `[SANDBOX_ERROR]:\n${sandboxRes.error}`;
-                                    }
-                                } catch (e: unknown) {
-                                    toolResult = `[SANDBOX_EXCEPTION]: ${e instanceof Error ? e.message : String(e)}`;
-                                }
-                            } else if (currentRuntime.canExecuteCommands) {
-                                const execFn = await getExecFile();
-                                if (!execFn) {
-                                    toolResult = `[ERROR]: Command execution unavailable in this runtime.`;
-                                } else {
-                                    const parts = splitCommand(cmd);
-                                    const { stdout, stderr } = await execFn(parts[0], parts.slice(1), { cwd, timeout: 10000 });
-                                    toolResult = `[STDOUT]:\n${truncateMiddle(stdout, 20_000)}\n[STDERR]:\n${truncateMiddle(stderr, 12_000)}`;
-                                }
-                            } else {
-                                toolResult = `[ERROR]: Execution path blocked.`;
+
+                        // Fast path: while no sandbox is live, serve file
+                        // inspection straight from the workspace (no VM cost).
+                        if (!agentSandbox.isActive) {
+                            const vfsCommandResult = await tryVfsCommand(userId, cmd);
+                            if (vfsCommandResult !== null) {
+                                toolResult = vfsCommandResult;
+                                break;
                             }
                         }
+
+                        const plan = parseCommandPlan(cmd, agentSandbox.currentCwd);
+                        if (!plan.ok) {
+                            toolResult = `[ERROR]: ${plan.error} ${COMMAND_RULES}`;
+                            break;
+                        }
+
+                        if (!currentRuntime.canUseSandbox) {
+                            // Local/dev fallback: single simple commands via child_process.
+                            const runnable = plan.segments.filter(s => s.kind !== "cd");
+                            const execFn = currentRuntime.canExecuteCommands ? await getExecFile() : null;
+                            if (!execFn || runnable.length !== 1 || runnable[0].kind === "dev-server") {
+                                toolResult = `[ERROR]: Sandbox execution is unavailable in this runtime (${currentRuntime.runtimeName}); only single non-server commands can run here.`;
+                            } else {
+                                const seg = runnable[0];
+                                const { stdout, stderr } = await execFn(seg.cmd, seg.args, { cwd, timeout: 10000 });
+                                toolResult = `[STDOUT]:\n${truncateMiddle(stdout, 20_000)}\n[STDERR]:\n${truncateMiddle(stderr, 12_000)}`;
+                            }
+                            break;
+                        }
+
+                        // Real path: one seeded VM per run, commands execute
+                        // against a copy of the user's actual project.
+                        const seeded = await agentSandbox.ensureSeeded(userId);
+                        if (!seeded.ok) {
+                            toolResult = `[SANDBOX_ERROR]: Could not start the workspace sandbox: ${seeded.error}`;
+                            break;
+                        }
+
+                        const outputs: string[] = [];
+                        let segmentFailed = false;
+                        let devServerSegment: Extract<CommandSegment, { kind: "run" | "dev-server" }> | null = null;
+
+                        for (const segment of plan.segments) {
+                            if (segment.kind === "cd") {
+                                agentSandbox.currentCwd = segment.dir;
+                                outputs.push(`[cwd]: ${segment.dir}`);
+                                continue;
+                            }
+
+                            if (segment.kind === "dev-server") {
+                                // Boot it last: once a detached server occupies the
+                                // VM's command stream, follow-up commands (like the
+                                // sync-back find) become unreliable.
+                                devServerSegment = segment;
+                                break;
+                            }
+
+                            const res = await agentSandbox.exec(segment.cmd, segment.args, { cwd: agentSandbox.currentCwd });
+                            const header = `[$ ${segment.raw}]${res.exitCode !== undefined ? ` (exit ${res.exitCode})` : ""}`;
+                            const body = [
+                                res.stdout && `[STDOUT]:\n${truncateMiddle(res.stdout, 16_000)}`,
+                                res.stderr && `[STDERR]:\n${truncateMiddle(res.stderr, 8_000)}`,
+                                res.error && `[ERROR]: ${res.error}`,
+                            ].filter(Boolean).join("\n");
+                            outputs.push(`${header}${body ? `\n${body}` : "\n(no output)"}`);
+
+                            if (!res.ok) {
+                                segmentFailed = true;
+                                break; // Mirror && semantics: stop the chain on failure.
+                            }
+                        }
+
+                        // Persist files the commands created (scaffolds, lockfiles)
+                        // back into the real workspace so they outlive the VM.
+                        // Must happen BEFORE a detached dev server takes over the VM.
+                        try {
+                            const changed = await agentSandbox.collectChangedFiles();
+                            for (const file of changed) {
+                                const write = await vfs.writeFile(userId, file.path, file.content);
+                                if (write.success) {
+                                    yield { type: "file_created", fileName: file.path, content: file.content };
+                                }
+                            }
+                            if (changed.length) {
+                                outputs.push(`[SYNCED_TO_WORKSPACE]: ${changed.map((file) => file.path).join(", ")}`);
+                            }
+                        } catch {
+                            // Sync-back is best-effort; command output above still stands.
+                        }
+
+                        if (devServerSegment && !segmentFailed) {
+                            yield { type: "tool_result", result: `[PREVIEW]: Booting dev server for '${devServerSegment.raw}' — this can take a minute...` };
+                            const preview = await agentSandbox.startDevServer(userId, agentSandbox.currentCwd);
+                            if (preview.ok && preview.url) {
+                                yield { type: "preview_ready", url: preview.url, port: preview.port, timestamp: Date.now() };
+                                outputs.push(`[PREVIEW_READY]: ${preview.url}\nThe dev server is running detached in the sandbox (expires in ~15 minutes). Share this URL with the user in your reply.`);
+                            } else {
+                                segmentFailed = true;
+                                outputs.push(`[PREVIEW_FAILED]: ${preview.error || "Unknown error"}${preview.logTail ? `\n[SERVER_LOG_TAIL]:\n${truncateMiddle(preview.logTail, 4_000)}` : ""}`);
+                            }
+                        }
+
+                        if (segmentFailed) {
+                            outputs.push(`[NOTE]: Chain stopped at the first failing segment.`);
+                        }
+                        toolResult = outputs.join("\n\n");
                         break;
                     }
 
@@ -451,6 +776,10 @@ export async function* runAgent(
         }
 
         if (!foundTool) break;
+    }
+
+    if (turns >= MAX_TURNS) {
+        yield { type: "response", content: "\n\n⏸️ I've reached the step limit for a single run. Progress is saved — send **continue** and I'll pick up where I left off." };
     }
 
     if (onStateChange) onStateChange("COMPLETED");

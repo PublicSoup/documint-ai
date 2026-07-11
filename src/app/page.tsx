@@ -16,18 +16,64 @@ import { Card, CardContent } from '@/components/ui/card';
 import { PLANS } from '@/config/plans';
 import { TrackedLink } from '@/components/marketing/tracked-link';
 
+const SITE_URL = "https://documintai.dev";
+
+// Structured data (schema.org) — powers Google rich results, the sitelinks
+// search box, and knowledge-panel eligibility. Intentionally omits
+// aggregateRating/review (fabricating those violates Google's guidelines).
 const jsonLd = {
   "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  "name": "DocuMint AI",
-  "applicationCategory": "DeveloperApplication",
-  "operatingSystem": "Web",
-  "offers": {
-    "@type": "AggregateOffer",
-    "priceCurrency": "USD",
-    "lowPrice": "19.00",
-    "highPrice": "99.00"
-  }
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": `${SITE_URL}/#organization`,
+      "name": "DocuMint AI",
+      "url": SITE_URL,
+      "logo": `${SITE_URL}/favicon.ico`,
+      "sameAs": ["https://twitter.com/documint_ai"],
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${SITE_URL}/#website`,
+      "url": SITE_URL,
+      "name": "DocuMint AI",
+      "description": "AI documentation, automated code review, and architecture diagrams for your codebase.",
+      "publisher": { "@id": `${SITE_URL}/#organization` },
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": `${SITE_URL}/docs?q={search_term_string}`,
+        },
+        "query-input": "required name=search_term_string",
+      },
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": `${SITE_URL}/#app`,
+      "name": "DocuMint AI",
+      "url": SITE_URL,
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Web",
+      "description": "The AI-powered engine that understands your codebase — generate documentation, automated code reviews, and architecture diagrams in seconds.",
+      "publisher": { "@id": `${SITE_URL}/#organization` },
+      "featureList": [
+        "AI documentation generation",
+        "Automated AI code review",
+        "Architecture & dependency diagrams",
+        "GitHub repository import",
+        "Cloud IDE",
+        "Team collaboration & audit logs",
+      ],
+      "offers": {
+        "@type": "AggregateOffer",
+        "priceCurrency": "USD",
+        "lowPrice": "19.00",
+        "highPrice": "99.00",
+        "offerCount": "3",
+      },
+    },
+  ],
 };
 
 const LANDING_EXPERIMENT_VARIANT = "control";

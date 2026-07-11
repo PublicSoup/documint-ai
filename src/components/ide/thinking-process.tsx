@@ -10,6 +10,31 @@ interface ThinkingProcessProps {
     isThinking: boolean;
 }
 
+const URL_RE = /(https?:\/\/[^\s)"'\]]+)/g;
+
+/** Render step text with URLs (e.g. sandbox preview links) as clickable anchors. */
+function linkifyContent(content: string) {
+    const parts = content.split(URL_RE);
+    if (parts.length === 1) return content;
+    // split() with a capture group puts URL matches at odd indices.
+    return parts.map((part, index) =>
+        index % 2 === 1 ? (
+            <a
+                key={index}
+                href={part}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-emerald-300 underline underline-offset-2 hover:text-emerald-200"
+                onClick={(e) => e.stopPropagation()}
+            >
+                {part}
+            </a>
+        ) : (
+            <span key={index}>{part}</span>
+        )
+    );
+}
+
 export function ThinkingProcess({ steps, isThinking }: ThinkingProcessProps) {
     const [isExpanded, setIsExpanded] = useState(true);
 
@@ -64,7 +89,7 @@ export function ThinkingProcess({ steps, isThinking }: ThinkingProcessProps) {
                                     step.type === 'preview' && "text-emerald-300/80",
                                     step.type === 'error_report' && "text-amber-300/80"
                                 )}>
-                                    {step.content}
+                                    {linkifyContent(step.content)}
                                 </span>
                             </div>
                             <div className="text-[9px] text-white/20 tabular-nums shrink-0">

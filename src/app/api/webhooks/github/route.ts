@@ -5,8 +5,67 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { sendNotification } from "@/lib/notifications";
 import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
+import { inngest } from "@/inngest/client";
+import { hasFeatureAccess } from "@/lib/subscription";
 
 const webhookSecret = env.GITHUB_WEBHOOK_SECRET;
+
+// Only these PR actions warrant a (re-)review.
+const REVIEWABLE_PR_ACTIONS = new Set(["opened", "reopened", "synchronize", "ready_for_review"]);
+
+const pullRequestPayloadSchema = z.object({
+    action: z.string(),
+    number: z.number().int().positive(),
+    pull_request: z.object({
+        title: z.string().optional(),
+        draft: z.boolean().optional(),
+    }).passthrough(),
+    repository: z.object({
+        full_name: z.string().min(1),
+    }).passthrough(),
+}).passthrough();
+
+/**
+ * Handle a `pull_request` webhook: if the repo has an enabled, plan-entitled
+ * review policy, enqueue a background AI review. Fast + non-blocking — the
+ * heavy lifting happens in the Inngest `auto-code-review` function.
+ */
+async function handlePullRequest(body: string): Promise<NextResponse> {
+    const parsed = pullRequestPayloadSchema.safeParse(JSON.parse(body));
+    if (!parsed.success) {
+        return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+    }
+    const { action, number: prNumber, pull_request: pr, repository } = parsed.data;
+
+    if (!REVIEWABLE_PR_ACTIONS.has(action) || pr.draft === true) {
+        return NextResponse.json({ message: "PR event ignored", action });
+    }
+
+    const policy = await db.reviewPolicy.findUnique({ where: { repoFullName: repository.full_name } });
+    if (!policy || !policy.enabled || !policy.autoReview) {
+        return NextResponse.json({ message: "No active review policy for repo" });
+    }
+
+    // Enforce plan entitlement at trigger time — a downgraded owner stops auto-reviews.
+    const entitled = await hasFeatureAccess(policy.ownerUserId, "autoCodeReview");
+    if (!entitled) {
+        return NextResponse.json({ message: "Review policy owner not entitled" });
+    }
+
+    await inngest.send({
+        name: "code-review.requested",
+        data: {
+            repoFullName: repository.full_name,
+            prNumber,
+            prTitle: pr.title ?? null,
+            ownerUserId: policy.ownerUserId,
+            teamId: policy.teamId ?? null,
+            policyId: policy.id,
+        },
+    });
+
+    return NextResponse.json({ message: "Review queued", repo: repository.full_name, prNumber });
+}
 
 const commitSchema = z.object({
     modified: z.array(z.string()).optional(),
@@ -68,6 +127,10 @@ export async function POST(req: NextRequest) {
 
         if (!hasValidSignature(body, signature, webhookSecret)) {
             return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+        }
+
+        if (event === "pull_request") {
+            return await handlePullRequest(body);
         }
 
         if (event !== "push") {

@@ -18,6 +18,7 @@ export interface PlanLimits {
         rulesetGenerator: boolean;
         aiArchitect: boolean;
         codeExplain: boolean;
+        autoCodeReview: boolean;
     };
 }
 
@@ -39,6 +40,7 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
             rulesetGenerator: false,
             aiArchitect: false,
             codeExplain: false,
+            autoCodeReview: false,
         },
     },
     starter: {
@@ -58,6 +60,7 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
             rulesetGenerator: true,
             aiArchitect: true,
             codeExplain: true,
+            autoCodeReview: false,
         },
     },
     pro: {
@@ -77,6 +80,7 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
             rulesetGenerator: true,
             aiArchitect: true,
             codeExplain: true,
+            autoCodeReview: true,
         },
     },
     team: {
@@ -96,6 +100,7 @@ export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
             rulesetGenerator: true,
             aiArchitect: true,
             codeExplain: true,
+            autoCodeReview: true,
         },
     },
 };

@@ -8,8 +8,10 @@ import {
     AlertTriangle,
     Boxes,
     CheckCircle2,
+    ChevronDown,
     Filter,
     FileCode2,
+    FolderGit2,
     Info,
     ListTree,
     Loader2,
@@ -92,6 +94,9 @@ export function ArchitectureTab({ teamId }: ArchitectureTabProps) {
         toast,
         refreshGraph,
         loadDemoProject,
+        project,
+        setProject,
+        projects,
     } = useProjectGraph(teamId);
 
     const [filter, setFilter] = useState<FilterState>(DEFAULT_FILTER);
@@ -181,6 +186,28 @@ export function ArchitectureTab({ teamId }: ArchitectureTabProps) {
                     </div>
                 </div>
                 <div className="flex gap-2 items-center">
+                    {isRealData && projects.length > 1 && (
+                        <div className="relative">
+                            <FolderGit2 className="w-3.5 h-3.5 text-primary absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                            <select
+                                value={project ?? ""}
+                                onChange={(e) => setProject(e.target.value || null)}
+                                disabled={isRefreshing}
+                                aria-label="Scope visualization to a project"
+                                className="appearance-none bg-black/30 border border-white/10 rounded-lg pl-8 pr-7 py-1.5 text-xs text-white focus:outline-none focus:border-primary disabled:opacity-50"
+                            >
+                                <option value="" className="bg-neutral-900">
+                                    All projects ({projects.reduce((n, p) => n + p.fileCount, 0)})
+                                </option>
+                                {projects.map((p) => (
+                                    <option key={p.name} value={p.name} className="bg-neutral-900">
+                                        {p.name} ({p.fileCount})
+                                    </option>
+                                ))}
+                            </select>
+                            <ChevronDown className="w-3.5 h-3.5 text-white/40 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        </div>
+                    )}
                     {isRealData && stats && (
                         <div className="flex items-center gap-2 text-[11px] font-mono">
                             <span className="bg-blue-500/10 text-blue-300 border border-blue-500/20 px-2 py-1 rounded">

@@ -1,10 +1,11 @@
 import { ReviewList } from "@/components/review-list";
-import { CheckSquare, ShieldCheck, Zap } from "lucide-react";
+import { CodeReviewPanel } from "@/components/code-review-panel";
+import { ShieldCheck, Sparkles } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const metadata = {
-    title: "AI PR Reviews | DocuMint AI",
-    description: "Intelligent code and documentation review audit"
+    title: "AI Code Reviews | DocuMint AI",
+    description: "Automatic AI review of your project's code — quality, security, and suggestions"
 };
 
 export default function ReviewsPage() {
@@ -16,32 +17,38 @@ export default function ReviewsPage() {
                         <ShieldCheck className="w-7 h-7 text-white" />
                     </div>
                     <div>
-                        <h1 className="text-3xl font-bold text-white tracking-tight">AI Audit Reviews</h1>
+                        <h1 className="text-3xl font-bold text-white tracking-tight">AI Code Reviews</h1>
                         <p className="text-muted-foreground flex items-center gap-2">
-                            Review documentation updates for production readiness.
+                            Automatic review of your project&apos;s code — quality, security &amp; suggestions.
                         </p>
                     </div>
                 </div>
 
                 <div className="flex items-center gap-3">
                     <div className="px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-sm flex items-center gap-2">
-                        <Zap className="w-4 h-4 text-purple-400" />
-                        <span className="text-white/70">Review Speed: <span className="text-white font-semibold">1.2s avg</span></span>
+                        <Sparkles className="w-4 h-4 text-purple-400" />
+                        <span className="text-white/70">Powered by <span className="text-white font-semibold">Documint AI</span></span>
                     </div>
                 </div>
             </header>
 
-            <div className="grid grid-cols-1 gap-6">
-                <Card className="glass-card border-none bg-transparent">
-                    <CardHeader className="px-0">
-                        <CardTitle className="text-xl">Pending Approvals</CardTitle>
-                        <CardDescription>Documentation changes waiting for your review.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="px-0">
-                        <ReviewList />
-                    </CardContent>
-                </Card>
-            </div>
+            <section>
+                <div className="mb-4">
+                    <h2 className="text-xl font-semibold text-white">Code Quality &amp; Security</h2>
+                    <p className="text-sm text-muted-foreground">Pick a file from your project and let the AI audit it for bugs, security risks, and improvements.</p>
+                </div>
+                <CodeReviewPanel />
+            </section>
+
+            <Card className="glass-card border-none bg-transparent">
+                <CardHeader className="px-0">
+                    <CardTitle className="text-xl">Documentation Approvals</CardTitle>
+                    <CardDescription>Documentation changes waiting for your review.</CardDescription>
+                </CardHeader>
+                <CardContent className="px-0">
+                    <ReviewList />
+                </CardContent>
+            </Card>
         </div>
     );
 }
