@@ -41,6 +41,50 @@ export async function readFile(userId: string, filePath: string, _cwd?: string):
     return file.content ?? "";
 }
 
+export interface ResolvedPath {
+    /** The single unambiguous match, if one exists. */
+    path?: string;
+    /** All plausible matches (basename/suffix), for a "did you mean" hint. */
+    candidates: string[];
+}
+
+/**
+ * Resolve a possibly-imprecise path the model asked for to a real project file.
+ * The agent frequently guesses paths (e.g. "landing-page/index.html" when the
+ * folder is really "landing-page-7"); rather than dead-ending on an exact miss,
+ * fall back to a `/suffix` match, then a basename match — the same forgiving
+ * behavior Cline/Claude Code rely on. Returns `path` only when the match is
+ * unambiguous; otherwise the caller surfaces `candidates` to the model.
+ */
+export async function resolveFilePath(userId: string, requested: string): Promise<ResolvedPath> {
+    const name = normalizeVfsPath(requested);
+    if (!name) return { candidates: [] };
+
+    const exact = await db.file.findFirst({ where: { userId, name }, select: { name: true } });
+    if (exact) return { path: name, candidates: [name] };
+
+    const all: { name: string }[] = await db.file.findMany({
+        where: { userId },
+        select: { name: true },
+        take: MAX_FILES,
+    });
+    const names = all.map((f) => f.name);
+    const base = name.split("/").pop() ?? name;
+
+    // Prefer a full-suffix match ("a/b/c.ts" for a request of "b/c.ts"), then
+    // fall back to matching the bare filename anywhere in the tree.
+    const suffixMatches = names.filter((n) => n === name || n.endsWith(`/${name}`));
+    const chosen = suffixMatches.length > 0
+        ? suffixMatches
+        : names.filter((n) => n === base || n.endsWith(`/${base}`));
+
+    const unique = Array.from(new Set(chosen));
+    return {
+        path: unique.length === 1 ? unique[0] : undefined,
+        candidates: unique.slice(0, MAX_SEARCH_RESULTS),
+    };
+}
+
 /** Create or update a file in the user's project (idempotent by name). */
 export async function writeFile(
     userId: string,

@@ -17,8 +17,6 @@ export function TeamHealthPDFExport({ teamId, teamName }: { teamId: string, team
             if (!res.ok) throw new Error("Failed to fetch report data");
             const data = await res.json();
 
-            // 2. Dynamic import html2pdf
-            // @ts-ignore
             const html2pdf = (await import("html2pdf.js")).default;
 
             // 3. Create report HTML element

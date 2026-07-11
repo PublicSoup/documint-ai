@@ -3,12 +3,15 @@
 import { SessionProvider } from "next-auth/react";
 
 import { ToastProvider } from "./toast";
+import { ConfirmProvider } from "./ui/confirm-dialog";
 
 export function Providers({ children }: { children: React.ReactNode }) {
     return (
         <SessionProvider>
             <ToastProvider>
-                {children}
+                <ConfirmProvider>
+                    {children}
+                </ConfirmProvider>
             </ToastProvider>
         </SessionProvider>
     );

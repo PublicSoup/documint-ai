@@ -188,7 +188,7 @@ export default async function AnalyticsPage({
                         <div className="space-y-1">
                             {data.staleDocs.length === 0 ? (
                                 <div className="p-8 border-2 border-dashed border-white/5 rounded-xl text-center text-muted-foreground bg-white/5">
-                                    Your documentation is up to date! 🎉
+                                    Your documentation is up to date.
                                 </div>
                             ) : (
                                 data.staleDocs.map((doc) => (

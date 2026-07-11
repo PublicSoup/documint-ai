@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Loader2, Plus, Users, Mail, X, Activity, Sparkles, CheckCircle2, Share2, RefreshCw, Award, AlertTriangle } from "lucide-react";
 import { useToast } from "./toast";
+import { useConfirm } from "./ui/confirm-dialog";
 import { TeamIntegrations } from "./team-integrations";
 import { TeamActivityFeed } from "./team-activity-feed";
 import { TeamHealthPDFExport } from "./team-health-pdf";
@@ -48,6 +49,7 @@ function getApiMessage(payload: unknown, fallback: string): string {
 
 export default function TeamManagement() {
     const { toast } = useToast();
+    const confirm = useConfirm();
     const [teams, setTeams] = useState<Team[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState("");
@@ -253,7 +255,13 @@ export default function TeamManagement() {
     };
 
     const handleRemoveMember = async (teamId: string, userId: string) => {
-        if (!confirm("Are you sure you want to remove this member?")) return;
+        const confirmed = await confirm({
+            title: "Remove member",
+            description: "This member will lose access to the team and its files.",
+            confirmLabel: "Remove",
+            variant: "destructive",
+        });
+        if (!confirmed) return;
 
         try {
             const res = await fetch(`/api/teams/${teamId}/members?userId=${userId}`, {

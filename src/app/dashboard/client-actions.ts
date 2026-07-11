@@ -13,6 +13,8 @@
  * the diagram.
  */
 
+import type { ProjectGraphData } from "@/lib/graph/graph-data";
+
 export interface GraphStats {
     totalFilesScanned: number;
     totalNodes: number;
@@ -40,29 +42,11 @@ export interface GraphFileSummary {
 /** The visualization modes the Architecture tab can switch between. */
 export type GraphViewKey = "flowchart" | "sequence" | "class" | "mindmap";
 
-/**
- * Alternate Mermaid renderings of the same project graph. The `flowchart` mode
- * uses `RealGraphResponse.mermaid`; the rest come from here so the server only
- * crawls the workspace once.
- */
-export interface ProjectViews {
-    sequence: string;
-    class: string;
-    mindmap: string;
-}
-
-export interface ProjectSummary {
-    name: string;
-    fileCount: number;
-}
-
 export interface RealGraphResponse {
     isRealData: true;
-    mermaid: string;
-    projects?: ProjectSummary[];
-    activeProject?: string | null;
-    views?: ProjectViews;
-    nodeMap?: Record<string, string>;
+    /** Structured graph rendered client-side (React Flow canvas, sequence, mindmap). */
+    graphData: ProjectGraphData;
+    projectName?: string;
     stats: GraphStats;
     files: GraphFileSummary[];
 }
@@ -98,10 +82,8 @@ export class GraphApiError extends Error {
 
 interface RawGraphResponse {
     isRealData?: boolean;
-    mermaid?: string;
-    projects?: ProjectSummary[];
-    activeProject?: string | null;
-    views?: ProjectViews;
+    graphData?: ProjectGraphData;
+    projectName?: string;
     stats?: GraphStats;
     files?: GraphFileSummary[];
     error?: string;
@@ -130,8 +112,6 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
 export interface GetProjectGraphOptions {
     teamId?: string;
-    /** Scope the graph to a single project (top-level folder). Omit for all files. */
-    project?: string | null;
     fresh?: boolean;
     signal?: AbortSignal;
 }
@@ -149,7 +129,6 @@ export async function getProjectGraphMermaid(
     try {
         const params = new URLSearchParams();
         if (teamId) params.set("teamId", teamId);
-        if (options.project) params.set("project", options.project);
         if (options.fresh) params.set("fresh", "1");
         const qs = params.toString();
         const url = `/api/graph/project${qs ? `?${qs}` : ""}`;
@@ -172,7 +151,7 @@ export async function getProjectGraphMermaid(
         }
 
         const data = await parseResponse<RealGraphResponse>(res);
-        if (!data?.mermaid) {
+        if (!data?.graphData) {
             return {
                 isRealData: false,
                 code: "UNKNOWN",

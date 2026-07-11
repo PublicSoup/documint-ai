@@ -1,9 +1,15 @@
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createOpenAI } from "@ai-sdk/openai";
+import { createXai } from "@ai-sdk/xai";
+import { createDeepSeek } from "@ai-sdk/deepseek";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { generateText as aiSDKGenerateText, generateObject, streamText as aiSDKStreamText, APICallError, RetryError } from "ai";
 import { z } from "zod";
 import { env } from "./env";
 import { createGateway, GatewayError } from "@ai-sdk/gateway";
-import { AiQuotaExceededError, assertAiUsageBudget, getUserApiKey, trackAiUsage } from "./ai-usage";
+import { AiQuotaExceededError, assertAiUsageBudget, getUserApiKeys, parseCustomProviderConfig, trackAiUsage, OPENROUTER_BASE_URL, type AiKeyProvider } from "./ai-usage";
+import { normalizeConversation } from "./agent/tool-protocol";
 
 /**
  * AI Provider Utility - Refactored for Vercel AI SDK (@ai-sdk/google)
@@ -43,45 +49,6 @@ export function safePrompt(input: string): string {
         .trim();
 }
 
-type ChatRole = "user" | "assistant";
-type ChatMessage = { role: ChatRole; content: string };
-
-/**
- * Normalize a conversation so it is accepted by strict providers.
- *
- * Gemini tolerates arbitrary role sequences, but many gateway/OpenRouter
- * upstreams reject conversations that (a) contain consecutive same-role
- * messages — the agent loop emits several user-role [TOOL_OUTPUT] messages in
- * a row — (b) start with an assistant message (the UI greeting), or (c)
- * contain empty messages. That is why switching from a lenient model to a
- * strict one mid-conversation used to fail with an opaque provider error.
- */
-export function normalizeChatMessages(messages: ChatMessage[]): ChatMessage[] {
-    const nonEmpty = messages.filter((m) => m.content.trim().length > 0);
-
-    const normalized: ChatMessage[] = [];
-    for (const message of nonEmpty) {
-        const previous = normalized[normalized.length - 1];
-        if (previous && previous.role === message.role) {
-            previous.content = `${previous.content}\n\n${message.content}`;
-        } else {
-            normalized.push({ ...message });
-        }
-    }
-
-    // Strict providers require the first message to come from the user.
-    if (normalized.length > 0 && normalized[0].role === "assistant") {
-        normalized.unshift({ role: "user", content: "(Conversation resumed from saved history.)" });
-    }
-
-    // ...and the conversation to end with a user turn.
-    if (normalized.length > 0 && normalized[normalized.length - 1].role === "assistant") {
-        normalized.push({ role: "user", content: "Continue." });
-    }
-
-    return normalized;
-}
-
 /**
  * Pull the real failure reason out of the AI SDK / Gateway error chain instead
  * of surfacing "Failed after 3 attempts. Last error: Provider returned error".
@@ -101,8 +68,7 @@ export function describeAiError(error: unknown, modelName: string): string {
         detail = inner.message;
         const cause = inner.cause;
         if (cause && typeof cause === "object") {
-            const causeRecord = cause as Record<string, unknown>;
-            const causeError = causeRecord.error;
+            const causeError = (cause as Record<string, unknown>).error;
             if (causeError && typeof causeError === "object" && "message" in causeError) {
                 detail = String((causeError as Record<string, unknown>).message) || detail;
             }
@@ -131,7 +97,7 @@ export function describeAiError(error: unknown, modelName: string): string {
         return `The AI provider rejected the credentials for ${modelName} (HTTP ${statusCode}). Check the configured API key.`;
     }
     if (statusCode === 402) {
-        return `The AI provider reports insufficient credits for ${modelName}. Top up the gateway/OpenRouter balance or pick a free model.`;
+        return `The AI provider reports insufficient credits for ${modelName}. Top up the provider/OpenRouter balance or pick a free model.`;
     }
     if (statusCode === 404) {
         return `Model ${modelName} is not available from the provider (HTTP 404). Pick a different model.`;
@@ -167,11 +133,13 @@ const sharedGoogleGenAI = createGoogleGenerativeAI({
 });
 
 // The AI Gateway authenticates with an explicit key when provided, otherwise
-// falls back to Vercel OIDC — automatic on Vercel deployments, and available
-// locally through the VERCEL_OIDC_TOKEN that `vercel env pull` writes.
+// falls back to Vercel OIDC — automatic on Vercel deployments (request-context
+// token), and available locally through the VERCEL_OIDC_TOKEN that
+// `vercel env pull` writes. This keeps shared Gemini/gateway models working
+// even though the legacy shared GOOGLE_API_KEY was revoked.
 const gatewayProvider = env.AI_GATEWAY_API_KEY
     ? createGateway({ apiKey: env.AI_GATEWAY_API_KEY })
-    : process.env.VERCEL_OIDC_TOKEN
+    : (process.env.VERCEL_OIDC_TOKEN || process.env.VERCEL)
         ? createGateway({})
         : null;
 
@@ -184,9 +152,82 @@ function isGoogleModel(modelName: string): boolean {
 }
 
 /**
+ * Which BYO-key provider serves a given model.
+ */
+function byokProviderForModel(modelName: string): AiKeyProvider | null {
+    if (isGoogleModel(modelName)) return "google";
+    if (modelName.startsWith("anthropic/")) return "anthropic";
+    if (modelName.startsWith("openai/")) return "openai";
+    if (modelName.startsWith("xai/")) return "xai";
+    if (modelName.startsWith("deepseek/")) return "deepseek";
+    if (modelName.startsWith("openrouter/")) return "openrouter";
+    if (modelName.startsWith("custom/")) return "custom";
+    return null;
+}
+
+/**
+ * Gateway catalog IDs that differ from the provider's native model ID
+ * when calling the provider's own API directly with a user key.
+ */
+const DIRECT_MODEL_OVERRIDES: Record<string, string> = {
+    "deepseek/deepseek-r1": "deepseek-reasoner",
+};
+
+/**
+ * Build a model instance backed by the user's own credentials.
+ * `storedValue` is the bare API key, except for "custom" where it is the
+ * JSON config produced by the API key settings ({ apiKey, baseUrl, modelId }).
+ */
+function createUserProviderModel(provider: AiKeyProvider, storedValue: string, modelName: string) {
+    const directModelName =
+        DIRECT_MODEL_OVERRIDES[modelName] ?? modelName.replace(/^[a-z]+\//, "");
+    switch (provider) {
+        case "google":
+            return createGoogleGenerativeAI({ apiKey: storedValue })(directModelName);
+        case "anthropic":
+            return createAnthropic({ apiKey: storedValue })(directModelName);
+        case "openai":
+            return createOpenAI({ apiKey: storedValue })(directModelName);
+        case "xai":
+            return createXai({ apiKey: storedValue })(directModelName);
+        case "deepseek":
+            return createDeepSeek({ apiKey: storedValue })(directModelName);
+        case "custom": {
+            const config = parseCustomProviderConfig(storedValue);
+            if (!config) {
+                throw new Error("Custom provider is not configured. Add its endpoint and key in API Keys.");
+            }
+            return createOpenAICompatible({
+                name: "custom",
+                baseURL: config.baseUrl,
+                apiKey: config.apiKey,
+            })(config.modelId);
+        }
+        case "openrouter": {
+            // storedValue is the bare OpenRouter key; the model id is whatever
+            // follows "openrouter/" in the requested model name (OpenRouter ids
+            // are themselves "vendor/model", e.g. "anthropic/claude-3.5-sonnet").
+            const orModel = modelName.replace(/^openrouter\//, "").trim() || "openai/gpt-4o-mini";
+            return createOpenAICompatible({
+                name: "openrouter",
+                baseURL: OPENROUTER_BASE_URL,
+                apiKey: storedValue,
+            })(orModel);
+        }
+    }
+}
+
+/**
  * Base AI Model selector (uses the shared API key)
  */
 function getModel(modelName: string = "google/gemini-2.0-flash") {
+    if (modelName.startsWith("custom/")) {
+        throw new Error("Custom Provider is not configured. Open API Keys and add your endpoint, model ID, and key first.");
+    }
+    if (modelName.startsWith("openrouter/")) {
+        throw new Error("No OpenRouter API key found on your account. Open API Keys → OpenRouter, paste your sk-or-v1-… key, and Save — then try again.");
+    }
+
     if (gatewayProvider) {
         return gatewayProvider(modelName);
     }
@@ -214,12 +255,13 @@ async function getModelForUser(
     modelName: string = "google/gemini-2.0-flash"
 ): Promise<{ model: ReturnType<typeof getModel>; usingOwnKey: boolean }> {
     // Check for BYO API key
-    if (userId && isGoogleModel(modelName)) {
-        const userKey = await getUserApiKey(userId);
-        if (userKey) {
-            const userGenAI = createGoogleGenerativeAI({ apiKey: userKey });
-            const directModelName = modelName.replace(/^google\//, "");
-            return { model: userGenAI(directModelName), usingOwnKey: true };
+    if (userId) {
+        const provider = byokProviderForModel(modelName);
+        if (provider) {
+            const userKey = (await getUserApiKeys(userId))[provider];
+            if (userKey) {
+                return { model: createUserProviderModel(provider, userKey, modelName), usingOwnKey: true };
+            }
         }
     }
 
@@ -227,15 +269,51 @@ async function getModelForUser(
     return { model: getModel(modelName), usingOwnKey: false };
 }
 
+/** Cheapest model per provider, used only for key validation. */
+const VALIDATION_MODELS: Record<AiKeyProvider, string> = {
+    google: "gemini-2.0-flash",
+    anthropic: "claude-haiku-4-5",
+    openai: "gpt-4o-mini",
+    xai: "grok-3-mini",
+    deepseek: "deepseek-chat",
+    openrouter: "", // validated via the OpenRouter key endpoint, not a completion
+    custom: "", // the custom config carries its own model ID
+};
+
 /**
- * Validate a Google API key by making a lightweight list models call.
+ * Validate provider credentials by making a minimal one-token completion call.
+ * For "custom", pass the JSON config string as `storedValue`.
+ *
+ * OpenRouter is validated differently: a bare key with zero credits would fail
+ * a completion (402) even though the key itself is valid, so we check it against
+ * OpenRouter's key-info endpoint, which only cares about authentication.
  */
-export async function validateApiKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
+export async function validateProviderApiKey(
+    provider: AiKeyProvider,
+    storedValue: string
+): Promise<{ valid: boolean; error?: string }> {
+    if (provider === "openrouter") {
+        try {
+            const res = await fetch(`${OPENROUTER_BASE_URL}/auth/key`, {
+                headers: { Authorization: `Bearer ${storedValue}` },
+                signal: AbortSignal.timeout(10_000),
+            });
+            if (res.status === 401 || res.status === 403) {
+                return { valid: false, error: "OpenRouter rejected this API key." };
+            }
+            // Any non-auth response (200, or even a transient 5xx) means the key
+            // itself isn't being rejected; don't block the user on that.
+            return { valid: true };
+        } catch {
+            // Network hiccup reaching OpenRouter — allow the save rather than
+            // hard-blocking; a bad key surfaces on first use.
+            return { valid: true };
+        }
+    }
+
     try {
-        const testAI = createGoogleGenerativeAI({ apiKey });
-        const model = testAI("gemini-2.0-flash");
         await aiSDKGenerateText({
-            model,
+            model: createUserProviderModel(provider, storedValue, VALIDATION_MODELS[provider]),
             messages: [{ role: "user", content: "Hi" }],
             maxOutputTokens: 1,
         });
@@ -243,6 +321,13 @@ export async function validateApiKey(apiKey: string): Promise<{ valid: boolean; 
     } catch (e: unknown) {
         return { valid: false, error: e instanceof Error ? e.message : "Invalid API key" };
     }
+}
+
+/**
+ * Validate a Google API key (legacy alias for validateProviderApiKey).
+ */
+export async function validateApiKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
+    return validateProviderApiKey("google", apiKey);
 }
 
 /**
@@ -268,15 +353,13 @@ export async function getAICompletionWithDetailedError(
         const systemMessage = messages.find(m => m.role === "system")?.content;
 
         // Map remaining messages (User/Assistant) and normalize the role
-        // sequence so strict providers accept histories produced by lenient ones.
-        const chatMessages = normalizeChatMessages(
-            messages
-                .filter(m => m.role !== "system")
-                .map(m => ({
-                    role: m.role as "user" | "assistant",
-                    content: safePrompt(m.content)
-                }))
-        );
+        // sequence — strict providers (many OpenRouter upstreams, local chat
+        // templates) reject leading-assistant or consecutive same-role turns,
+        // which is exactly what the agent's [TOOL_OUTPUT] messages produce.
+        // This is why switching models mid-conversation used to blow up.
+        const chatMessages = normalizeConversation(
+            messages.map(m => ({ role: m.role, content: safePrompt(m.content) }))
+        ) as Array<{ role: "user" | "assistant"; content: string }>;
 
         const estimatedInputTokens = Math.ceil(
             ((systemMessage?.length ?? 0) + chatMessages.reduce((sum, msg) => sum + msg.content.length, 0)) / 4
@@ -298,16 +381,15 @@ export async function getAICompletionWithDetailedError(
                 abortSignal: AbortSignal.timeout(60000), // Strict 60s timeout abort
             });
         } catch (firstError: unknown) {
-            // The request may simply be too big for the newly selected model
-            // (smaller context window / lower max output). Retry once with a
-            // trimmed history and a conservative output budget before failing.
+            // The request may simply be too big for the selected model (smaller
+            // context window / lower max output). Retry once with a trimmed
+            // history and a conservative output budget before failing.
             if (!isPayloadTooLargeError(firstError)) throw firstError;
 
-            const trimmedMessages = normalizeChatMessages(chatMessages.slice(-8));
             response = await aiSDKGenerateText({
                 model,
                 system: systemMessage,
-                messages: trimmedMessages,
+                messages: normalizeConversation(chatMessages.slice(-8)) as Array<{ role: "user" | "assistant"; content: string }>,
                 temperature: options.temperature ?? 0.4,
                 maxOutputTokens: Math.min(options.maxTokens ?? 8192, 4096),
                 abortSignal: AbortSignal.timeout(60000),
@@ -341,8 +423,7 @@ export async function getAICompletionWithDetailedError(
             };
         }
 
-        const modelName = options.model || "google/gemini-2.0-flash";
-        const described = describeAiError(e, modelName);
+        const described = describeAiError(e, options.model || "google/gemini-2.0-flash");
         console.error("[Vercel AI SDK Error]:", described);
 
         const lowerMessage = described.toLowerCase();
@@ -350,7 +431,7 @@ export async function getAICompletionWithDetailedError(
             return {
                 success: false,
                 error: options.userId
-                    ? "AI provider rate limit reached. Add your own Google API key in Settings to bypass shared limits, or try again in a minute."
+                    ? "AI provider rate limit reached. Add your own API key in API Keys to bypass shared limits, or try again in a minute."
                     : "AI provider rate limit reached. Try again in a minute.",
             };
         }

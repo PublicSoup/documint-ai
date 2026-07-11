@@ -10,14 +10,16 @@ import {
     X,
     Bug,
     Key,
+    KeyRound,
     Plus,
     History,
     Trash2,
     MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ApiKeyManager } from "@/components/api-key-manager";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { LocalModelSettings } from "@/components/local-model-settings";
 import { cn, extractCodeBlocks } from "@/lib/utils";
 import { applyPatch } from "@/lib/code-patcher";
 import { useToast } from "../toast";
@@ -26,6 +28,9 @@ import { ThinkingProcess } from "./thinking-process";
 import { AVAILABLE_MODELS } from "@/lib/ai-models";
 import { parseAgentEvent, type AgentEvent } from "@/lib/agent/events";
 import { getRuntimeErrorFingerprint, type RuntimeLogLine, type RuntimeErrorSummary } from "@/lib/ide/runtime-events";
+import { getLocalModelConfig, hasLocalModelConfig } from "@/lib/local-model";
+import { runLocalAgent } from "@/lib/local-agent";
+import { OpenRouterModelPicker } from "./openrouter-model-picker";
 
 // ============================================================================
 // Types & Interfaces
@@ -61,14 +66,13 @@ interface AIChatPanelProps {
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
-type ChatFileRef = NonNullable<AIChatPanelProps["allFiles"]>[number];
+/** Pseudo model id for a locally-running server — intercepted before /api/chat, never sent to it. */
+const LOCAL_MODEL_ID = "local/browser";
 
-interface ModelOption {
-    id: string;
-    label: string;
-    provider: string;
-    tier: string;
-}
+/** Model-picker sentinel for OpenRouter; the concrete model is chosen separately. */
+const OPENROUTER_PICKER_ID = "openrouter/model";
+
+type ChatFileRef = NonNullable<AIChatPanelProps["allFiles"]>[number];
 
 interface ChatSessionMeta {
     id: string;
@@ -266,45 +270,38 @@ export function AIChatPanel({
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [selectedModel, setSelectedModel] = useState<string>("google/gemini-2.5-flash");
+    const [openRouterModel, setOpenRouterModel] = useState<string>("");
     const [reasoningEffort, setReasoningEffort] = useState<"low" | "medium">("low");
     const [autoFixErrors, setAutoFixErrors] = useState(true);
     const [showApiKeyModal, setShowApiKeyModal] = useState(false);
-    const [models, setModels] = useState<ModelOption[]>(() => AVAILABLE_MODELS.map((m) => ({ ...m })));
+    // null = not yet checked; true/false = whether an OpenRouter key is saved.
+    const [hasOpenRouterKey, setHasOpenRouterKey] = useState<boolean | null>(null);
+    // Persistent chat sessions (Cursor-style history).
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [sessions, setSessions] = useState<ChatSessionMeta[]>([]);
     const [showHistoryMenu, setShowHistoryMenu] = useState(false);
 
     useEffect(() => {
-        // Restore a stored model immediately against the static list, then again
-        // once the server catalog (which may include gateway/OpenRouter models)
-        // arrives — so e.g. a previously selected Nemotron stays selected.
+        // Restore the last model only if it's still selectable. Don't strand the
+        // user on "Local Model" from a one-off test when no local server is
+        // configured (common on Safari, which can't reach localhost at all) —
+        // fall back to the default cloud model so the chat still works.
         const stored = localStorage.getItem("documint_model");
-        if (stored && AVAILABLE_MODELS.some((m) => m.id === stored)) {
+        if (stored === LOCAL_MODEL_ID) {
+            if (hasLocalModelConfig()) setSelectedModel(LOCAL_MODEL_ID);
+            else localStorage.removeItem("documint_model");
+        } else if (stored && AVAILABLE_MODELS.some((m) => m.id === stored)) {
             setSelectedModel(stored);
         }
+
+        const storedOpenRouter = localStorage.getItem("documint_openrouter_model");
+        if (storedOpenRouter) setOpenRouterModel(storedOpenRouter);
 
         const storedEffort = localStorage.getItem("documint_reasoning_effort");
         if (storedEffort === "low" || storedEffort === "medium") setReasoningEffort(storedEffort);
 
         const storedAutoFix = localStorage.getItem("documint_auto_fix_errors");
         if (storedAutoFix) setAutoFixErrors(storedAutoFix !== "false");
-
-        let cancelled = false;
-        void (async () => {
-            try {
-                const res = await fetch("/api/ai/models");
-                if (!res.ok) return;
-                const data = await res.json() as { models?: ModelOption[] };
-                if (cancelled || !Array.isArray(data.models) || data.models.length === 0) return;
-                setModels(data.models);
-                if (stored && data.models.some((m) => m.id === stored)) {
-                    setSelectedModel(stored);
-                }
-            } catch {
-                // Keep the static Gemini list.
-            }
-        })();
-        return () => { cancelled = true; };
     }, []);
 
     const handleModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -312,6 +309,32 @@ export function AIChatPanel({
         setSelectedModel(val);
         localStorage.setItem("documint_model", val);
     };
+
+    const handleOpenRouterModelChange = (modelId: string) => {
+        setOpenRouterModel(modelId);
+        localStorage.setItem("documint_openrouter_model", modelId);
+    };
+
+    const isOpenRouter = selectedModel === OPENROUTER_PICKER_ID;
+
+    // Know whether an OpenRouter key is actually saved so we can prompt inline
+    // instead of failing on send with a confusing server error. Re-checks when
+    // OpenRouter becomes the provider and after the API Keys dialog closes.
+    useEffect(() => {
+        if (!isOpenRouter || showApiKeyModal) return;
+        let cancelled = false;
+        fetch("/api/user/api-key", { credentials: "include" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data) => {
+                if (!cancelled) setHasOpenRouterKey(Boolean(data?.usage?.providers?.openrouter));
+            })
+            .catch(() => {
+                if (!cancelled) setHasOpenRouterKey(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpenRouter, showApiKeyModal]);
 
     const handleReasoningEffortChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const val = e.target.value === "medium" ? "medium" : "low";
@@ -878,6 +901,23 @@ export function AIChatPanel({
         const messageToSend = customInput || input;
         if (!messageToSend.trim() || loading) return;
 
+        if (selectedModel === OPENROUTER_PICKER_ID) {
+            if (hasOpenRouterKey === false) {
+                toast("Add your OpenRouter API key first (API Keys → OpenRouter).", "error");
+                setShowApiKeyModal(true);
+                return;
+            }
+            if (!openRouterModel) {
+                toast("Pick an OpenRouter model first (next to the model selector).", "error");
+                return;
+            }
+        }
+        // OpenRouter's concrete model is chosen separately; everything else uses
+        // the picker value directly.
+        const effectiveModel = selectedModel === OPENROUTER_PICKER_ID
+            ? `openrouter/${openRouterModel}`
+            : selectedModel;
+
         const userMsg = messageToSend.trim();
         setInput("");
         setShowSlashMenu(false);
@@ -909,6 +949,46 @@ export function AIChatPanel({
                 budget: reasoningEffort === "medium" ? 5_000 : 3_500,
             });
 
+            // Local models run entirely in the browser — the model call goes
+            // straight to the user's own server instead of through /api/chat,
+            // but it drives the exact same tool-using agent loop (file reads/
+            // writes, search, commands): each tool call is executed server-side
+            // via /api/agent/local-tool, scoped to this session's workspace.
+            if (selectedModel === LOCAL_MODEL_ID) {
+                const localConfig = getLocalModelConfig();
+                if (!localConfig) {
+                    throw new Error("Local model isn't configured yet. Open API Keys → Local Model to set it up.");
+                }
+
+                if (onAgentAction) onAgentAction(null);
+
+                const assistantId = generateId();
+                setMessages(prev => [...prev, {
+                    id: assistantId,
+                    role: "assistant",
+                    content: "",
+                    codeBlocks: [],
+                    timestamp: Date.now()
+                }]);
+
+                const generator = runLocalAgent({
+                    config: localConfig,
+                    userMessage: userMsg,
+                    additionalContext,
+                    activeFileContent,
+                    history: buildCompactChatHistory(messages),
+                    reasoningEffort,
+                    autoFixErrors,
+                    signal: abortController.current.signal,
+                });
+
+                for await (const event of generator) {
+                    handleAgentEvent(event, assistantId);
+                }
+
+                return;
+            }
+
             if (onAgentAction) onAgentAction("RESEARCHING CODEBASE...");
 
             const res = await fetch("/api/chat", {
@@ -921,7 +1001,7 @@ export function AIChatPanel({
                     contextFileId: activeFileId,
                     contextContent: activeFileContent,
                     additionalContext,
-                    model: selectedModel,
+                    model: effectiveModel,
                     reasoningEffort,
                     autoFixErrors
                 }),
@@ -992,7 +1072,7 @@ export function AIChatPanel({
             // Refresh titles/counts/timestamps in the history menu.
             void refreshSessions();
         }
-    }, [input, loading, activeFileId, activeFileContent, allFiles, allFileContents, onAgentAction, messages, sessionId, selectedModel, reasoningEffort, autoFixErrors, handleAgentEvent, refreshSessions]);
+    }, [input, loading, activeFileId, activeFileContent, allFiles, allFileContents, onAgentAction, messages, sessionId, selectedModel, openRouterModel, hasOpenRouterKey, reasoningEffort, autoFixErrors, handleAgentEvent, toast, refreshSessions]);
 
     useEffect(() => {
         if (!autoFixErrors || loading || runtimeErrorLines.length === 0) return;
@@ -1206,36 +1286,94 @@ export function AIChatPanel({
                         onChange={handleInputChange}
                         onKeyDown={handleKeyDown}
                         placeholder="Ask AI or type '/' for commands..."
-                        className="w-full pl-4 pr-12 py-3 bg-[#0a0a0a] border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 resize-none h-[180px] md:h-[100px] custom-scrollbar placeholder:text-white/20 transition-all font-light"
+                        className="w-full px-4 py-3 bg-[#0a0a0a] border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 resize-none h-[150px] md:h-[92px] custom-scrollbar placeholder:text-white/20 transition-all font-light"
                     />
 
-                    <div className="absolute bottom-3 left-3 flex items-center gap-2">
+                    <Dialog open={showApiKeyModal} onOpenChange={setShowApiKeyModal}>
+                        {/* Header + close button stay fixed; only the body scrolls,
+                            so the X is always reachable no matter how tall the content. */}
+                        <DialogContent className="glass-card border-white/10 bg-zinc-950 max-w-lg max-h-[85vh] flex flex-col p-0 overflow-hidden">
+                            <DialogHeader className="p-6 pb-4 shrink-0">
+                                <DialogTitle className="text-white flex items-center gap-2">
+                                    <KeyRound className="w-4 h-4 text-primary" />
+                                    API Keys
+                                </DialogTitle>
+                                <DialogDescription>
+                                    Bring your own key from a frontier provider — or connect any
+                                    OpenAI-compatible endpoint — to run models on your own account, without plan limits.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="flex-1 overflow-y-auto custom-scrollbar px-6 pb-6 space-y-6">
+                                <ApiKeyManager />
+                                <div className="pt-2 border-t border-white/[0.06] space-y-3">
+                                    <div>
+                                        <h3 className="text-sm font-medium text-white">Run a model on this device</h3>
+                                        <p className="text-xs text-zinc-500 mt-0.5">
+                                            Point at LM Studio, Ollama, or any local OpenAI-compatible server. The full
+                                            agent runs on it too — file edits, search, and commands all still work.
+                                        </p>
+                                    </div>
+                                    <LocalModelSettings />
+                                </div>
+                            </div>
+                        </DialogContent>
+                    </Dialog>
+                </div>
+
+                {/* Control toolbar — kept below the textarea so the full model
+                    name and reasoning effort are always visible, not squeezed
+                    into a strip inside the input. */}
+                <div className="mt-2 space-y-2">
+                    <div className="flex items-center gap-2">
+                        <label htmlFor="chat-model-select" className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-white/35">
+                            Model
+                        </label>
                         <select
+                            id="chat-model-select"
                             value={selectedModel}
                             onChange={handleModelChange}
-                            className="bg-black/50 border border-white/10 text-white/70 text-[10px] rounded px-2 py-1 outline-none focus:border-indigo-500/50 appearance-none cursor-pointer hover:bg-black/80 hover:text-white transition-colors custom-scrollbar"
-                            style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff40%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .5rem top 50%', backgroundSize: '.65rem auto', paddingRight: '1.5rem' }}
+                            title={AVAILABLE_MODELS.find(m => m.id === selectedModel)?.label ?? "Local Model"}
+                            className="min-w-0 flex-1 bg-black/50 border border-white/10 text-white/80 text-xs rounded-md px-2.5 py-1.5 outline-none focus:border-indigo-500/50 appearance-none cursor-pointer hover:bg-black/80 hover:text-white transition-colors"
+                            style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff40%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .55rem top 50%', backgroundSize: '.65rem auto', paddingRight: '1.6rem' }}
                         >
-                            {Object.entries(
-                                models.reduce<Record<string, ModelOption[]>>((groups, model) => {
-                                    (groups[model.provider] ||= []).push(model);
-                                    return groups;
-                                }, {})
-                            ).map(([provider, group]) => (
-                                <optgroup key={provider} label={provider}>
-                                    {group.map(model => (
-                                        <option key={model.id} value={model.id}>
-                                            {model.label}
-                                        </option>
-                                    ))}
-                                </optgroup>
+                            {AVAILABLE_MODELS.map(model => (
+                                <option key={model.id} value={model.id}>
+                                    {model.label}{model.tier === "pro" ? " (Pro)" : ""}
+                                </option>
                             ))}
+                            <optgroup label="Local (this device)">
+                                <option value={LOCAL_MODEL_ID}>Local Model (LM Studio, Ollama…)</option>
+                            </optgroup>
                         </select>
+                    </div>
+
+                    {/* OpenRouter model picker — only when OpenRouter is the provider. */}
+                    {isOpenRouter && (
+                        hasOpenRouterKey === false ? (
+                            <button
+                                type="button"
+                                onClick={() => setShowApiKeyModal(true)}
+                                className="flex w-full items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-left text-xs text-amber-300 transition-colors hover:bg-amber-500/20"
+                            >
+                                <Key className="h-3.5 w-3.5 shrink-0" />
+                                No OpenRouter key saved — click to add one, then pick a model.
+                            </button>
+                        ) : (
+                            <div className="flex items-center gap-2">
+                                <label className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-indigo-300/50">
+                                    Model
+                                </label>
+                                <OpenRouterModelPicker value={openRouterModel} onChange={handleOpenRouterModelChange} />
+                            </div>
+                        )
+                    )}
+
+                    <div className="flex items-center gap-2">
                         <select
                             value={reasoningEffort}
                             onChange={handleReasoningEffortChange}
-                            className="bg-black/50 border border-white/10 text-white/70 text-[10px] rounded px-2 py-1 outline-none focus:border-indigo-500/50 appearance-none cursor-pointer hover:bg-black/80 hover:text-white transition-colors custom-scrollbar"
-                            style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff40%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .5rem top 50%', backgroundSize: '.65rem auto', paddingRight: '1.5rem' }}
+                            className="bg-black/50 border border-white/10 text-white/80 text-xs rounded-md px-2.5 py-1.5 outline-none focus:border-indigo-500/50 appearance-none cursor-pointer hover:bg-black/80 hover:text-white transition-colors"
+                            style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff40%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .55rem top 50%', backgroundSize: '.65rem auto', paddingRight: '1.6rem' }}
                             title="Reasoning effort"
                         >
                             <option value="low">Fast</option>
@@ -1244,42 +1382,33 @@ export function AIChatPanel({
                         <button
                             type="button"
                             onClick={() => setShowApiKeyModal(true)}
-                            title="Connect your free Gemini API key"
-                            className="flex items-center gap-1 bg-black/50 border border-white/10 text-white/70 text-[10px] rounded px-2 py-1 hover:bg-black/80 hover:text-white transition-colors"
+                            title="API Keys — bring your own provider key (Google, Anthropic, OpenAI, xAI, DeepSeek), a custom endpoint, or a local model"
+                            className="flex items-center gap-1.5 bg-black/50 border border-white/10 text-white/80 text-xs rounded-md px-2.5 py-1.5 hover:bg-black/80 hover:text-white transition-colors"
                         >
-                            <Key className="w-3 h-3" />
+                            <Key className="w-3.5 h-3.5" />
                             API Key
                         </button>
-                    </div>
 
-                    <Dialog open={showApiKeyModal} onOpenChange={setShowApiKeyModal}>
-                        <DialogContent className="max-w-lg border-white/10 bg-zinc-950">
-                            <DialogHeader>
-                                <DialogTitle className="text-white">Connect your Gemini API key</DialogTitle>
-                            </DialogHeader>
-                            <ApiKeyManager />
-                        </DialogContent>
-                    </Dialog>
-
-                    <div className="absolute bottom-3 right-3 flex items-center gap-2">
-                        <span className="text-[10px] text-white/20 font-mono hidden md:inline-block">RETURN to send</span>
-                        {loading ? (
-                            <button
-                                onClick={handleCancel}
-                                className="p-1.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/30 transition-all shadow-lg shadow-red-500/10"
-                                title="Stop Generating"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
-                        ) : (
-                            <button
-                                onClick={() => handleSend()}
-                                disabled={!input.trim()}
-                                className="p-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-500/20"
-                            >
-                                <Send className="w-4 h-4" />
-                            </button>
-                        )}
+                        <div className="ml-auto flex items-center gap-2">
+                            <span className="text-[10px] text-white/20 font-mono hidden lg:inline-block">RETURN to send</span>
+                            {loading ? (
+                                <button
+                                    onClick={handleCancel}
+                                    className="p-1.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/30 transition-all shadow-lg shadow-red-500/10"
+                                    title="Stop Generating"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            ) : (
+                                <button
+                                    onClick={() => handleSend()}
+                                    disabled={!input.trim()}
+                                    className="p-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-500/20"
+                                >
+                                    <Send className="w-4 h-4" />
+                                </button>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>

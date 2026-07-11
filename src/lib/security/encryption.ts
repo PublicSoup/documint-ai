@@ -6,6 +6,11 @@ const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16; // For AES, this is always 16
 const KEY = process.env.ENCRYPTION_KEY ? Buffer.from(process.env.ENCRYPTION_KEY, 'hex') : null;
 
+/** Whether key storage is usable — ENCRYPTION_KEY present and exactly 32 bytes. */
+export function isEncryptionConfigured(): boolean {
+    return KEY !== null && KEY.length === 32;
+}
+
 export function encrypt(text: string): string {
     if (!KEY) {
         throw new Error('ENCRYPTION_KEY is not defined in environment variables');

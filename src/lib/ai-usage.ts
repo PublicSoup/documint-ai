@@ -40,14 +40,14 @@ export async function trackAiUsage(
 
     if (limits.aiQueries !== -1 && usage.queryCount > limits.aiQueries) {
         throw new AiQuotaExceededError(
-            `You've used ${usage.queryCount - 1} of ${limits.aiQueries} AI queries this month. Upgrade your plan or add your own Google API key to continue using the AI agent.`,
+            `You've used ${usage.queryCount - 1} of ${limits.aiQueries} AI queries this month. Upgrade your plan or add your own API key to continue using the AI agent.`,
             { current: usage.queryCount - 1, limit: limits.aiQueries, limitType: "query" }
         );
     }
 
     if (limits.aiTokenAllowance !== -1 && usage.tokenCount > limits.aiTokenAllowance) {
         throw new AiQuotaExceededError(
-            `You've used your included AI token allowance for this month. Upgrade your plan or add your own Google API key to continue using the AI agent.`,
+            `You've used your included AI token allowance for this month. Upgrade your plan or add your own API key to continue using the AI agent.`,
             { current: usage.tokenCount - tokens, limit: limits.aiTokenAllowance, limitType: "token" }
         );
     }
@@ -86,17 +86,85 @@ export async function assertAiUsageBudget(
 
     if (limits.aiQueries !== -1 && currentQueries >= limits.aiQueries) {
         throw new AiQuotaExceededError(
-            `You've used ${currentQueries} of ${limits.aiQueries} AI queries this month. Upgrade your plan or add your own Google API key to continue using the AI agent.`,
+            `You've used ${currentQueries} of ${limits.aiQueries} AI queries this month. Upgrade your plan or add your own API key to continue using the AI agent.`,
             { current: currentQueries, limit: limits.aiQueries, limitType: "query" }
         );
     }
 
     if (limits.aiTokenAllowance !== -1 && currentTokens + reservedTokens > limits.aiTokenAllowance) {
         throw new AiQuotaExceededError(
-            `This request may exceed your included AI token allowance. Upgrade your plan, shorten the prompt, or add your own Google API key to continue.`,
+            `This request may exceed your included AI token allowance. Upgrade your plan, shorten the prompt, or add your own API key to continue.`,
             { current: currentTokens, limit: limits.aiTokenAllowance, limitType: "token" }
         );
     }
+}
+
+/**
+ * Providers a user can bring their own API key for.
+ * "custom" is any OpenAI-compatible endpoint; its stored value is a JSON
+ * config ({ apiKey, baseUrl, modelId }) rather than a bare key.
+ * "openrouter" is the OpenRouter aggregator (openrouter.ai) — a fixed
+ * OpenAI-compatible endpoint, so its stored value is just the bare API key;
+ * the model is chosen per-request via an "openrouter/<model-id>" model name.
+ */
+export const AI_KEY_PROVIDERS = ["google", "anthropic", "openai", "xai", "deepseek", "openrouter", "custom"] as const;
+export type AiKeyProvider = (typeof AI_KEY_PROVIDERS)[number];
+
+export type UserApiKeys = Partial<Record<AiKeyProvider, string>>;
+
+/** Fixed OpenAI-compatible base URL for the OpenRouter aggregator. */
+export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+
+export interface CustomProviderConfig {
+    apiKey: string;
+    baseUrl: string;
+    modelId: string;
+}
+
+/**
+ * Parse the stored value for the "custom" provider into a config object.
+ * Returns null when the value is missing or malformed.
+ */
+export function parseCustomProviderConfig(value: string | undefined): CustomProviderConfig | null {
+    if (!value) return null;
+    try {
+        const parsed = JSON.parse(value) as Record<string, unknown>;
+        if (
+            typeof parsed.apiKey === "string" && parsed.apiKey.length > 0 &&
+            typeof parsed.baseUrl === "string" && parsed.baseUrl.length > 0 &&
+            typeof parsed.modelId === "string" && parsed.modelId.length > 0
+        ) {
+            return { apiKey: parsed.apiKey, baseUrl: parsed.baseUrl, modelId: parsed.modelId };
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+
+/**
+ * The encrypted column historically held a single raw Google key. It now holds
+ * a JSON object keyed by provider; a decrypted value that isn't JSON is treated
+ * as a legacy Google key.
+ */
+function parseStoredKeys(decrypted: string): UserApiKeys {
+    if (decrypted.startsWith("{")) {
+        try {
+            const parsed = JSON.parse(decrypted) as Record<string, unknown>;
+            const keys: UserApiKeys = {};
+            for (const provider of AI_KEY_PROVIDERS) {
+                const value = parsed[provider];
+                if (typeof value === "string" && value.length > 0) {
+                    keys[provider] = value;
+                }
+            }
+            return keys;
+        } catch {
+            return {};
+        }
+    }
+    return { google: decrypted };
 }
 
 /**
@@ -108,18 +176,16 @@ export async function getUserAiUsage(userId: string): Promise<{
     quota: number;
     tokenQuota: number;
     hasApiKey: boolean;
+    providers: Record<AiKeyProvider, boolean>;
 }> {
     const now = new Date();
     const month = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const [usage, user, { limits }] = await Promise.all([
+    const [usage, keys, { limits }] = await Promise.all([
         db.aiUsage.findUnique({
             where: { userId_month: { userId, month } },
         }),
-        db.user.findUnique({
-            where: { id: userId },
-            select: { encryptedApiKey: true },
-        }),
+        getUserApiKeys(userId),
         getUserSubscription(userId),
     ]);
 
@@ -128,15 +194,17 @@ export async function getUserAiUsage(userId: string): Promise<{
         tokenCount: usage?.tokenCount ?? 0,
         quota: limits.aiQueries,
         tokenQuota: limits.aiTokenAllowance,
-        hasApiKey: !!user?.encryptedApiKey,
+        hasApiKey: Object.keys(keys).length > 0,
+        providers: Object.fromEntries(
+            AI_KEY_PROVIDERS.map(provider => [provider, !!keys[provider]])
+        ) as Record<AiKeyProvider, boolean>,
     };
 }
 
 /**
- * Check if the user has a stored API key and return it decrypted.
- * Returns null if no key is stored.
+ * Get all of the user's stored API keys, decrypted.
  */
-export async function getUserApiKey(userId: string): Promise<string | null> {
+export async function getUserApiKeys(userId: string): Promise<UserApiKeys> {
     let user: { encryptedApiKey: string | null } | null = null;
     try {
         user = await db.user.findUnique({
@@ -148,38 +216,72 @@ export async function getUserApiKey(userId: string): Promise<string | null> {
         // (pending migration). Degrade to "no BYO key" and fall back to the shared
         // key instead of crashing the AI request; the build's ensure-ai-schema
         // step adds the column so BYO keys start working after the next deploy.
-        return null;
+        return {};
     }
 
-    if (!user?.encryptedApiKey) return null;
+    if (!user?.encryptedApiKey) return {};
 
     try {
-        return decrypt(user.encryptedApiKey);
+        return parseStoredKeys(decrypt(user.encryptedApiKey));
     } catch {
-        // If decryption fails, the key is corrupted — clear it
+        // If decryption fails, the stored value is corrupted — clear it
         await db.user.update({
             where: { id: userId },
             data: { encryptedApiKey: null },
         });
-        return null;
+        return {};
     }
 }
 
 /**
- * Store the user's API key, encrypted at rest.
+ * Check if the user has a stored API key for a provider and return it decrypted.
+ * Returns null if no key is stored.
  */
-export async function saveUserApiKey(userId: string, apiKey: string): Promise<void> {
-    const encrypted = encrypt(apiKey);
+export async function getUserApiKey(
+    userId: string,
+    provider: AiKeyProvider = "google"
+): Promise<string | null> {
+    const keys = await getUserApiKeys(userId);
+    return keys[provider] ?? null;
+}
+
+/**
+ * Store one of the user's API keys, encrypted at rest alongside any others.
+ */
+export async function saveUserApiKey(
+    userId: string,
+    provider: AiKeyProvider,
+    apiKey: string
+): Promise<void> {
+    const keys = await getUserApiKeys(userId);
+    keys[provider] = apiKey;
     await db.user.update({
         where: { id: userId },
-        data: { encryptedApiKey: encrypted },
+        data: { encryptedApiKey: encrypt(JSON.stringify(keys)) },
     });
 }
 
 /**
- * Remove the user's API key.
+ * Remove one of the user's API keys, or all of them when no provider is given.
  */
-export async function deleteUserApiKey(userId: string): Promise<void> {
+export async function deleteUserApiKey(
+    userId: string,
+    provider?: AiKeyProvider
+): Promise<void> {
+    if (provider) {
+        const keys = await getUserApiKeys(userId);
+        delete keys[provider];
+        await db.user.update({
+            where: { id: userId },
+            data: {
+                encryptedApiKey: Object.keys(keys).length > 0
+                    ? encrypt(JSON.stringify(keys))
+                    : null,
+            },
+        });
+        return;
+    }
+
     await db.user.update({
         where: { id: userId },
         data: { encryptedApiKey: null },

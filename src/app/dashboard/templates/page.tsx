@@ -1,14 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useSession } from "next-auth/react";
-import { 
-    Layout, Plus, Search, FileText, Trash2, 
-    Edit, Loader2, Sparkles, AlertTriangle, 
-    ArrowRight, Check, History, Clock, Globe,
+import {
+    Layout, Plus, Search, FileText, Trash2,
+    Edit, Loader2, Sparkles, Check, Clock, Globe,
     Lock
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/toast";
@@ -26,7 +25,6 @@ interface Template {
 }
 
 export default function TemplatesPage() {
-    const { data: session } = useSession();
     const { toast } = useToast();
     const [templates, setTemplates] = useState<Template[]>([]);
     const [loading, setLoading] = useState(true);
@@ -36,6 +34,8 @@ export default function TemplatesPage() {
     const [isEditing, setIsEditing] = useState(false);
     const [currentTemplate, setCurrentTemplate] = useState<Partial<Template> | null>(null);
     const [saving, setSaving] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState<Template | null>(null);
+    const [deleting, setDeleting] = useState(false);
 
     const fetchTemplates = async () => {
         setLoading(true);
@@ -46,7 +46,7 @@ export default function TemplatesPage() {
                 setTemplates(data.templates || []);
             }
         } catch (e) {
-            console.error(e);
+            console.error("Failed to fetch templates:", e);
         } finally {
             setLoading(false);
         }
@@ -79,23 +79,29 @@ export default function TemplatesPage() {
                 const err = await res.json();
                 toast(err.error || "Failed to save template", "error");
             }
-        } catch (e) {
+        } catch {
             toast("Error saving template", "error");
         } finally {
             setSaving(false);
         }
     };
 
-    const handleDelete = async (id: string) => {
-        if (!confirm("Are you sure you want to delete this template?")) return;
+    const handleDelete = async () => {
+        if (!deleteTarget) return;
+        setDeleting(true);
         try {
-            const res = await fetch(`/api/templates/${id}`, { method: "DELETE" });
+            const res = await fetch(`/api/templates/${deleteTarget.id}`, { method: "DELETE" });
             if (res.ok) {
-                setTemplates(prev => prev.filter(t => t.id !== id));
+                setTemplates(prev => prev.filter(t => t.id !== deleteTarget.id));
                 toast("Template deleted", "success");
+            } else {
+                toast("Failed to delete template", "error");
             }
-        } catch (e) {
-            toast("Failed to delete", "error");
+        } catch {
+            toast("Failed to delete template", "error");
+        } finally {
+            setDeleting(false);
+            setDeleteTarget(null);
         }
     };
 
@@ -244,7 +250,7 @@ export default function TemplatesPage() {
                                                     <Edit className="w-3.5 h-3.5" />
                                                 </button>
                                                 <button 
-                                                    onClick={() => handleDelete(template.id)}
+                                                    onClick={() => setDeleteTarget(template)}
                                                     className="p-1.5 hover:bg-rose-500/10 rounded-lg text-zinc-400 hover:text-rose-400 transition-all"
                                                 >
                                                     <Trash2 className="w-3.5 h-3.5" />
@@ -259,6 +265,30 @@ export default function TemplatesPage() {
                 </>
             )}
             
+            <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+                <DialogContent className="glass-card border-white/10 max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="text-white">Delete template</DialogTitle>
+                        <DialogDescription>
+                            This will permanently delete &ldquo;{deleteTarget?.name}&rdquo;. This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="gap-2">
+                        <Button variant="ghost" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleDelete}
+                            disabled={deleting}
+                            className="bg-rose-600 hover:bg-rose-500 text-white"
+                        >
+                            {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Trash2 className="w-3.5 h-3.5 mr-1.5" />}
+                            Delete
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             <p className="mt-8 text-center text-[10px] uppercase font-black tracking-[0.3em] text-white/10">
                 Enterprise Knowledge Standardization &bull; DocuMint AI
             </p>

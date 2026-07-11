@@ -20,6 +20,7 @@ import {
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { useToast } from "./toast";
+import { useConfirm } from "./ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 
 type WebhookType = "SLACK" | "DISCORD";
@@ -112,6 +113,7 @@ function extractWebhookUrl(config: unknown): string {
 
 export function TeamIntegrations({ teamId, canManage }: { teamId: string; canManage: boolean }) {
     const { toast } = useToast();
+    const confirm = useConfirm();
 
     const [integrations, setIntegrations] = useState<Integration[]>([]);
     const [loading, setLoading] = useState(true);
@@ -289,7 +291,13 @@ export function TeamIntegrations({ teamId, canManage }: { teamId: string; canMan
             return;
         }
 
-        if (!confirm("Are you sure you want to remove this integration?")) return;
+        const confirmed = await confirm({
+            title: "Remove integration",
+            description: "This integration will stop receiving notifications immediately.",
+            confirmLabel: "Remove",
+            variant: "destructive",
+        });
+        if (!confirmed) return;
 
         setDeletingId(id);
         try {

@@ -16,7 +16,7 @@ export interface CatalogModel {
     id: string;
     label: string;
     provider: string;
-    tier: "free" | "gateway";
+    tier: string;
 }
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
