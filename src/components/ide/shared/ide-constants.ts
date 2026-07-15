@@ -286,6 +286,35 @@ export function detectRuntimeProject(files: IDEFile[], workspacePrefix?: string 
     };
 }
 
+/**
+ * Canonical `vite.config.ts` for projects that use `@vitejs/plugin-react`.
+ *
+ * Both the in-IDE `react-app` starter template (project-templates.tsx) and the
+ * AI website generator (generate-website/route.ts) produce a `package.json` that
+ * declares `@vitejs/plugin-react` but, historically, no config file. Without the
+ * plugin registered, Vite falls back to the classic `React.createElement` JSX
+ * transform — which requires `React` in scope. The template's `src/App.tsx`
+ * only imports `useState`, so the app throws `ReferenceError: React is not
+ * defined` at runtime and the WebContainer preview renders a blank/gray screen.
+ *
+ * Registering the plugin also enables Vite's automatic JSX runtime, which injects
+ * the JSX helper automatically so files don't need to import `React`. Keep this as
+ * the single source of truth so the two generators never drift apart.
+ */
+export const VITE_REACT_CONFIG_TS = `import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    host: true,
+  },
+  preview: {
+    host: true,
+  },
+});
+`;
+
 export async function getResponseErrorMessage(response: Response, fallback = "Request failed"): Promise<string> {
     const data = await response.json().catch(() => null) as { message?: string; error?: string } | null;
     return data?.message || data?.error || response.statusText || fallback;

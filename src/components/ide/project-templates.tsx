@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Sparkles, Code, Server, Layout, Palette, ArrowRight, Loader2, CheckCircle2, Wand2, Globe, Megaphone } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { VITE_REACT_CONFIG_TS } from "./shared/ide-constants";
 
 interface ProjectTemplate {
     id: string;
@@ -84,6 +85,10 @@ button:hover { background: #5558dd; }`
                     dependencies: { react: "^18.2.0", "react-dom": "^18.2.0" },
                     devDependencies: { "@types/react": "^18.2.0", "@vitejs/plugin-react": "^4.0.0", typescript: "^5.0.0", vite: "^5.0.0" }
                 }, null, 2)
+            },
+            {
+                name: "vite.config.ts",
+                content: VITE_REACT_CONFIG_TS
             },
         ]
     },

@@ -6,6 +6,7 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 import { getAICompletionWithDetailedError } from "@/lib/ai";
 import { getUserSubscription } from "@/lib/subscription";
+import { VITE_REACT_CONFIG_TS } from "@/components/ide/shared/ide-constants";
 
 const websiteFileSchema = z
     .object({
@@ -157,9 +158,14 @@ function ensureReactViteWebsiteFiles(files: WebsiteFile[]): WebsiteFile[] {
         private: true,
         type: "module",
         scripts: { dev: "vite --host 0.0.0.0", build: "vite build", preview: "vite preview --host 0.0.0.0" },
-        dependencies: { "@vitejs/plugin-react": "^4.3.4", vite: "^5.4.14", typescript: "^5.7.3", react: "^18.3.1", "react-dom": "^18.3.1" },
-        devDependencies: { "@types/react": "^18.3.18", "@types/react-dom": "^18.3.5" }
+        dependencies: { react: "^18.3.1", "react-dom": "^18.3.1" },
+        devDependencies: { "@types/react": "^18.3.18", "@types/react-dom": "^18.3.5", "@vitejs/plugin-react": "^4.3.4", vite: "^5.4.14", typescript: "^5.7.3" }
     }, null, 2));
+
+    // Register @vitejs/plugin-react so Vite uses the automatic JSX runtime.
+    // Without this config, Vite falls back to the classic React.createElement
+    // transform and the app throws `React is not defined` at runtime.
+    normalizedFiles = upsertFile(normalizedFiles, "vite.config.ts", VITE_REACT_CONFIG_TS);
 
     if (!normalizedFiles.some((file) => file.name === "index.html")) {
         normalizedFiles = upsertFile(normalizedFiles, "index.html", `<!DOCTYPE html>
