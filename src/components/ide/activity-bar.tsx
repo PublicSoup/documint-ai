@@ -1,6 +1,7 @@
 "use client";
 
-import { Files, GitBranch, Keyboard, Search, Sparkles, Terminal as TerminalIcon } from "lucide-react";
+import Link from "next/link";
+import { Files, GitBranch, Keyboard, LayoutDashboard, Search, Sparkles, Terminal as TerminalIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { SidebarTab } from "./shared/types";
@@ -103,6 +104,21 @@ export function IDEActivityBar({
                     <Keyboard className="w-5 h-5" />
                 </button>
             </div>
+
+            {/* Divider */}
+            <div className="w-6 h-px bg-white/[0.08] my-1.5" />
+
+            {/* Back to Dashboard */}
+            <Link
+                href="/dashboard"
+                className="group relative p-2 rounded-lg text-white/30 hover:text-purple-300 hover:bg-purple-500/10 transition-all duration-200 active:scale-90"
+                title="Back to Dashboard"
+            >
+                <LayoutDashboard className="w-5 h-5 transition-transform duration-200 group-hover:scale-110" />
+                <span className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-md bg-[#1a1030] border border-purple-500/20 text-[11px] font-medium text-purple-200 whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 shadow-lg shadow-purple-900/30">
+                    Dashboard
+                </span>
+            </Link>
         </aside>
     );
 }

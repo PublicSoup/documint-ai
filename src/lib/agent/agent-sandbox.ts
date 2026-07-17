@@ -216,19 +216,41 @@ export class AgentSandbox {
         if (!this.sandbox) return { ok: false, error: "Sandbox not initialized" };
 
         const pkg = await this.readProjectPackageJson(userId, cwd);
+        const deps = { ...(pkg?.dependencies ?? {}), ...(pkg?.devDependencies ?? {}) };
+        const isVite = Boolean(deps.vite);
+        const isNext = Boolean(deps.next);
+        const port = isVite ? 5173 : 3000;
+
+        // Public domain is deterministic — compute it up front so the dev server
+        // can allowlist its own host (Vite blocks unknown Host headers).
+        const url = this.sandbox.domain(port);
+        const publicHost = new URL(url).host;
+
         let cmd = "npm";
         let args: string[] = ["run", "dev"];
-        let port = 3000;
 
-        const deps = { ...(pkg?.dependencies ?? {}), ...(pkg?.devDependencies ?? {}) };
-        if (deps.vite) {
+        if (isVite) {
+            // Vite's dev-server host check rejects the public sandbox tunnel
+            // domain, and (for Vite 5) there is no env var to allow it. We launch
+            // Vite with a generated wrapper config that merges the user's config,
+            // forces allowedHosts, and adds a framework plugin if the project has
+            // none — the latter also cures the classic "grey screen" where JSX
+            // fails because @vitejs/plugin-react was never registered.
+            const wrapperName = ".vite-sandbox.config.mjs";
+            const wrapper = this.buildViteWrapperConfig(publicHost);
+            const wrapperPath = cwd && cwd !== "." ? `${cwd.replace(/\/+$/, "")}/${wrapperName}` : wrapperName;
+            try {
+                await this.sandbox.writeFiles([{ path: wrapperPath, content: Buffer.from(wrapper, "utf8") }]);
+                cmd = "npx";
+                args = ["vite", "--config", wrapperName, "--host", "0.0.0.0", "--port", String(port), "--strictPort"];
+            } catch {
+                // Fall back to a plain launch if we can't write the wrapper.
+                cmd = "npx";
+                args = ["vite", "--host", "0.0.0.0", "--port", String(port), "--strictPort"];
+            }
+        } else if (isNext) {
             cmd = "npx";
-            args = ["vite", "--host", "0.0.0.0", "--port", "5173", "--strictPort"];
-            port = 5173;
-        } else if (deps.next) {
-            cmd = "npx";
-            args = ["next", "dev", "-H", "0.0.0.0", "-p", "3000"];
-            port = 3000;
+            args = ["next", "dev", "-H", "0.0.0.0", "-p", String(port)];
         }
 
         const { PassThrough } = await import("node:stream");
@@ -241,21 +263,11 @@ export class AgentSandbox {
         logStream.on("error", () => undefined);
 
         try {
-            // The public domain is deterministic — compute it up front so the
-            // dev server can allowlist its own host (Vite 6 blocks unknown
-            // Host headers unless the host is explicitly allowed).
-            const url = this.sandbox.domain(port);
-            const publicHost = new URL(url).host;
-
             await this.sandbox.runCommand({
                 cmd,
                 args,
                 cwd: toSandboxCwd(cwd),
-                env: {
-                    HOST: "0.0.0.0",
-                    PORT: String(port),
-                    __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: publicHost,
-                },
+                env: { HOST: "0.0.0.0", PORT: String(port) },
                 detached: true,
                 stdout: logStream,
                 stderr: logStream,
@@ -264,9 +276,17 @@ export class AgentSandbox {
             while (Date.now() < deadline) {
                 try {
                     const res = await fetch(url, { signal: AbortSignal.timeout(4_000) });
-                    if (res.status < 500) {
+                    const body = await res.text().catch(() => "");
+                    // A dev server can answer 200 while still being broken:
+                    // Vite's host-check page ("Blocked request") and error
+                    // overlays both return 200. Treat those as not-ready.
+                    const isBlocked = /Blocked request|not allowed|allowedHosts/i.test(body.slice(0, 800));
+                    if (res.status < 500 && !isBlocked) {
                         this.previewStarted = true;
                         return { ok: true, url, port, logTail };
+                    }
+                    if (isBlocked) {
+                        return { ok: false, url, port, logTail: `${logTail}\n[host-check blocked the request]`, error: "Vite blocked the sandbox host — wrapper config did not apply." };
                     }
                 } catch {
                     // Server not up yet — keep polling.
@@ -277,6 +297,54 @@ export class AgentSandbox {
         } catch (error: unknown) {
             return { ok: false, logTail, error: error instanceof Error ? error.message : String(error) };
         }
+    }
+
+    /**
+     * Generate a Vite config that extends the project's own config (if any),
+     * allows the sandbox host, and ensures a framework plugin is present.
+     * Written next to the project and passed via `--config`.
+     */
+    private buildViteWrapperConfig(publicHost: string): string {
+        return `import { loadConfigFromFile, mergeConfig } from 'vite';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = dirname(fileURLToPath(import.meta.url));
+
+export default async (configEnv) => {
+  let user = {};
+  try {
+    // Auto-detects the user's vite.config.* (this dotted file is not matched).
+    const loaded = await loadConfigFromFile(configEnv, undefined, root);
+    if (loaded && loaded.config) {
+      user = typeof loaded.config === 'function' ? await loaded.config(configEnv) : loaded.config;
+    }
+  } catch {}
+
+  const override = {
+    server: {
+      host: true,
+      strictPort: false,
+      allowedHosts: ['.vercel.run', ${JSON.stringify(publicHost)}],
+      hmr: { clientPort: 443, protocol: 'wss' },
+    },
+  };
+
+  // If the project registered no plugins, add the matching framework plugin so
+  // JSX/SFCs actually compile (missing @vitejs/plugin-react => grey screen).
+  const existing = Array.isArray(user.plugins) ? user.plugins.flat(Infinity).filter(Boolean) : [];
+  if (existing.length === 0) {
+    for (const mod of ['@vitejs/plugin-react', '@vitejs/plugin-react-swc']) {
+      try { const p = (await import(mod)).default; override.plugins = [p()]; break; } catch {}
+    }
+    if (!override.plugins) {
+      try { const p = (await import('@vitejs/plugin-vue')).default; override.plugins = [p()]; } catch {}
+    }
+  }
+
+  return mergeConfig(user, override);
+};
+`;
     }
 
     /**
@@ -294,6 +362,7 @@ export class AgentSandbox {
             ".", "(", ...pruneExpr, ")", "-prune",
             "-o", "-type", "f", "-newer", SEED_STAMP,
             "-not", "-name", SEED_STAMP,
+            "-not", "-name", ".vite-sandbox.config.mjs",
             "-size", `-${Math.floor(MAX_SYNC_BACK_BYTES / 1024)}k`,
             "-print",
         ], { cwd: ".", timeoutMs: 60_000 });

@@ -640,10 +640,17 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
                                     const newFile = await res.json();
                                     toast(`File ${name} created`, "success");
 
+                                    // Don't steal focus for bulky generated files
+                                    // (lockfiles etc.) the agent syncs back — opening
+                                    // them as the active buffer is noise and used to
+                                    // brick the next chat message via oversized context.
+                                    const isNoisy = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|npm-shrinkwrap\.json|composer\.lock|Cargo\.lock|poetry\.lock)$/i.test(name)
+                                        || (content?.length ?? 0) > 30_000;
+
                                     // Dynamic state update without reload
                                     upsertFile(newFile, {
-                                        open: true,
-                                        makeActive: true,
+                                        open: !isNoisy,
+                                        makeActive: !isNoisy,
                                         initialContent: content || "",
                                     });
                                 } else {

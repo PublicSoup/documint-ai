@@ -127,7 +127,7 @@ export function FileTreeContainer({ activeFileId, files: providedFiles, workspac
         }
     };
 
-    const handleAction = async (action: Extract<FileAction, "ai" | "delete" | "delete_project" | "rename" | "new_file" | "new_folder">, contextId?: string) => {
+    const handleAction = async (action: Extract<FileAction, "ai" | "document" | "delete" | "delete_project" | "rename" | "new_file" | "new_folder">, contextId?: string) => {
         const targetParentId = contextId === "Project" ? workspacePrefix : (contextId || workspacePrefix);
 
         switch (action) {
@@ -155,6 +155,36 @@ export function FileTreeContainer({ activeFileId, files: providedFiles, workspac
             case "ai":
                 if (contextId) onSelect(contextId);
                 break;
+            case "document": {
+                if (!contextId) return;
+                const target = files?.find(f => f.id === contextId);
+                if (!target) return;
+                const baseName = target.name.split("/").pop() || target.name;
+                toast(`Documenting ${baseName}…`, "warning");
+                try {
+                    const res = await fetch("/api/ide/auto-document", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ fileId: contextId, force: true }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                        toast(data?.error || "Auto-documentation failed", "error");
+                        return;
+                    }
+                    if ((data.documented ?? 0) > 0) {
+                        toast(`Documented ${baseName}`, "success");
+                    } else if ((data.failed ?? 0) > 0) {
+                        toast("Documentation service is unavailable — try again shortly", "error");
+                    } else {
+                        toast("This file is already documented", "success");
+                    }
+                    await mutate();
+                } catch {
+                    toast("Error running auto-documentation", "error");
+                }
+                break;
+            }
         }
     };
 

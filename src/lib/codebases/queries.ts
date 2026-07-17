@@ -87,6 +87,21 @@ export async function listCodebasesForUser(
     };
 }
 
+/**
+ * Derive a codebase grouping key from a file's stored path. Files are stored
+ * with their workspace-relative path as `name` (e.g. "react-vite-3/src/App.tsx"),
+ * so the top-level segment is the project/codebase. Returns null for loose
+ * files with no folder (bare "index.html"), which fall back to the personal
+ * bucket.
+ */
+function deriveCodebaseKeyFromPath(name: string): string | null {
+    const normalized = name.replace(/^\/+/, "");
+    const slash = normalized.indexOf("/");
+    if (slash <= 0) return null;
+    const top = normalized.slice(0, slash).trim();
+    return top.length > 0 ? top : null;
+}
+
 async function aggregateLocalCodebases(
     userId: string,
     fileWhere: Prisma.FileWhereInput,
@@ -127,9 +142,15 @@ async function aggregateLocalCodebases(
             meta && typeof meta.archivedAt === "string" ? meta.archivedAt : null;
         if (archivedAtRaw && !parsed.includeArchived) continue;
 
+        // Bucket key precedence: explicit metadata.codebaseKey (set by GitHub
+        // import / future project assignment) → the file's top-level path
+        // segment (e.g. "react-vite-3/src/App.tsx" → "react-vite-3", which is
+        // how the IDE seeds project files) → a per-user "personal" catch-all
+        // for loose files with no folder.
         const keyFromMeta =
             typeof meta?.codebaseKey === "string" ? meta.codebaseKey : null;
-        const key = keyFromMeta ?? `personal:${userId}`;
+        const derivedKey = keyFromMeta ?? deriveCodebaseKeyFromPath(f.name);
+        const key = derivedKey ?? `personal:${userId}`;
         const existing = buckets.get(key);
         if (existing) {
             existing.fileCount += 1;
@@ -143,8 +164,8 @@ async function aggregateLocalCodebases(
             }
             continue;
         }
-        const displayName = keyFromMeta
-            ? keyFromMeta.split("/").pop() ?? keyFromMeta
+        const displayName = derivedKey
+            ? derivedKey.split("/").pop() ?? derivedKey
             : "Personal Workspace";
         buckets.set(key, {
             id: key, // v1: synthetic, stable per user/team

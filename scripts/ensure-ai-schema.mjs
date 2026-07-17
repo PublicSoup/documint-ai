@@ -22,6 +22,12 @@ if (!DB_URL) {
 
 const statements = [
   `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "encrypted_api_key" TEXT`,
+
+  // --- File.metadata (codebase grouping / soft-delete) ---
+  // Read by src/lib/codebases/queries.ts (metadata.codebaseKey, metadata.archivedAt).
+  // The Codebases view + dashboard monitoring query select this column; without it
+  // the query throws (Codebases panel silently empties; the v2 view fails to load).
+  `ALTER TABLE "File" ADD COLUMN IF NOT EXISTS "metadata" JSONB`,
   `CREATE TABLE IF NOT EXISTS "AiUsage" (
      "id" TEXT NOT NULL,
      "userId" TEXT NOT NULL,

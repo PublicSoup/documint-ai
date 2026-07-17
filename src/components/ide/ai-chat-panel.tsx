@@ -15,6 +15,9 @@ import {
     History,
     Trash2,
     MessageSquare,
+    FilePlus2,
+    FilePen,
+    ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -36,7 +39,7 @@ import { OpenRouterModelPicker } from "./openrouter-model-picker";
 // Types & Interfaces
 // ============================================================================
 
-import { CodeBlock, Message, PendingChange } from "./chat/types";
+import { CodeBlock, FileOp, Message, PendingChange } from "./chat/types";
 import { CodeBlockRenderer } from "./chat/code-block-renderer";
 import { SlashCommandMenu } from "./chat/slash-command-menu";
 import { FileMentionMenu } from "./chat/file-mention-menu";
@@ -87,6 +90,8 @@ interface StoredSessionMessage {
     role: "user" | "assistant";
     content: string;
     thoughtSteps?: Message["thoughtSteps"];
+    fileOps?: FileOp[];
+    previewUrl?: string;
     timestamp: number;
 }
 
@@ -97,6 +102,13 @@ const createWelcomeMessage = (): Message => ({
     codeBlocks: [],
     timestamp: Date.now(),
 });
+
+/** Generated lockfiles and other bulky, low-signal buffers we shouldn't send as chat context. */
+const NOISY_FILE_RE = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|npm-shrinkwrap\.json|composer\.lock|Cargo\.lock|poetry\.lock)$/i;
+function isNoisyContextFile(name: string | undefined, content: string | undefined): boolean {
+    if (content && content.length > 30_000) return true;
+    return Boolean(name && NOISY_FILE_RE.test(name));
+}
 
 function formatRelativeTime(iso: string): string {
     const diff = Date.now() - new Date(iso).getTime();
@@ -258,6 +270,7 @@ export function AIChatPanel({
     onInsertCodeAtCursor,
     onReplaceFileContent,
     onCreateFile,
+    onSelectFile,
     onReviewDiff,
     onAgentAction,
     runtimeErrorLines = [],
@@ -477,6 +490,8 @@ export function AIChatPanel({
                 content: m.content,
                 codeBlocks: m.role === "assistant" ? toStableCodeBlocks(m.content, m.id) : [],
                 thoughtSteps: m.thoughtSteps,
+                fileOps: m.fileOps,
+                previewUrl: m.previewUrl,
                 timestamp: m.timestamp,
             }));
             setMessages(restored.length ? restored : [createWelcomeMessage()]);
@@ -741,6 +756,7 @@ export function AIChatPanel({
         if (event.type === "preview_ready") {
             setMessages(prev => prev.map(m => m.id === assistantId ? {
                 ...m,
+                previewUrl: event.url,
                 thoughtSteps: [...(m.thoughtSteps || []), {
                     id: generateId(),
                     type: 'preview',
@@ -789,8 +805,19 @@ export function AIChatPanel({
 
         if (event.type === "file_created") {
             if (onCreateFile && event.fileName) {
-                onCreateFile(event.fileName, event.content || "");
-                toast(`Created ${event.fileName}`, "success");
+                // Cline-style: record a visible file operation on the message so
+                // the user sees exactly what the agent wrote (create vs edit),
+                // not just a transient toast.
+                const path = event.fileName;
+                const isEdit = allFiles?.some(f => f.name === path) ?? false;
+                onCreateFile(path, event.content || "");
+                setMessages(prev => prev.map(m => m.id === assistantId ? {
+                    ...m,
+                    fileOps: [
+                        ...(m.fileOps || []).filter(op => op.path !== path),
+                        { id: generateId(), path, action: isEdit ? 'edit' : 'create', timestamp: Date.now() },
+                    ],
+                } : m));
             }
             return;
         }
@@ -798,7 +825,7 @@ export function AIChatPanel({
         if (event.type === "error") {
             toast(event.message, "error");
         }
-    }, [executeTool, onAgentAction, onCreateFile, setThinking, toast]);
+    }, [executeTool, onAgentAction, onCreateFile, setThinking, toast, allFiles]);
 
     // Rendering Helper
     const renderMessage = (msg: Message) => {
@@ -870,6 +897,59 @@ export function AIChatPanel({
                                 })}
                             </div>
                         </div>
+                    )}
+
+                    {/* File operations performed by the agent (Cline-style) */}
+                    {msg.fileOps && msg.fileOps.length > 0 && (
+                        <div className="space-y-1">
+                            {msg.fileOps.map((op) => {
+                                const fileId = allFiles?.find(f => f.name === op.path)?.id;
+                                return (
+                                    <button
+                                        key={op.id}
+                                        type="button"
+                                        onClick={() => { if (fileId && onSelectFile) onSelectFile(fileId); }}
+                                        className={cn(
+                                            "group/fileop w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-left transition-colors",
+                                            op.action === 'create'
+                                                ? "bg-emerald-500/[0.07] border-emerald-500/20 hover:bg-emerald-500/[0.12]"
+                                                : "bg-blue-500/[0.07] border-blue-500/20 hover:bg-blue-500/[0.12]",
+                                            fileId ? "cursor-pointer" : "cursor-default"
+                                        )}
+                                        title={fileId ? `Open ${op.path}` : op.path}
+                                    >
+                                        {op.action === 'create'
+                                            ? <FilePlus2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                            : <FilePen className="w-3.5 h-3.5 text-blue-400 shrink-0" />}
+                                        <span className="text-[10px] uppercase tracking-wide font-semibold shrink-0 text-white/40">
+                                            {op.action === 'create' ? 'Created' : 'Edited'}
+                                        </span>
+                                        <span className="text-xs font-mono text-white/80 truncate">{op.path}</span>
+                                        {fileId && <ExternalLink className="w-3 h-3 text-white/20 ml-auto shrink-0 opacity-0 group-hover/fileop:opacity-100 transition-opacity" />}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    {/* Live preview surfaced by the agent */}
+                    {msg.previewUrl && (
+                        <a
+                            href={msg.previewUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-gradient-to-r from-indigo-500/15 to-purple-500/15 border border-indigo-500/30 hover:from-indigo-500/25 hover:to-purple-500/25 transition-colors"
+                        >
+                            <span className="relative flex h-2 w-2 shrink-0">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                            </span>
+                            <div className="flex-1 min-w-0">
+                                <div className="text-xs font-semibold text-white">Live preview ready</div>
+                                <div className="text-[10px] text-white/50 truncate font-mono">{msg.previewUrl}</div>
+                            </div>
+                            <ExternalLink className="w-3.5 h-3.5 text-indigo-300 shrink-0" />
+                        </a>
                     )}
 
                     {/* Code Blocks */}
@@ -999,7 +1079,12 @@ export function AIChatPanel({
                     history: buildCompactChatHistory(messages),
                     sessionId: sessionId || undefined,
                     contextFileId: activeFileId,
-                    contextContent: activeFileContent,
+                    // Don't ship a giant/noise buffer (e.g. an auto-opened
+                    // package-lock.json) as context — skip it if it's a
+                    // generated lockfile or too large to be useful.
+                    contextContent: isNoisyContextFile(activeFileName, activeFileContent)
+                        ? undefined
+                        : activeFileContent,
                     additionalContext,
                     model: effectiveModel,
                     reasoningEffort,
@@ -1009,8 +1094,10 @@ export function AIChatPanel({
             });
 
             if (!res.ok) {
-                const errorData = await res.json().catch(() => ({ error: `HTTP ${res.status}: ${res.statusText}` }));
-                throw new Error(errorData.error || "Failed to get response");
+                const errorData = await res.json().catch(() => ({ message: `HTTP ${res.status}: ${res.statusText}` }));
+                // Prefer the human-readable `message`; `error` is only the
+                // exception *name* (e.g. "ApiException") and is useless to show.
+                throw new Error(errorData.message || errorData.error || "Failed to get response");
             }
 
             if (onAgentAction) onAgentAction(null);
@@ -1072,7 +1159,7 @@ export function AIChatPanel({
             // Refresh titles/counts/timestamps in the history menu.
             void refreshSessions();
         }
-    }, [input, loading, activeFileId, activeFileContent, allFiles, allFileContents, onAgentAction, messages, sessionId, selectedModel, openRouterModel, hasOpenRouterKey, reasoningEffort, autoFixErrors, handleAgentEvent, toast, refreshSessions]);
+    }, [input, loading, activeFileId, activeFileContent, activeFileName, allFiles, allFileContents, onAgentAction, messages, sessionId, selectedModel, openRouterModel, hasOpenRouterKey, reasoningEffort, autoFixErrors, handleAgentEvent, toast, refreshSessions]);
 
     useEffect(() => {
         if (!autoFixErrors || loading || runtimeErrorLines.length === 0) return;

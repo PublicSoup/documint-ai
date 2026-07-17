@@ -13,6 +13,7 @@ export type SidebarTab = "explorer" | "search" | "git";
 
 export type FileAction =
   | "ai"
+  | "document"
   | "delete"
   | "delete_project"
   | "rename"

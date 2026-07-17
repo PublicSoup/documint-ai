@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { FileCode, Folder, ChevronRight, ChevronDown, Plus, Search, MoreHorizontal, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ContextMenu, ContextMenuItem } from "./context-menu";
-import { Copy, Trash2, Pencil, Sparkles, FileText, FolderPlus, RefreshCw } from "lucide-react";
+import { Copy, Trash2, Pencil, Sparkles, FileText, FolderPlus, RefreshCw, BookOpen } from "lucide-react";
 import type { FileAction, IDEFileWithDocumentation } from "./shared/types";
 import { normalizeWorkspaceName } from "./shared/ide-constants";
 
@@ -42,7 +42,7 @@ interface EnhancedFileTreeProps {
     files: IDEFileWithDocumentation[];
     activeFileId?: string;
     onSelect: (fileId: string) => void;
-    onAction?: (action: Extract<FileAction, "ai" | "delete" | "delete_project" | "rename" | "new_file" | "new_folder">, fileId?: string) => void;
+    onAction?: (action: Extract<FileAction, "ai" | "document" | "delete" | "delete_project" | "rename" | "new_file" | "new_folder">, fileId?: string) => void;
     onRefresh?: () => void;
     isRefreshing?: boolean;
 }
@@ -228,6 +228,11 @@ export function EnhancedFileTree({ files, activeFileId, onSelect, onAction, onRe
                 icon: Sparkles,
                 onClick: () => onAction?.("ai", nodeId),
                 shortcut: "AI"
+            },
+            {
+                label: "Auto-document",
+                icon: BookOpen,
+                onClick: () => onAction?.("document", nodeId)
             },
             { separator: true, label: "" },
             {

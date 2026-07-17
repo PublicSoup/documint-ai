@@ -9,7 +9,7 @@ import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 import { serializeAgentEvent, type AgentEvent } from "@/lib/agent/events";
 import { isModelAllowed } from "@/lib/ai-model-catalog";
 import { db } from "@/lib/db";
-import { appendMessagesToSession, deriveSessionTitle, type StoredThoughtStep } from "@/lib/chat-sessions";
+import { appendMessagesToSession, deriveSessionTitle, type StoredThoughtStep, type StoredFileOp } from "@/lib/chat-sessions";
 
 export const maxDuration = 300;
 
@@ -20,14 +20,22 @@ const historyMessageSchema = z
     })
     .strict();
 
+// Context fields are TRUNCATED rather than rejected: the active editor buffer
+// can legitimately be large (e.g. a 58k package-lock.json the agent just
+// generated and the IDE auto-opened), and a hard `.max()` there would throw a
+// ZodError that bricks every follow-up message. We accept a generous ceiling
+// to block abuse, then slice to the model's real budget below.
+const truncatedContext = (max: number) =>
+    z.string().max(2_000_000).transform((s) => s.slice(0, max)).optional();
+
 const chatRequestSchema = z
     .object({
         message: z.string().trim().min(1).max(8_000),
         history: z.array(historyMessageSchema).max(30).default([]),
         sessionId: z.string().uuid().optional(),
         contextFileId: z.string().min(1).max(255).optional(),
-        contextContent: z.string().max(50_000).optional(),
-        additionalContext: z.string().max(5_000).optional(),
+        contextContent: truncatedContext(24_000),
+        additionalContext: truncatedContext(6_000),
         model: z.string().max(200).optional(),
         reasoningEffort: z.enum(["low", "medium"]).default("low"),
         autoFixErrors: z.boolean().default(true),
@@ -36,9 +44,11 @@ const chatRequestSchema = z
     .strict();
 
 /** Accumulates the assistant side of the run for transcript persistence. */
-function createTranscriptCollector() {
+function createTranscriptCollector(existingPaths: Set<string>) {
     let assistantContent = "";
+    let previewUrl: string | undefined;
     const thoughtSteps: StoredThoughtStep[] = [];
+    const fileOps: StoredFileOp[] = [];
 
     const collect = (event: AgentEvent) => {
         if (event.type === "response") {
@@ -51,12 +61,21 @@ function createTranscriptCollector() {
             thoughtSteps.push({ id: crypto.randomUUID(), type: "tool_result", content: event.result.slice(0, 200) + (event.result.length > 200 ? "..." : ""), timestamp: Date.now() });
         } else if (event.type === "error") {
             thoughtSteps.push({ id: crypto.randomUUID(), type: "error", content: event.message, timestamp: Date.now() });
+        } else if (event.type === "file_created" && event.fileName) {
+            const action = existingPaths.has(event.fileName) ? "edit" : "create";
+            existingPaths.add(event.fileName);
+            const filtered = fileOps.filter((op) => op.path !== event.fileName);
+            filtered.push({ id: crypto.randomUUID(), path: event.fileName, action, timestamp: Date.now() });
+            fileOps.length = 0;
+            fileOps.push(...filtered);
+        } else if (event.type === "preview_ready") {
+            previewUrl = event.url;
         }
     };
 
     return {
         collect,
-        snapshot: () => ({ assistantContent, thoughtSteps }),
+        snapshot: () => ({ assistantContent, thoughtSteps, fileOps, previewUrl }),
     };
 }
 
@@ -112,7 +131,16 @@ export async function POST(req: Request) {
             ? `${message}\n\nAdditional Context:\n${additionalContext}`
             : message;
 
-        const persistTranscript = async (assistantContent: string, thoughtSteps: StoredThoughtStep[]) => {
+        // Seed create-vs-edit detection with the paths the user already has.
+        const existingFiles = await db.file.findMany({ where: { userId }, select: { name: true } });
+        const existingPaths = new Set<string>(existingFiles.map((f: { name: string }) => f.name));
+
+        const persistTranscript = async (
+            assistantContent: string,
+            thoughtSteps: StoredThoughtStep[],
+            fileOps: StoredFileOp[],
+            previewUrl: string | undefined,
+        ) => {
             await appendMessagesToSession(sessionId, userId, [
                 { id: crypto.randomUUID(), role: "user", content: message, timestamp: requestStartedAt },
                 {
@@ -120,6 +148,8 @@ export async function POST(req: Request) {
                     role: "assistant",
                     content: assistantContent,
                     thoughtSteps: thoughtSteps.length ? thoughtSteps : undefined,
+                    fileOps: fileOps.length ? fileOps : undefined,
+                    previewUrl,
                     timestamp: Date.now(),
                 },
             ], model);
@@ -127,7 +157,7 @@ export async function POST(req: Request) {
 
         if (!stream) {
             let lastError = "";
-            const collector = createTranscriptCollector();
+            const collector = createTranscriptCollector(existingPaths);
 
             const generator = runAgent(
                 userId,
@@ -148,8 +178,9 @@ export async function POST(req: Request) {
                 }
             }
 
-            const { assistantContent, thoughtSteps } = collector.snapshot();
-            await persistTranscript(assistantContent, thoughtSteps);
+            const snap = collector.snapshot();
+            await persistTranscript(snap.assistantContent, snap.thoughtSteps, snap.fileOps, snap.previewUrl);
+            const { assistantContent } = snap;
 
             if (lastError && !assistantContent) {
                 throw ApiErrors.internalError(lastError);
@@ -165,7 +196,7 @@ export async function POST(req: Request) {
         const encoder = new TextEncoder();
         const responseStream = new ReadableStream({
             async start(controller) {
-                const collector = createTranscriptCollector();
+                const collector = createTranscriptCollector(existingPaths);
                 try {
                     controller.enqueue(encoder.encode(serializeAgentEvent({
                         type: "session_meta",
@@ -209,8 +240,8 @@ export async function POST(req: Request) {
                         // Stream already closed by the client — still persist below.
                     }
                 } finally {
-                    const { assistantContent, thoughtSteps } = collector.snapshot();
-                    await persistTranscript(assistantContent, thoughtSteps);
+                    const snap = collector.snapshot();
+                    await persistTranscript(snap.assistantContent, snap.thoughtSteps, snap.fileOps, snap.previewUrl);
                     try {
                         controller.close();
                     } catch {

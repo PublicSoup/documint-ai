@@ -56,13 +56,22 @@ export const getPriorityActions = cache(
         !!file.documentation?.verifiedAt &&
         Date.now() - file.documentation.verifiedAt.getTime() > 30 * 24 * 60 * 60 * 1000;
 
-      // Priority actions: high-risk files without docs, or stale docs
-      if (!hasDoc && metrics.riskScore > 50) {
+      // Priority actions: undocumented files (the core remediation queue for a
+      // documentation product), or stale docs. Gate on the same risk bar as
+      // hotspots (>30) so the queue actually populates instead of only firing
+      // for very large/complex files; rank by risk so the riskiest surface
+      // first, and the list is capped at 10 below.
+      if (!hasDoc && metrics.riskScore > 30) {
         actions.push({
           id: `action-${file.id}-missing-doc`,
           fileId: file.id,
           label: `Generate documentation for ${file.name} (risk: ${metrics.riskScore})`,
-          priority: metrics.riskScore > 80 ? "CRITICAL" : "HIGH",
+          priority:
+            metrics.riskScore > 80
+              ? "CRITICAL"
+              : metrics.riskScore > 50
+                ? "HIGH"
+                : "MEDIUM",
         });
       } else if (isStale) {
         actions.push({

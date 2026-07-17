@@ -6,6 +6,7 @@ import { FileText, Layout as LayoutIcon, Loader2, Maximize2, X } from "lucide-re
 import ReadmeGenerator from "@/components/readme-generator";
 import type { ProjectGraphData } from "@/lib/graph/graph-data";
 import type { IDEFile } from "./shared/types";
+import { AutoDocumentButton } from "./auto-document-button";
 
 const GraphCanvas = dynamic(
     () => import("@/components/architecture/graph-canvas").then((mod) => mod.GraphCanvas),
@@ -72,6 +73,18 @@ export function IDEInspectorPanels({
                     )}
                 >
                     <div className="p-8 prose prose-invert prose-sm max-w-none">
+                        <div className="not-prose mb-6 flex items-center justify-between gap-3 rounded-xl border border-purple-500/20 bg-purple-500/5 p-4">
+                            <div>
+                                <p className="text-sm font-semibold text-white/90">Auto-generate documentation</p>
+                                <p className="text-xs text-white/40">Analyze this file with AI and save structured docs to the workspace.</p>
+                            </div>
+                            <AutoDocumentButton
+                                fileId={activeFileId}
+                                force
+                                label="Document file"
+                                onNotify={onNotify}
+                            />
+                        </div>
                         <ReadmeGenerator fileIds={activeFileId ? [activeFileId] : []} />
                     </div>
                 </InspectorPanel>

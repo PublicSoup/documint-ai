@@ -17,12 +17,23 @@ export interface ThoughtStep {
     timestamp: number;
 }
 
+export interface FileOp {
+    id: string;
+    path: string;
+    action: 'create' | 'edit';
+    timestamp: number;
+}
+
 export interface Message {
     id: string;
     role: "user" | "assistant";
     content: string;
     codeBlocks: CodeBlock[];
     thoughtSteps?: ThoughtStep[];
+    /** Cline-style visible file writes performed by the agent this turn. */
+    fileOps?: FileOp[];
+    /** Live preview URL surfaced by the agent (sandbox dev server). */
+    previewUrl?: string;
     timestamp: number;
 }
 

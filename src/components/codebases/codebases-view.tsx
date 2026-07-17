@@ -38,7 +38,12 @@ export async function CodebasesView({
             session.user.id,
             { source, sort, includeArchived: includeArchived ?? false },
             { teamId: teamId ?? null, requesterId: session.user.id },
-        ),
+        ).catch(() => ({
+            items: [],
+            nextCursor: null,
+            hasMore: false,
+            totalCount: 0,
+        })),
         getUserSubscription(session.user.id).catch(() => null),
     ]);
 

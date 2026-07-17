@@ -56,6 +56,9 @@ export const githubImportFunction = inngest.createFunction(
                         size: content.length,
                         userId: userId,
                         teamId: teamId || null,
+                        // Group all files from this repo into one codebase; this
+                        // key overrides path-derivation in listCodebasesForUser.
+                        metadata: { codebaseKey: `${owner}/${repo}` },
                     },
                 });
 

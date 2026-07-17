@@ -17,11 +17,20 @@ export interface StoredThoughtStep {
     timestamp: number;
 }
 
+export interface StoredFileOp {
+    id: string;
+    path: string;
+    action: "create" | "edit";
+    timestamp: number;
+}
+
 export interface StoredChatMessage {
     id: string;
     role: "user" | "assistant";
     content: string;
     thoughtSteps?: StoredThoughtStep[];
+    fileOps?: StoredFileOp[];
+    previewUrl?: string;
     timestamp: number;
 }
 
@@ -44,6 +53,7 @@ function boundMessage(message: StoredChatMessage): StoredChatMessage {
         thoughtSteps: message.thoughtSteps
             ?.slice(0, MAX_STORED_STEPS)
             .map((step) => ({ ...step, content: step.content.slice(0, MAX_STEP_CONTENT_CHARS) })),
+        fileOps: message.fileOps?.slice(0, 50),
     };
 }
 
