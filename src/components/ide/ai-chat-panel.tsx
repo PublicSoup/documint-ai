@@ -370,6 +370,7 @@ export function AIChatPanel({
     const reportedRuntimeErrors = useRef<Set<string>>(new Set());
     const lastRuntimeErrorReportAt = useRef(0);
     const assistantStreamStateRef = useRef<Record<string, AssistantStreamState>>({});
+    const handleSendRef = useRef<((customInput?: string) => Promise<void>) | null>(null);
 
     // Apply code to file
     const handleApplyCode = async (code: string, blockId: string, fileName?: string) => {
@@ -1161,6 +1162,12 @@ export function AIChatPanel({
         }
     }, [input, loading, activeFileId, activeFileContent, activeFileName, allFiles, allFileContents, onAgentAction, messages, sessionId, selectedModel, openRouterModel, hasOpenRouterKey, reasoningEffort, autoFixErrors, handleAgentEvent, toast, refreshSessions]);
 
+    // Always keep the ref pointing at the latest handleSend so the auto-fix
+    // effect can call it without listing it as a dependency (which would cause
+    // the effect to re-run—and spuriously trigger the AI—on every file-list
+    // change, e.g. after a workspace deletion).
+    handleSendRef.current = handleSend;
+
     useEffect(() => {
         if (!autoFixErrors || loading || runtimeErrorLines.length === 0) return;
 
@@ -1198,14 +1205,14 @@ export function AIChatPanel({
                     timestamp: Date.now(),
                 });
 
-                await handleSend(`Fix these runtime/build errors with targeted changes only. Do not regenerate unrelated files.\n\n${summary.summary}\n\nLikely files:\n${summary.paths.join("\n")}`);
+                await handleSendRef.current?.(`Fix these runtime/build errors with targeted changes only. Do not regenerate unrelated files.\n\n${summary.summary}\n\nLikely files:\n${summary.paths.join("\n")}`);
             } catch (error) {
                 if (error instanceof Error && error.name === "AbortError") return;
             }
         })();
 
         return () => controller.abort();
-    }, [appendAssistantStep, autoFixErrors, handleSend, loading, runtimeErrorLines]);
+    }, [appendAssistantStep, autoFixErrors, loading, runtimeErrorLines]);
 
     useEffect(() => {
         if (!previewUrl) return;
