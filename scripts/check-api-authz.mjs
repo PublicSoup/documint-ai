@@ -11,6 +11,7 @@ const EXEMPT_PATH_PARTS = [
   "/api/cron/",
   "/api/register/",
   "/api/auth/",
+  "/api/mobile/auth/",
   "/api/invites/[token]/",
   "/api/teams/[teamId]/badge/",
 ];

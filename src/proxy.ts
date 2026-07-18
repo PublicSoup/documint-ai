@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { coepForUserAgent } from "@/lib/coep";
+import { translateBearerToSessionCookie } from "@/lib/mobile-auth";
 
 const publicPaths = [
     "/auth/login",
@@ -16,8 +17,77 @@ const publicPaths = [
     "/og-image.png",
 ];
 
+// Paths the mobile bearer->session-cookie bridge (below) must never touch:
+// NextAuth's own routes and the mobile auth-issuance routes are themselves
+// the unauthenticated surface that *produces* tokens/cookies, and
+// webhooks/health are unauthenticated by design. None of them ever read the
+// session cookie the bridge exists to synthesize, so translating on these
+// paths would only be dead work. Cross-reference
+// `scripts/check-api-authz.mjs`'s EXEMPT_PATH_PARTS, which exempts the same
+// routes from the "every route must check auth" lint for the same reason.
+const MOBILE_AUTH_BRIDGE_EXEMPT_PATHS = [
+    "/api/mobile/auth/",
+    "/api/auth/",
+    "/api/webhooks/",
+    "/api/health",
+];
+
+// Expo's local web-preview dev servers only — used solely so this repo's own
+// headless verification (`expo start --web`) can call the API cross-origin.
+// The native iOS/Android app's `fetch` is never subject to browser CORS, so
+// this allowlist has no effect on it, and it is intentionally disabled in
+// production so it can never widen the API's real CORS surface.
+const MOBILE_DEV_CORS_ORIGINS = new Set(["http://localhost:8081", "http://localhost:19006"]);
+
+function withMobileDevCors(request: NextRequest, response: NextResponse): NextResponse {
+    if (process.env.NODE_ENV === "production") return response;
+    const origin = request.headers.get("origin");
+    if (!origin || !MOBILE_DEV_CORS_ORIGINS.has(origin)) return response;
+
+    response.headers.set("Access-Control-Allow-Origin", origin);
+    response.headers.set("Access-Control-Allow-Credentials", "true");
+    response.headers.set("Vary", "Origin");
+    response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    response.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    return response;
+}
+
+/**
+ * Handles every /api/** request. This is intentionally the *only* thing this
+ * branch does — translate a mobile `Authorization: Bearer` token into the
+ * NextAuth session cookie route handlers already expect (so none of the
+ * ~113 routes calling `getServerSession(authOptions)` need to change), plus
+ * the dev-only CORS reflection above. It must stay a strict no-op for every
+ * existing browser request: no bearer header means nothing is translated,
+ * and no security/CSP headers below are touched since those are page-only.
+ */
+async function handleApiRequest(request: NextRequest): Promise<NextResponse> {
+    if (request.method === "OPTIONS") {
+        return withMobileDevCors(request, new NextResponse(null, { status: 204 }));
+    }
+
+    const { pathname } = request.nextUrl;
+    const isBridgeExempt = MOBILE_AUTH_BRIDGE_EXEMPT_PATHS.some((p) => pathname.startsWith(p));
+
+    if (isBridgeExempt) {
+        return withMobileDevCors(request, NextResponse.next());
+    }
+
+    const translatedCookie = await translateBearerToSessionCookie(request);
+    if (!translatedCookie) {
+        return withMobileDevCors(request, NextResponse.next());
+    }
+
+    const headers = new Headers(request.headers);
+    const existingCookie = headers.get("cookie");
+    headers.set("cookie", existingCookie ? `${existingCookie}; ${translatedCookie}` : translatedCookie);
+
+    return withMobileDevCors(request, NextResponse.next({ request: { headers } }));
+}
+
 /**
  * Lightweight edge middleware:
+ * - Bridges mobile bearer-token auth onto the NextAuth session cookie for /api/**
  * - Applies security headers
  * - Protects /admin routes
  *
@@ -26,6 +96,11 @@ const publicPaths = [
  */
 export async function proxy(request: NextRequest) {
     const { pathname } = request.nextUrl;
+
+    if (pathname.startsWith("/api/")) {
+        return handleApiRequest(request);
+    }
+
     const response = NextResponse.next();
 
     if (publicPaths.some(path => pathname.startsWith(path)) || pathname === "/") {
@@ -117,5 +192,8 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-    matcher: ["/((?!api|_next/static|_next/image|favicon.ico|public/).*)"],
+    // Now includes /api/** (previously excluded) solely so the mobile
+    // bearer->cookie bridge in handleApiRequest() above can run; see that
+    // function's docstring for why this is safe for existing browser traffic.
+    matcher: ["/((?!_next/static|_next/image|favicon.ico|public/).*)"],
 };

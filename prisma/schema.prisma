@@ -39,6 +39,25 @@ model User {
   aiUsage                AiUsage[]
   codeReviews            CodeReview[]
   reviewPolicies         ReviewPolicy[]        @relation("PolicyOwner")
+  mobileRefreshTokens    MobileRefreshToken[]
+}
+
+// Refresh tokens issued to native mobile (iOS/Android) clients. The mobile
+// app's short-lived access token is a normal NextAuth session JWT (see
+// src/lib/mobile-auth.ts) minted on demand from a still-valid refresh token
+// here; only a SHA-256 hash of the token is ever stored.
+model MobileRefreshToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  deviceInfo String?
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Subscription {
