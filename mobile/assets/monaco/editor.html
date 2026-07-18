@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <style>
+    html, body, #editor { height: 100%; width: 100%; margin: 0; padding: 0; overflow: hidden; }
+    body { background: #030014; }
+  </style>
+  <!--
+    Monaco has no bundled-asset story that fits cleanly into a Flutter
+    asset (its `min/vs` tree is thousands of small files). It's loaded from
+    the same jsdelivr CDN the web app's own CSP already allowlists
+    (src/proxy.ts) — this file itself is a bundled Flutter asset
+    (`assets/monaco/editor.html`), only Monaco's JS/CSS come from the
+    network, same tradeoff the website already ships with.
+  -->
+  <link rel="stylesheet" data-name="vs/editor/editor.main"
+    href="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs/editor/editor.main.css" />
+</head>
+<body>
+  <div id="editor"></div>
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs/loader.js"></script>
+  <script>
+    let editor;
+    let suppressChangeEvent = false;
+
+    function post(message) {
+      if (window.FlutterBridge) {
+        window.FlutterBridge.postMessage(JSON.stringify(message));
+      }
+    }
+
+    require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs' } });
+    require(['vs/editor/editor.main'], function () {
+      editor = monaco.editor.create(document.getElementById('editor'), {
+        value: '',
+        language: 'plaintext',
+        theme: 'vs-dark',
+        automaticLayout: true,
+        minimap: { enabled: false },
+        fontSize: 14,
+        readOnly: true,
+        wordWrap: 'on',
+        scrollBeyondLastLine: false,
+      });
+
+      editor.onDidChangeModelContent(function () {
+        if (suppressChangeEvent) return;
+        post({ type: 'change', value: editor.getValue() });
+      });
+
+      post({ type: 'ready' });
+    });
+
+    // Called from Dart via controller.runJavaScript('setEditorContent(...)').
+    function setEditorContent(value, language) {
+      if (!editor) return;
+      suppressChangeEvent = true;
+      const model = editor.getModel();
+      monaco.editor.setModelLanguage(model, language || 'plaintext');
+      editor.setValue(value || '');
+      suppressChangeEvent = false;
+    }
+
+    function setEditorReadOnly(readOnly) {
+      if (!editor) return;
+      editor.updateOptions({ readOnly: !!readOnly });
+    }
+  </script>
+</body>
+</html>
