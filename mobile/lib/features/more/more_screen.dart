@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../auth/auth_controller.dart';
 import '../../theme/app_theme.dart';
@@ -7,13 +8,12 @@ import '../../theme/app_theme.dart';
 class MoreScreen extends ConsumerWidget {
   const MoreScreen({super.key});
 
-  // Teams/Reviews/Rulesets/Settings/Billing screens land in a later phase —
-  // the app already has working auth, so this tab surfaces account state
-  // and sign-out now rather than blocking on screens that aren't built yet.
-  static const _menuItems = [
+  // Teams/Reviews/Rulesets/Settings/Admin screens land in a later phase —
+  // Billing is live now (native in-app purchases). The app already has
+  // working auth, so this tab surfaces account state and sign-out too.
+  static const _comingSoonItems = [
     (icon: Icons.groups_outlined, label: 'Teams'),
     (icon: Icons.fact_check_outlined, label: 'Reviews & Rulesets'),
-    (icon: Icons.credit_card_outlined, label: 'Billing'),
     (icon: Icons.settings_outlined, label: 'Settings'),
     (icon: Icons.admin_panel_settings_outlined, label: 'Admin'),
   ];
@@ -46,7 +46,17 @@ class MoreScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 16),
-          for (final item in _menuItems)
+          Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            child: ListTile(
+              leading: const Icon(Icons.credit_card_outlined, color: AppColors.primary),
+              title: const Text('Billing & Plans'),
+              subtitle: const Text('Manage your subscription'),
+              trailing: const Icon(Icons.chevron_right, color: AppColors.mutedForeground),
+              onTap: () => context.push('/more/billing'),
+            ),
+          ),
+          for (final item in _comingSoonItems)
             Card(
               margin: const EdgeInsets.only(bottom: 12),
               child: ListTile(

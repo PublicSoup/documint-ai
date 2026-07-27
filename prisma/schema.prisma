@@ -75,6 +75,17 @@ model Subscription {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
+  // Native in-app-purchase state (Apple StoreKit / Google Play Billing) for
+  // subscriptions bought inside the mobile app. Populated by
+  // src/lib/iap/** instead of the stripe* columns above; the two billing
+  // sources are mutually exclusive per user but share the plan/status/
+  // currentPeriodEnd columns so getUserSubscription() stays source-agnostic.
+  iapPlatform              String?   // "apple" | "google"
+  iapProductId             String?
+  iapOriginalTransactionId String?   @unique // Apple original_transaction_id (stable across renewals)
+  iapPurchaseToken         String?   @db.Text // Google Play purchase token (long)
+  iapExpiresAt             DateTime?
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 

@@ -51,6 +51,10 @@ dependencies:
   # no Flutter-native equivalent with comparable multi-language support.
   webview_flutter: ^4.10.0
 
+  # Native in-app purchases — Apple StoreKit on iOS, Google Play Billing on
+  # Android — the store-mandated payment path for digital subscriptions.
+  in_app_purchase: ^3.2.0
+
   intl: ^0.19.0
 
 dev_dependencies:

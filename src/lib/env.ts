@@ -58,6 +58,14 @@ const envSchema = z.object({
     // Security
     ENCRYPTION_KEY: z.string().length(64, "ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes)").optional(),
 
+    // Native in-app purchases (mobile). All optional — mobile IAP billing is
+    // simply unavailable (endpoints return 503) until these are configured.
+    // See mobile/IAP_SETUP.md for how to obtain each value.
+    APPLE_IAP_SHARED_SECRET: z.string().optional(), // App Store Connect > App > Subscriptions > App-Specific Shared Secret
+    APPLE_IAP_BUNDLE_ID: z.string().optional(), // e.g. dev.documintai.documint_mobile
+    GOOGLE_PLAY_PACKAGE_NAME: z.string().optional(), // e.g. dev.documintai.documint_mobile
+    GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: z.string().optional(), // raw JSON of a Play Console service account key
+
     // System
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     VERCEL: z.string().optional(),
@@ -114,6 +122,12 @@ export const env = envSchema.parse({
 
     // Security
     ENCRYPTION_KEY: process.env.ENCRYPTION_KEY || undefined,
+
+    // Native in-app purchases (mobile)
+    APPLE_IAP_SHARED_SECRET: process.env.APPLE_IAP_SHARED_SECRET || undefined,
+    APPLE_IAP_BUNDLE_ID: process.env.APPLE_IAP_BUNDLE_ID || undefined,
+    GOOGLE_PLAY_PACKAGE_NAME: process.env.GOOGLE_PLAY_PACKAGE_NAME || undefined,
+    GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON || undefined,
 
     // System
     NODE_ENV: process.env.NODE_ENV,

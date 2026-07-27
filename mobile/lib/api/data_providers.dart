@@ -1,8 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api_exception.dart';
+import 'models/billing_product.dart';
 import 'models/documentation.dart';
 import 'models/file_summary.dart';
+import 'models/subscription_info.dart';
 import 'providers.dart';
 
 final filesListProvider = FutureProvider.autoDispose<List<FileSummary>>((ref) {
@@ -22,4 +24,12 @@ final documentationProvider = FutureProvider.autoDispose.family<Documentation?, 
     if (e.isNotFound) return null;
     rethrow;
   }
+});
+
+final subscriptionProvider = FutureProvider.autoDispose<SubscriptionInfo>((ref) {
+  return ref.watch(billingRepositoryProvider).getSubscription();
+});
+
+final billingProductsProvider = FutureProvider.autoDispose<List<BillingProduct>>((ref) {
+  return ref.watch(billingRepositoryProvider).getProducts();
 });
