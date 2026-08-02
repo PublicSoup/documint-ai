@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'auth/auth_controller.dart';
 import 'features/analytics/analytics_screen.dart';
 import 'features/billing/billing_screen.dart';
+import 'features/chat/chat_conversation_screen.dart';
 import 'features/chat/chat_screen.dart';
 import 'features/dashboard/file_detail_screen.dart';
 import 'features/dashboard/file_list_screen.dart';
@@ -84,7 +85,19 @@ final routerProvider = Provider<GoRouter>((ref) {
               ],
             ),
           ]),
-          StatefulShellBranch(routes: [GoRoute(path: '/chat', builder: (context, state) => const ChatScreen())]),
+          StatefulShellBranch(routes: [
+            GoRoute(
+              path: '/chat',
+              builder: (context, state) => const ChatScreen(),
+              routes: [
+                GoRoute(path: 'new', builder: (context, state) => const ChatConversationScreen()),
+                GoRoute(
+                  path: 'session/:id',
+                  builder: (context, state) => ChatConversationScreen(sessionId: state.pathParameters['id']),
+                ),
+              ],
+            ),
+          ]),
           StatefulShellBranch(routes: [GoRoute(path: '/analytics', builder: (context, state) => const AnalyticsScreen())]),
           StatefulShellBranch(routes: [
             GoRoute(

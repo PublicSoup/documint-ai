@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'api_client.dart';
 import 'repositories/auth_repository.dart';
 import 'repositories/billing_repository.dart';
+import 'repositories/chat_repository.dart';
 import 'repositories/docs_repository.dart';
 import 'repositories/files_repository.dart';
 
@@ -15,3 +16,5 @@ final filesRepositoryProvider = Provider<FilesRepository>((ref) => FilesReposito
 final docsRepositoryProvider = Provider<DocsRepository>((ref) => DocsRepository(ref.watch(apiClientProvider)));
 
 final billingRepositoryProvider = Provider<BillingRepository>((ref) => BillingRepository(ref.watch(apiClientProvider)));
+
+final chatRepositoryProvider = Provider<ChatRepository>((ref) => ChatRepository(ref.watch(apiClientProvider)));

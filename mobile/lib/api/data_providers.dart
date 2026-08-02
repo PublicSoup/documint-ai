@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api_exception.dart';
+import 'models/ai_model.dart';
 import 'models/billing_product.dart';
+import 'models/chat_session_summary.dart';
 import 'models/documentation.dart';
 import 'models/file_summary.dart';
 import 'models/subscription_info.dart';
@@ -32,4 +34,18 @@ final subscriptionProvider = FutureProvider.autoDispose<SubscriptionInfo>((ref) 
 
 final billingProductsProvider = FutureProvider.autoDispose<List<BillingProduct>>((ref) {
   return ref.watch(billingRepositoryProvider).getProducts();
+});
+
+final chatSessionsProvider = FutureProvider.autoDispose<List<ChatSessionSummary>>((ref) {
+  return ref.watch(chatRepositoryProvider).listSessions();
+});
+
+/// Available AI models for the picker. Returns an empty list (rather than
+/// throwing) if the catalog can't be loaded, so the picker just hides.
+final aiModelsProvider = FutureProvider.autoDispose<List<AiModel>>((ref) async {
+  try {
+    return await ref.watch(chatRepositoryProvider).listModels();
+  } catch (_) {
+    return const [];
+  }
 });

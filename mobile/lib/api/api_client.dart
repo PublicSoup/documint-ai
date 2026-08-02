@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import '../auth/session_storage.dart';
@@ -124,6 +126,26 @@ class ApiClient {
   Future<T> putJson<T>(String path, {dynamic body, bool skipAuth = false}) async {
     final response = await dio.put(path, data: body, options: _options(skipAuth: skipAuth));
     return response.data as T;
+  }
+
+  /// POSTs and returns the response body as a stream of complete text lines,
+  /// for the chat endpoint's newline-delimited JSON (`application/x-ndjson`).
+  /// `receiveTimeout` is disabled because an agent run can stream for minutes
+  /// (the backend's maxDuration is 300s) with gaps between chunks; the normal
+  /// bearer-attach + 401→refresh interceptors still apply. `LineSplitter`
+  /// buffers partial lines that span network chunks so each emitted string is
+  /// exactly one NDJSON record.
+  Future<Stream<String>> postStreamLines(String path, {dynamic body}) async {
+    final response = await dio.post<ResponseBody>(
+      path,
+      data: body,
+      options: Options(responseType: ResponseType.stream, receiveTimeout: Duration.zero),
+    );
+    final stream = response.data?.stream;
+    if (stream == null) {
+      throw ApiException(statusCode: 0, error: 'Error', message: 'Empty response stream.');
+    }
+    return stream.cast<List<int>>().transform(utf8.decoder).transform(const LineSplitter());
   }
 }
 
