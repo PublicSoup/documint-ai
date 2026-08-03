@@ -2,11 +2,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api_exception.dart';
 import 'models/ai_model.dart';
+import 'models/app_notification.dart';
 import 'models/billing_product.dart';
 import 'models/chat_session_summary.dart';
 import 'models/documentation.dart';
 import 'models/file_summary.dart';
+import 'models/provider_keys.dart';
+import 'models/review.dart';
 import 'models/subscription_info.dart';
+import 'models/team.dart';
 import 'providers.dart';
 
 final filesListProvider = FutureProvider.autoDispose<List<FileSummary>>((ref) {
@@ -48,4 +52,24 @@ final aiModelsProvider = FutureProvider.autoDispose<List<AiModel>>((ref) async {
   } catch (_) {
     return const [];
   }
+});
+
+final teamsProvider = FutureProvider.autoDispose<List<Team>>((ref) {
+  return ref.watch(teamsRepositoryProvider).listTeams();
+});
+
+final teamDetailProvider = FutureProvider.autoDispose.family<Team, String>((ref, teamId) {
+  return ref.watch(teamsRepositoryProvider).getTeam(teamId);
+});
+
+final reviewsProvider = FutureProvider.autoDispose<List<Review>>((ref) {
+  return ref.watch(reviewsRepositoryProvider).listReviews();
+});
+
+final notificationsProvider = FutureProvider.autoDispose<List<AppNotification>>((ref) {
+  return ref.watch(notificationsRepositoryProvider).list();
+});
+
+final providerKeysProvider = FutureProvider.autoDispose<ProviderKeyStatus>((ref) {
+  return ref.watch(accountRepositoryProvider).getProviderKeys();
 });

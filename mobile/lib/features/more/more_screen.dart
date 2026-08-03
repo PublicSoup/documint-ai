@@ -8,14 +8,15 @@ import '../../theme/app_theme.dart';
 class MoreScreen extends ConsumerWidget {
   const MoreScreen({super.key});
 
-  // Teams/Reviews/Rulesets/Settings/Admin screens land in a later phase —
-  // Billing is live now (native in-app purchases). The app already has
-  // working auth, so this tab surfaces account state and sign-out too.
-  static const _comingSoonItems = [
-    (icon: Icons.groups_outlined, label: 'Teams'),
-    (icon: Icons.fact_check_outlined, label: 'Reviews & Rulesets'),
-    (icon: Icons.settings_outlined, label: 'Settings'),
-    (icon: Icons.admin_panel_settings_outlined, label: 'Admin'),
+  // Admin (users/audit/health) is the only section still pending.
+  static const _menuItems = [
+    (icon: Icons.groups_outlined, label: 'Teams', route: '/more/teams'),
+    (icon: Icons.fact_check_outlined, label: 'Reviews', route: '/more/reviews'),
+    (icon: Icons.rule_folder_outlined, label: 'Ruleset Generator', route: '/more/rulesets'),
+    (icon: Icons.notifications_outlined, label: 'Notifications', route: '/more/notifications'),
+    (icon: Icons.search, label: 'Search', route: '/more/search'),
+    (icon: Icons.credit_card_outlined, label: 'Billing & Plans', route: '/more/billing'),
+    (icon: Icons.settings_outlined, label: 'Settings', route: '/more/settings'),
   ];
 
   @override
@@ -46,23 +47,23 @@ class MoreScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 16),
-          Card(
-            margin: const EdgeInsets.only(bottom: 12),
-            child: ListTile(
-              leading: const Icon(Icons.credit_card_outlined, color: AppColors.primary),
-              title: const Text('Billing & Plans'),
-              subtitle: const Text('Manage your subscription'),
-              trailing: const Icon(Icons.chevron_right, color: AppColors.mutedForeground),
-              onTap: () => context.push('/more/billing'),
-            ),
-          ),
-          for (final item in _comingSoonItems)
+          for (final item in _menuItems)
             Card(
               margin: const EdgeInsets.only(bottom: 12),
               child: ListTile(
                 leading: Icon(item.icon, color: AppColors.mutedForeground),
                 title: Text(item.label),
-                subtitle: const Text('Coming soon'),
+                trailing: const Icon(Icons.chevron_right, color: AppColors.mutedForeground),
+                onTap: () => context.push(item.route),
+              ),
+            ),
+          if (user?.role == 'ADMIN')
+            const Card(
+              margin: EdgeInsets.only(bottom: 12),
+              child: ListTile(
+                leading: Icon(Icons.admin_panel_settings_outlined, color: AppColors.mutedForeground),
+                title: Text('Admin'),
+                subtitle: Text('Coming soon'),
               ),
             ),
           const SizedBox(height: 8),

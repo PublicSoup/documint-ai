@@ -7,6 +7,8 @@ import '../../api/providers.dart';
 import '../../theme/app_theme.dart';
 import 'language_detect.dart';
 import 'monaco_webview.dart';
+import 'run_panel.dart';
+import 'runtime_detect.dart';
 
 class CodeEditorScreen extends ConsumerStatefulWidget {
   const CodeEditorScreen({super.key, required this.fileId, this.fileName});
@@ -44,10 +46,28 @@ class _CodeEditorScreenState extends ConsumerState<CodeEditorScreen> {
     }
   }
 
+  void _run(String baselineContent) {
+    final runtimeKind = detectRuntimeKind(widget.fileName ?? '');
+    if (runtimeKind == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Running isn\'t supported for this language on mobile. Supported: Python, PHP, Go, Java, Rust, Shell.')),
+      );
+      return;
+    }
+    showRunPanel(
+      context,
+      ref,
+      fileName: widget.fileName ?? 'main',
+      content: _pendingContent ?? baselineContent,
+      runtimeKind: runtimeKind,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final contentAsync = ref.watch(fileContentProvider(widget.fileId));
     final language = detectMonacoLanguage(widget.fileName ?? '');
+    final canRun = detectRuntimeKind(widget.fileName ?? '') != null;
 
     return Scaffold(
       backgroundColor: AppColors.ideBackground,
@@ -55,6 +75,15 @@ class _CodeEditorScreenState extends ConsumerState<CodeEditorScreen> {
         backgroundColor: AppColors.ideElevated,
         title: Text(widget.fileName ?? 'Editor', overflow: TextOverflow.ellipsis),
         actions: [
+          if (canRun)
+            contentAsync.maybeWhen(
+              data: (content) => IconButton(
+                icon: const Icon(Icons.play_arrow, color: AppColors.success),
+                tooltip: 'Run',
+                onPressed: () => _run(content),
+              ),
+              orElse: () => const SizedBox.shrink(),
+            ),
           contentAsync.maybeWhen(
             data: (content) => TextButton(
               onPressed: _isDirty && !_isSaving ? () => _save(content) : null,

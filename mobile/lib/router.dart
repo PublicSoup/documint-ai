@@ -12,6 +12,12 @@ import 'features/dashboard/file_list_screen.dart';
 import 'features/ide/code_editor_screen.dart';
 import 'features/ide/ide_screen.dart';
 import 'features/more/more_screen.dart';
+import 'features/notifications/notifications_screen.dart';
+import 'features/reviews/reviews_screen.dart';
+import 'features/rulesets/rulesets_screen.dart';
+import 'features/search/search_screen.dart';
+import 'features/settings/settings_screen.dart';
+import 'features/teams/teams_screen.dart';
 import 'auth/login_screen.dart';
 import 'auth/register_screen.dart';
 import 'auth/forgot_password_screen.dart';
@@ -105,6 +111,18 @@ final routerProvider = Provider<GoRouter>((ref) {
               builder: (context, state) => const MoreScreen(),
               routes: [
                 GoRoute(path: 'billing', builder: (context, state) => const BillingScreen()),
+                GoRoute(path: 'settings', builder: (context, state) => const SettingsScreen()),
+                GoRoute(path: 'search', builder: (context, state) => const SearchScreen()),
+                GoRoute(path: 'notifications', builder: (context, state) => const NotificationsScreen()),
+                GoRoute(path: 'reviews', builder: (context, state) => const ReviewsScreen()),
+                GoRoute(path: 'rulesets', builder: (context, state) => const RulesetsScreen()),
+                GoRoute(
+                  path: 'teams',
+                  builder: (context, state) => const TeamsScreen(),
+                  routes: [
+                    GoRoute(path: ':id', builder: (context, state) => TeamDetailScreen(teamId: state.pathParameters['id']!)),
+                  ],
+                ),
               ],
             ),
           ]),
