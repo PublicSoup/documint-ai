@@ -1,0 +1,101 @@
+name: Mobile
+
+# Builds the Flutter iOS/Android app and publishes installable artifacts, so
+# the app can be tested without a local Flutter/Android/Xcode setup.
+on:
+  push:
+    branches: [main, "claude/**"]
+    paths: ["mobile/**", ".github/workflows/mobile.yml"]
+  pull_request:
+    paths: ["mobile/**", ".github/workflows/mobile.yml"]
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: "API base URL to bake into the build"
+        required: false
+        default: "https://www.documintai.dev"
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: "3.44.6"
+  # workflow_dispatch input when present, production otherwise.
+  API_URL: ${{ github.event.inputs.api_url || 'https://www.documintai.dev' }}
+
+jobs:
+  analyze:
+    name: Analyze & test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  android:
+    name: Android APK
+    needs: analyze
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # Matches sourceCompatibility/jvmTarget in android/app/build.gradle.kts.
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      # Debug APK is signed with the standard debug key, so it sideloads onto
+      # any device without release signing config or a Play account.
+      - run: flutter build apk --debug --dart-define=API_URL=$API_URL
+      - uses: actions/upload-artifact@v4
+        with:
+          name: documint-android-debug-apk
+          path: mobile/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+
+  ios:
+    name: iOS build
+    needs: analyze
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      # Simulator build needs no signing and can be dragged straight onto a
+      # running Simulator — the quickest way to try the app on a Mac.
+      - run: flutter build ios --simulator --dart-define=API_URL=$API_URL
+      # Device build without signing proves the real iOS target compiles;
+      # installing on hardware still needs an Apple developer team in Xcode.
+      - run: flutter build ios --release --no-codesign --dart-define=API_URL=$API_URL
+      - name: Package simulator app
+        run: ditto -c -k --sequesterRsrc --keepParent build/ios/iphonesimulator/Runner.app Runner-simulator.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: documint-ios-simulator-app
+          path: mobile/Runner-simulator.zip
+          if-no-files-found: error

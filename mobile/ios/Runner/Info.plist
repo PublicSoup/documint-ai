@@ -26,6 +26,15 @@
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
+		<!-- Allows plain HTTP to local-network hosts only (localhost, *.local,
+		     link-local) so the app can be tested against a local `next dev`
+		     server. Remote traffic still requires HTTPS under ATS, and Apple
+		     accepts this key without a review justification. -->
+		<key>NSAppTransportSecurity</key>
+		<dict>
+			<key>NSAllowsLocalNetworking</key>
+			<true/>
+		</dict>
 		<key>UIApplicationSceneManifest</key>
 		<dict>
 			<key>UIApplicationSupportsMultipleScenes</key>

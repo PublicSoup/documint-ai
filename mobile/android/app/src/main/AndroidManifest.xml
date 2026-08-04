@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required in the MAIN manifest, not just the debug one: every screen in
+         this app talks to the DocuMint API, so a release build without this
+         permission silently fails every request. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="DocuMint AI"
         android:name="${applicationName}"

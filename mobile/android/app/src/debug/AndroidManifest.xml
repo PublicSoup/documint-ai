@@ -4,4 +4,10 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Debug-only: Android blocks cleartext HTTP from API 28 onward, which
+         would break testing against a local `next dev` server via
+         API_URL=http://10.0.2.2:3000. Release builds keep the secure default
+         and remain HTTPS-only. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>
