@@ -18,4 +18,15 @@ class DocsRepository {
       body: {'fileId': fileId, if (force) 'force': true},
     );
   }
+
+  /// Toggles public sharing for a file's documentation and returns the
+  /// public URL (`<app>/share/<fileId>`). Requires "manage" permission on
+  /// the file (403) and existing documentation (400).
+  Future<String> setPublicShare(String fileId, {required bool isPublic}) async {
+    final json = await _client.postJson<Map<String, dynamic>>(
+      '/api/docs/$fileId/share',
+      body: {'isPublic': isPublic},
+    );
+    return json['url'] as String? ?? '';
+  }
 }

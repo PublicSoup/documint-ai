@@ -1,8 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api_exception.dart';
+import 'models/admin_health.dart';
+import 'models/admin_user.dart';
 import 'models/ai_model.dart';
 import 'models/app_notification.dart';
+import 'models/audit_log.dart';
 import 'models/billing_product.dart';
 import 'models/chat_session_summary.dart';
 import 'models/documentation.dart';
@@ -72,4 +75,16 @@ final notificationsProvider = FutureProvider.autoDispose<List<AppNotification>>(
 
 final providerKeysProvider = FutureProvider.autoDispose<ProviderKeyStatus>((ref) {
   return ref.watch(accountRepositoryProvider).getProviderKeys();
+});
+
+final adminHealthProvider = FutureProvider.autoDispose<AdminHealth>((ref) {
+  return ref.watch(adminRepositoryProvider).health();
+});
+
+final adminUsersProvider = FutureProvider.autoDispose.family<List<AdminUser>, String>((ref, search) {
+  return ref.watch(adminRepositoryProvider).users(search: search.isEmpty ? null : search);
+});
+
+final auditLogProvider = FutureProvider.autoDispose<List<AuditLogEntry>>((ref) {
+  return ref.watch(adminRepositoryProvider).auditLog();
 });

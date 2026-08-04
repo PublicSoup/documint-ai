@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'auth/auth_controller.dart';
+import 'features/admin/admin_screen.dart';
 import 'features/analytics/analytics_screen.dart';
+import 'features/diagrams/diagram_file_picker_screen.dart';
 import 'features/billing/billing_screen.dart';
 import 'features/chat/chat_conversation_screen.dart';
 import 'features/chat/chat_screen.dart';
@@ -116,6 +118,8 @@ final routerProvider = Provider<GoRouter>((ref) {
                 GoRoute(path: 'notifications', builder: (context, state) => const NotificationsScreen()),
                 GoRoute(path: 'reviews', builder: (context, state) => const ReviewsScreen()),
                 GoRoute(path: 'rulesets', builder: (context, state) => const RulesetsScreen()),
+                GoRoute(path: 'diagrams', builder: (context, state) => const DiagramFilePickerScreen()),
+                GoRoute(path: 'admin', builder: (context, state) => const AdminScreen()),
                 GoRoute(
                   path: 'teams',
                   builder: (context, state) => const TeamsScreen(),

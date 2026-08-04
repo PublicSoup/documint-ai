@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../api/api_exception.dart';
 import '../../api/models/documentation.dart';
 import '../../api/providers.dart';
 import '../../theme/app_theme.dart';
 import '../../api/data_providers.dart';
+import '../../widgets/web_view_screen.dart';
+import '../diagrams/diagram_screen.dart';
 
 class FileDetailScreen extends ConsumerWidget {
   const FileDetailScreen({super.key, required this.fileId});
@@ -14,11 +18,30 @@ class FileDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // The file name isn't part of this route's params, so pull it from the
+    // already-cached file list rather than making an extra request.
+    final fileName = ref.watch(filesListProvider).valueOrNull?.where((f) => f.id == fileId).firstOrNull?.name;
+
     return DefaultTabController(
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('File'),
+          title: Text(fileName ?? 'File', overflow: TextOverflow.ellipsis),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.account_tree_outlined),
+              tooltip: 'Diagram',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => DiagramScreen(fileId: fileId, fileName: fileName)),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.ios_share),
+              tooltip: 'Share',
+              onPressed: () => _share(context, ref),
+            ),
+          ],
           bottom: const TabBar(tabs: [Tab(text: 'Code'), Tab(text: 'Documentation')]),
         ),
         body: TabBarView(
@@ -27,6 +50,77 @@ class FileDetailScreen extends ConsumerWidget {
             _DocsTab(fileId: fileId),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Publishes the file's documentation and offers the resulting public link.
+  Future<void> _share(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+
+    String url;
+    try {
+      url = await ref.read(docsRepositoryProvider).setPublicShare(fileId, isPublic: true);
+    } catch (e) {
+      final message = e is ApiException
+          ? (e.statusCode == 400 ? 'Generate documentation for this file first.' : e.message)
+          : 'Could not create a share link.';
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+      return;
+    }
+
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Public link'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Anyone with this link can view this documentation.'),
+            const SizedBox(height: 12),
+            SelectableText(url, style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await ref.read(docsRepositoryProvider).setPublicShare(fileId, isPublic: false);
+                messenger.showSnackBar(const SnackBar(content: Text('Sharing disabled.')));
+              } catch (_) {
+                messenger.showSnackBar(const SnackBar(content: Text('Could not disable sharing.')));
+              }
+            },
+            style: TextButton.styleFrom(foregroundColor: AppColors.destructive),
+            child: const Text('Make private'),
+          ),
+          TextButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: url));
+              Navigator.pop(ctx);
+              messenger.showSnackBar(const SnackBar(content: Text('Link copied.')));
+            },
+            child: const Text('Copy'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              navigator.push(MaterialPageRoute(builder: (_) => WebViewScreen(url: url, title: 'Shared doc')));
+            },
+            child: const Text('Open'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              Share.share(url, subject: 'DocuMint AI documentation');
+            },
+            child: const Text('Share…'),
+          ),
+        ],
       ),
     );
   }

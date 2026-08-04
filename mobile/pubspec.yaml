@@ -55,6 +55,9 @@ dependencies:
   # Android — the store-mandated payment path for digital subscriptions.
   in_app_purchase: ^3.2.0
 
+  # Native share sheet for public documentation links.
+  share_plus: ^10.1.2
+
   intl: ^0.19.0
 
 dev_dependencies:
@@ -67,6 +70,33 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+
+  # Icon/splash generation. `image` is used by tool/generate_icon.dart to
+  # draw the source artwork; the other two turn it into native assets.
+  image: ^4.3.0
+  flutter_launcher_icons: ^0.14.2
+  flutter_native_splash: ^2.4.3
+
+# Native launcher icons, generated from the artwork produced by
+# `dart run tool/generate_icon.dart`. Regenerate with:
+#   dart run flutter_launcher_icons
+flutter_launcher_icons:
+  image_path: "assets/icon/icon.png"
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  adaptive_icon_background: "#7C3AED"
+  adaptive_icon_foreground: "assets/icon/icon_foreground.png"
+
+# Splash screen on the brand's deep-indigo IDE background. Regenerate with:
+#   dart run flutter_native_splash:create
+flutter_native_splash:
+  color: "#030014"
+  image: "assets/icon/icon_foreground.png"
+  android_12:
+    color: "#030014"
+    image: "assets/icon/icon_foreground.png"
+    icon_background_color: "#030014"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -81,6 +111,7 @@ flutter:
 
   assets:
     - assets/monaco/editor.html
+    - assets/diagram/mermaid.html
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

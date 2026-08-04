@@ -2,10 +2,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api_client.dart';
 import 'repositories/account_repository.dart';
+import 'repositories/admin_repository.dart';
 import 'repositories/analytics_repository.dart';
 import 'repositories/auth_repository.dart';
 import 'repositories/billing_repository.dart';
 import 'repositories/chat_repository.dart';
+import 'repositories/diagrams_repository.dart';
 import 'repositories/docs_repository.dart';
 import 'repositories/files_repository.dart';
 import 'repositories/notifications_repository.dart';
@@ -39,3 +41,7 @@ final notificationsRepositoryProvider = Provider<NotificationsRepository>((ref) 
 final analyticsRepositoryProvider = Provider<AnalyticsRepository>((ref) => AnalyticsRepository(ref.watch(apiClientProvider)));
 
 final sandboxRepositoryProvider = Provider<SandboxRepository>((ref) => SandboxRepository(ref.watch(apiClientProvider)));
+
+final diagramsRepositoryProvider = Provider<DiagramsRepository>((ref) => DiagramsRepository(ref.watch(apiClientProvider)));
+
+final adminRepositoryProvider = Provider<AdminRepository>((ref) => AdminRepository(ref.watch(apiClientProvider)));

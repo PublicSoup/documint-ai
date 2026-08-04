@@ -8,10 +8,10 @@ import '../../theme/app_theme.dart';
 class MoreScreen extends ConsumerWidget {
   const MoreScreen({super.key});
 
-  // Admin (users/audit/health) is the only section still pending.
   static const _menuItems = [
     (icon: Icons.groups_outlined, label: 'Teams', route: '/more/teams'),
     (icon: Icons.fact_check_outlined, label: 'Reviews', route: '/more/reviews'),
+    (icon: Icons.account_tree_outlined, label: 'Diagrams', route: '/more/diagrams'),
     (icon: Icons.rule_folder_outlined, label: 'Ruleset Generator', route: '/more/rulesets'),
     (icon: Icons.notifications_outlined, label: 'Notifications', route: '/more/notifications'),
     (icon: Icons.search, label: 'Search', route: '/more/search'),
@@ -58,12 +58,13 @@ class MoreScreen extends ConsumerWidget {
               ),
             ),
           if (user?.role == 'ADMIN')
-            const Card(
-              margin: EdgeInsets.only(bottom: 12),
+            Card(
+              margin: const EdgeInsets.only(bottom: 12),
               child: ListTile(
-                leading: Icon(Icons.admin_panel_settings_outlined, color: AppColors.mutedForeground),
-                title: Text('Admin'),
-                subtitle: Text('Coming soon'),
+                leading: const Icon(Icons.admin_panel_settings_outlined, color: AppColors.mutedForeground),
+                title: const Text('Admin'),
+                trailing: const Icon(Icons.chevron_right, color: AppColors.mutedForeground),
+                onTap: () => context.push('/more/admin'),
               ),
             ),
           const SizedBox(height: 8),
