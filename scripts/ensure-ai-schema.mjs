@@ -117,6 +117,44 @@ const statements = [
      CONSTRAINT "ChatSession_pkey" PRIMARY KEY ("id")
    )`,
   `CREATE INDEX IF NOT EXISTS "ChatSession_userId_updatedAt_idx" ON "ChatSession"("userId", "updatedAt")`,
+
+  // --- DocVersion (auto-documentation version history) ---
+  // Written by src/lib/auto-documentation.ts inside the doc-generation
+  // transaction. Missing on DBs created before it was added → the whole
+  // auto-doc transaction rolls back and coverage silently stays at 0.
+  `CREATE TABLE IF NOT EXISTS "DocVersion" (
+     "id" TEXT NOT NULL,
+     "documentationId" TEXT NOT NULL,
+     "content" TEXT NOT NULL,
+     "version" INTEGER NOT NULL,
+     "message" TEXT,
+     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     "createdById" TEXT,
+     CONSTRAINT "DocVersion_pkey" PRIMARY KEY ("id")
+   )`,
+  `CREATE INDEX IF NOT EXISTS "DocVersion_documentationId_idx" ON "DocVersion"("documentationId")`,
+
+  // --- Deployment (workspace deploy targets) ---
+  // Defined in schema.prisma but never migrated to the db-push'd production DB;
+  // caught by scripts/check-schema-drift.mjs. Harmless today (unqueried) but
+  // would crash the moment any code selects it.
+  `CREATE TABLE IF NOT EXISTS "Deployment" (
+     "id" TEXT NOT NULL,
+     "userId" TEXT NOT NULL,
+     "teamId" TEXT,
+     "name" TEXT NOT NULL,
+     "url" TEXT NOT NULL,
+     "status" TEXT NOT NULL DEFAULT 'PENDING',
+     "config" JSONB,
+     "files" JSONB,
+     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     CONSTRAINT "Deployment_pkey" PRIMARY KEY ("id")
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "Deployment_url_key" ON "Deployment"("url")`,
+  `CREATE INDEX IF NOT EXISTS "Deployment_userId_idx" ON "Deployment"("userId")`,
+  `CREATE INDEX IF NOT EXISTS "Deployment_teamId_idx" ON "Deployment"("teamId")`,
+  `CREATE INDEX IF NOT EXISTS "Deployment_status_idx" ON "Deployment"("status")`,
 ];
 
 async function main() {
@@ -164,6 +202,27 @@ async function main() {
     try {
       await prisma.$executeRawUnsafe(
         `ALTER TABLE "ChatSession" ADD CONSTRAINT "ChatSession_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE`,
+      );
+    } catch {
+      /* constraint already exists — fine */
+    }
+    try {
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "DocVersion" ADD CONSTRAINT "DocVersion_documentationId_fkey" FOREIGN KEY ("documentationId") REFERENCES "Documentation"("id") ON DELETE CASCADE ON UPDATE CASCADE`,
+      );
+    } catch {
+      /* constraint already exists — fine */
+    }
+    try {
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "Deployment" ADD CONSTRAINT "Deployment_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE`,
+      );
+    } catch {
+      /* constraint already exists — fine */
+    }
+    try {
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "Deployment" ADD CONSTRAINT "Deployment_teamId_fkey" FOREIGN KEY ("teamId") REFERENCES "Team"("id") ON DELETE CASCADE ON UPDATE CASCADE`,
       );
     } catch {
       /* constraint already exists — fine */

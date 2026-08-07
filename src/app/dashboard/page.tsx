@@ -46,6 +46,7 @@ import type {
   ProjectMonitoringData,
 } from "@/lib/dashboard/types";
 import { getUserSubscription } from "@/lib/subscription";
+import { reportError } from "@/lib/observability";
 
 const EMPTY_FILE_STATS: DashboardFileStats = {
   totalFilesCount: 0,
@@ -95,7 +96,15 @@ export default async function DashboardPage({
   const fileStats = await getDashboardFileStats(
     scope.where,
     selectedDocId,
-  ).catch(() => EMPTY_FILE_STATS);
+  ).catch((error) => {
+    reportError(error, {
+      where: "dashboard.page.getDashboardFileStats",
+      degraded: true,
+      userId,
+      teamId: scope.teamId,
+    });
+    return EMPTY_FILE_STATS;
+  });
   const { selectedFile, parsedDoc } = await getSelectedDashboardDocument({
     files: fileStats.files,
     selectedDocId,
@@ -104,12 +113,28 @@ export default async function DashboardPage({
   });
 
   const priorityData = await getPriorityActions(userId, scope.teamId).catch(
-    () => ({ actions: [], hotspots: [] }),
+    (error) => {
+      reportError(error, {
+        where: "dashboard.page.getPriorityActions",
+        degraded: true,
+        userId,
+        teamId: scope.teamId,
+      });
+      return { actions: [], hotspots: [] };
+    },
   );
   const projectMonitoring = await getProjectMonitoringData(
     userId,
     scope.teamId,
-  ).catch(() => EMPTY_PROJECT_MONITORING);
+  ).catch((error) => {
+    reportError(error, {
+      where: "dashboard.page.getProjectMonitoringData",
+      degraded: true,
+      userId,
+      teamId: scope.teamId,
+    });
+    return EMPTY_PROJECT_MONITORING;
+  });
   const isPaid = subscription.isPro || subscription.isTeam;
   const coveragePercent = fileStats.totalFilesCount
     ? Math.round((fileStats.verifiedDocsCount / fileStats.totalFilesCount) * 100)

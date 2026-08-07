@@ -4,12 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "npx prisma generate && node scripts/ensure-ai-schema.mjs && next build",
+    "build": "npx prisma generate && node scripts/ensure-ai-schema.mjs && node scripts/check-schema-drift.mjs && next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "npx prisma generate && tsc --noEmit",
     "check:api-authz": "node scripts/check-api-authz.mjs",
     "check:api-no-any": "node scripts/check-api-no-any.mjs",
+    "check:schema-drift": "node scripts/check-schema-drift.mjs",
     "verify": "npm run typecheck && npm run check:api-authz && npm run check:api-no-any",
     "ci:checks": "npm run typecheck && npm run lint && npm run check:api-authz && npm run check:api-no-any"
   },

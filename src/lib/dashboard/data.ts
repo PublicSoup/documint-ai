@@ -4,6 +4,7 @@ import { logAudit } from "@/lib/audit-logger";
 import { db } from "@/lib/db";
 import { listCodebasesForUser } from "@/lib/codebases/queries";
 import { hasFeatureAccess } from "@/lib/subscription";
+import { reportError } from "@/lib/observability";
 import { normalizeDocStatus, parseDocumentationContent, readTeamLockApproved } from "./metadata";
 import type {
   DashboardFile,
@@ -216,7 +217,13 @@ export async function getProjectMonitoringData(
       ideRuns7d: ide.ideRuns7d,
       ideActivity: ide.ideActivity,
     };
-  } catch {
+  } catch (error) {
+    reportError(error, {
+      where: "dashboard.getProjectMonitoringData",
+      degraded: true,
+      userId,
+      teamId,
+    });
     return { codebases: [], totalCount: 0, ideRuns7d: 0, ideActivity: [] };
   }
 }
@@ -264,7 +271,8 @@ export async function getIdeActivity(
     }));
 
     return { ideRuns7d, ideActivity };
-  } catch {
+  } catch (error) {
+    reportError(error, { where: "dashboard.getIdeActivity", degraded: true, userId });
     return { ideRuns7d: 0, ideActivity: [] };
   }
 }
