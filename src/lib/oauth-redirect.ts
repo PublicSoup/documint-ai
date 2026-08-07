@@ -1,7 +1,12 @@
+import { openInSystemBrowser } from "./platform/native";
+
 export type OAuthProviderId = "google" | "github";
 
 const OAUTH_PROVIDER_IDS = new Set<OAuthProviderId>(["google", "github"]);
 const QUEUED_PROVIDER_PARAM = "oauthProvider";
+
+/** Path OAuth returns to in the native flow; hands the session back to the app. */
+export const NATIVE_OAUTH_CALLBACK_PATH = "/auth/native-callback";
 
 interface CsrfResponse {
     csrfToken?: unknown;
@@ -84,6 +89,21 @@ export function consumeQueuedOAuthProvider(): OAuthProviderId | null {
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
 
     return providerId;
+}
+
+/**
+ * Begin OAuth from inside the Capacitor native shell. Google blocks embedded
+ * WebViews, so we open the login page in the device's SYSTEM browser and let the
+ * normal web flow run there end-to-end (the login page auto-continues because of
+ * the `native=1` + queued-provider params). It finishes at
+ * NATIVE_OAUTH_CALLBACK_PATH, which deep-links the session back into the app.
+ */
+export async function startNativeOAuth(providerId: OAuthProviderId): Promise<void> {
+    const origin = getCanonicalOrigin();
+    const url = new URL("/auth/login", origin);
+    url.searchParams.set("native", "1");
+    url.searchParams.set(QUEUED_PROVIDER_PARAM, providerId);
+    await openInSystemBrowser(url.toString());
 }
 
 export async function startOAuthRedirect(providerId: OAuthProviderId, callbackUrl: string): Promise<void> {

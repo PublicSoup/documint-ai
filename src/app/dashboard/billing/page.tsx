@@ -15,6 +15,7 @@ import AuditLogViewer from "@/components/audit-log-viewer";
 import { TemplateManager } from "@/components/template-manager";
 import { cn } from "@/lib/utils";
 import { PLANS } from "@/config/plans";
+import { useIsNativeApp } from "@/hooks/use-native-app";
 
 interface UsageData {
     filesProcessed: number;
@@ -48,6 +49,9 @@ function isValidInviteEmail(value: string): boolean {
 export default function BillingHub() {
     const { toast } = useToast();
     const { data: session, update } = useSession();
+    // On the native app, hide all purchase/checkout surfaces (Apple 3.1.1). Users
+    // subscribe and manage plans on the web; the app only reflects what they own.
+    const isNativeApp = useIsNativeApp();
 
     // Core State
     const [activeTab, setActiveTab] = useState<"plans" | "profile" | "teams" | "api" | "notifications" | "integrations" | "audit" | "templates">("plans");
@@ -384,7 +388,7 @@ export default function BillingHub() {
                                                 </p>
                                             </div>
                                         </div>
-                                        {usage?.plan && (usage.plan !== "Free" && usage.plan !== "Free Tier") && (
+                                        {!isNativeApp && usage?.plan && (usage.plan !== "Free" && usage.plan !== "Free Tier") && (
                                             <div className="flex flex-col items-end gap-2">
                                                 <Button
                                                     onClick={handleManageBilling}
@@ -427,6 +431,14 @@ export default function BillingHub() {
 
                             <InvoiceHistory />
 
+                            {isNativeApp ? (
+                                <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
+                                    <h2 className="text-xl font-bold text-white mb-2">Manage your plan on the web</h2>
+                                    <p className="text-sm text-white/60">
+                                        Plan changes and billing are handled from a web browser at DocuMint. Your current plan and usage are shown above.
+                                    </p>
+                                </div>
+                            ) : (
                             <div>
                                 <h2 className="text-xl font-bold text-white mb-6">Available Plans</h2>
                                 {checkoutCanceled && (
@@ -540,6 +552,7 @@ export default function BillingHub() {
                                     ))}
                                 </div>
                             </div>
+                            )}
                         </>
                     )}
 

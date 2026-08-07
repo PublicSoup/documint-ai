@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useIsNativeApp } from "@/hooks/use-native-app";
 import CodeArchaeology from "./code-archaeology";
 import CommentsSection from "./comments-section";
 import DocumentationTemplates from "./documentation-templates";
@@ -148,6 +149,7 @@ interface DocEditorProps {
 
 export default function DocEditor({ fileId, fileName, fileLanguage, initialContent, currentUser, isPublic: initialPublicState, isPro, lockApproved = false, initialMode = "docs" }: DocEditorProps) {
     const router = useRouter();
+    const isNativeApp = useIsNativeApp();
     const pathname = usePathname();
     const searchParams = useSearchParams();
     const { toast } = useToast();
@@ -254,11 +256,13 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                         handleModeChange("docs");
                         const upgrade = await confirm({
                             title: "Code View is a Pro feature",
-                            description: "Code View is available on Pro & Team plans. Upgrade to unlock it.",
-                            confirmLabel: "View Plans",
+                            description: isNativeApp
+                                ? "Code View is available on Pro & Team plans. Upgrade from a web browser to unlock it."
+                                : "Code View is available on Pro & Team plans. Upgrade to unlock it.",
+                            confirmLabel: isNativeApp ? "OK" : "View Plans",
                             cancelLabel: "Not Now",
                         });
-                        if (upgrade) {
+                        if (upgrade && !isNativeApp) {
                             router.push("/dashboard/billing");
                         }
                         return;
@@ -1057,17 +1061,19 @@ export default function DocEditor({ fileId, fileName, fileLanguage, initialConte
                                         Get advanced security insights, architectural diagrams, and performance profiling.
                                     </p>
                                     <div className="flex flex-col gap-3 w-full max-w-sm">
-                                        <button
-                                            onClick={() => router.push("/dashboard/billing")}
-                                            className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold text-lg shadow-lg hover:shadow-orange-500/25 transition-all transform hover:scale-[1.02] active:scale-[0.98]"
-                                        >
-                                            Upgrade to Pro
-                                        </button>
+                                        {!isNativeApp && (
+                                            <button
+                                                onClick={() => router.push("/dashboard/billing")}
+                                                className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold text-lg shadow-lg hover:shadow-orange-500/25 transition-all transform hover:scale-[1.02] active:scale-[0.98]"
+                                            >
+                                                Upgrade to Pro
+                                            </button>
+                                        )}
                                         <button
                                             onClick={() => handleModeChange("docs")}
                                             className="text-sm text-zinc-500 hover:text-white transition-colors"
                                         >
-                                            Maybe later
+                                            {isNativeApp ? "Back to docs" : "Maybe later"}
                                         </button>
                                     </div>
                                     <div className="mt-8 flex items-center gap-6 text-xs text-white/30 font-medium">

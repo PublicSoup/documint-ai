@@ -98,6 +98,7 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
         runStatus,
         webContainerBooted,
         previewUrl,
+        previewSrcDoc,
         isPreviewOpen,
         setIsPreviewOpen,
         run: runProject,
@@ -578,6 +579,7 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
                 <div className="w-[400px] flex-none h-full min-h-0 z-40">
                     <LivePreview
                         url={previewUrl || undefined}
+                        srcDoc={previewSrcDoc}
                         runStatus={runStatus}
                         runtimeError={runtimeError}
                         onClose={() => setIsPreviewOpen(false)}

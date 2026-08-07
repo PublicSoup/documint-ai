@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
@@ -83,6 +83,18 @@ export const metadata: Metadata = {
   icons: {
     icon: "/favicon.ico",
   },
+};
+
+// `viewportFit: "cover"` lets the app draw under the notch/home indicator in the
+// native shell (we then inset content with env(safe-area-inset-*)); maximumScale
+// stops iOS pinch-zoom from fighting the Monaco editor. themeColor matches the
+// dark UI so the status bar blends in.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
+  themeColor: "#030014",
 };
 
 import ErrorBoundary from "@/components/error-boundary";

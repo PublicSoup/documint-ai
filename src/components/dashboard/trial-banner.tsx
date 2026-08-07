@@ -1,9 +1,12 @@
+"use client";
+
 import { ArrowRight } from "lucide-react";
 
 import { TrackedLink } from "@/components/marketing/tracked-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { DashboardOnboardingContext } from "@/lib/dashboard/types";
+import { useIsNativeApp } from "@/hooks/use-native-app";
 
 export function TrialBanner({
   onboarding,
@@ -12,7 +15,9 @@ export function TrialBanner({
   onboarding: DashboardOnboardingContext;
   isPaid: boolean;
 }) {
-  if (onboarding.intent !== "trial" || isPaid) return null;
+  const isNativeApp = useIsNativeApp();
+  // Purchase-oriented banner ("Complete billing setup"): hidden in the app (Apple 3.1.1).
+  if (onboarding.intent !== "trial" || isPaid || isNativeApp) return null;
 
   const sourceQuery = onboarding.source ? `?source=${encodeURIComponent(onboarding.source)}` : "";
 

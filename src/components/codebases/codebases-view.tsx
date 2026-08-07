@@ -1,8 +1,11 @@
 import { getServerSession } from "next-auth";
+import { headers } from "next/headers";
 import { authOptions } from "@/lib/auth";
+import { isNativeUserAgent } from "@/lib/platform/server";
 import { listCodebasesForUser } from "@/lib/codebases/queries";
 import { getCodebasePlanLimits } from "@/lib/codebases/plan-limits";
 import { getUserSubscription } from "@/lib/subscription";
+import { reportError } from "@/lib/observability";
 import { CodebasesShell } from "./codebases-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { FolderGit2, Github, Sparkles } from "lucide-react";
@@ -33,17 +36,22 @@ export async function CodebasesView({
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) return null;
 
+    const nativeApp = isNativeUserAgent((await headers()).get("user-agent"));
+
     const [result, subscription] = await Promise.all([
         listCodebasesForUser(
             session.user.id,
             { source, sort, includeArchived: includeArchived ?? false },
             { teamId: teamId ?? null, requesterId: session.user.id },
-        ).catch(() => ({
-            items: [],
-            nextCursor: null,
-            hasMore: false,
-            totalCount: 0,
-        })),
+        ).catch((error) => {
+            reportError(error, {
+                where: "codebases.CodebasesView.listCodebasesForUser",
+                degraded: true,
+                userId: session.user.id,
+                teamId: teamId ?? null,
+            });
+            return { items: [], nextCursor: null, hasMore: false, totalCount: 0 };
+        }),
         getUserSubscription(session.user.id).catch(() => null),
     ]);
 
@@ -93,6 +101,7 @@ export async function CodebasesView({
                 used={used}
                 cap={cap}
                 canSyncGithub={limits.canSyncGithub}
+                nativeApp={nativeApp}
             />
         </div>
     );
@@ -137,21 +146,29 @@ function CodebasesPlanHint({
     used,
     cap,
     canSyncGithub,
+    nativeApp,
 }: {
     plan: "free" | "starter" | "pro" | "team";
     used: number;
     cap: number;
     canSyncGithub: boolean;
+    nativeApp: boolean;
 }) {
     if (plan === "team") return null;
     if (cap !== -1 && used >= cap) {
         return (
             <p className="text-[11px] text-amber-400/80 text-center">
                 You've reached the {plan} plan's codebase cap ({cap}).{" "}
-                <Link href="/dashboard/billing" className="underline">
-                    Upgrade
-                </Link>{" "}
-                to add more.
+                {nativeApp ? (
+                    "Upgrade from a web browser to add more."
+                ) : (
+                    <>
+                        <Link href="/dashboard/billing" className="underline">
+                            Upgrade
+                        </Link>{" "}
+                        to add more.
+                    </>
+                )}
             </p>
         );
     }
@@ -159,9 +176,11 @@ function CodebasesPlanHint({
         return (
             <p className="text-[11px] text-white/40 text-center">
                 GitHub sync is available on Starter and above.{" "}
-                <Link href="/dashboard/billing" className="underline hover:text-white/60">
-                    See plans
-                </Link>
+                {!nativeApp && (
+                    <Link href="/dashboard/billing" className="underline hover:text-white/60">
+                        See plans
+                    </Link>
+                )}
             </p>
         );
     }

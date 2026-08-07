@@ -19,7 +19,12 @@ import {
   type RuntimeCommand,
   type RuntimeLogLine,
 } from "@/lib/ide/runtime-events";
+import {
+  buildStaticPreviewDocument,
+  countHtmlFiles,
+} from "@/lib/ide/static-preview";
 import { WebContainerManager } from "@/lib/web-container";
+import { shouldUseServerRuntime } from "@/lib/platform/native";
 
 export type RunStatus = "idle" | "installing" | "starting" | "ready" | "error";
 
@@ -312,6 +317,10 @@ export function useExecutionEngine({
   const [runStatus, setRunStatus] = useState<RunStatus>("idle");
   const [webContainerBooted, setWebContainerBooted] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // Tier 1 static preview: a self-contained document rendered via the iframe's
+  // `srcdoc` instead of a URL. Costs nothing to produce (no sandbox VM, no
+  // WebContainer) and is the only static path that works on mobile.
+  const [previewSrcDoc, setPreviewSrcDoc] = useState<string | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isRuntimeTaskRunning, setIsRuntimeTaskRunning] = useState(false);
   const [runtimeCommands, setRuntimeCommands] = useState<RuntimeCommand[]>([]);
@@ -834,6 +843,54 @@ export function useExecutionEngine({
     [spawnRuntimeProcess, writeRuntimeLine],
   );
 
+  /**
+   * Tier 1 static preview — assemble the site in the browser and render it via the
+   * iframe's `srcdoc`. Uses no WebContainer and no server sandbox, so it is free,
+   * instant, and the only static path that works inside the native app's WebView.
+   */
+  const showStaticPreview = useCallback(
+    (term: RuntimeTerminal, entryPath: string, options: { multiPage?: boolean } = {}) => {
+      const workspaceFiles = filesRef.current
+        .map((file) => {
+          const name = toWorkspaceRelativePath(file.name, workspacePrefix);
+          return name && isSafeWorkspacePath(name)
+            ? { name, content: getMountContent(file) }
+            : null;
+        })
+        .filter((file): file is { name: string; content: string } => Boolean(file));
+
+      const document = buildStaticPreviewDocument({
+        files: workspaceFiles,
+        entryPath,
+      });
+
+      if (!document) {
+        failRuntime({
+          code: "ENTRYPOINT_NOT_FOUND",
+          message: `Could not read ${entryPath} to build the preview.`,
+          term,
+        });
+        return false;
+      }
+
+      writeRuntimeLine(term, `\r\n> Static preview built in-browser (${entryPath})\r\n`);
+      if (options.multiPage) {
+        writeRuntimeLine(
+          term,
+          "> Note: multi-page links and relative fetch() don't resolve in the inline preview.\r\n",
+        );
+      }
+
+      previewUrlRef.current = null;
+      setPreviewUrl(null);
+      setPreviewSrcDoc(document);
+      setRunStatus("ready");
+      setIsPreviewOpen(true);
+      return true;
+    },
+    [failRuntime, getMountContent, workspacePrefix, writeRuntimeLine],
+  );
+
   const bootRuntime = useCallback(async () => {
     if (bootedRef.current) return true;
 
@@ -1152,6 +1209,7 @@ export function useExecutionEngine({
     setRunStatus("starting");
     setRuntimeError(null);
     setPreviewUrl(null);
+    setPreviewSrcDoc(null);
     previewUrlRef.current = null;
 
     const term = await getReadyTerminal({ required: false });
@@ -1204,7 +1262,29 @@ export function useExecutionEngine({
         ].join("\r\n"),
       );
 
-      if (runtimeProject.requiresSandbox) {
+      const useServerRuntime = shouldUseServerRuntime();
+
+      // Tier 1: a static site needs no runtime at all — assemble it in the browser
+      // and render it through the iframe's srcdoc. Free (no sandbox VM billed, no
+      // WebContainer boot) and instant. Multi-page sites need real navigation, so
+      // on desktop those still fall through to the WebContainer static server;
+      // inside the native app there is no WebContainer, so inline is always used.
+      if (!packageJsonFile && staticEntryPath) {
+        const multiPage = countHtmlFiles(files) > 1;
+        if (!multiPage || useServerRuntime) {
+          showStaticPreview(term, staticEntryPath, { multiPage });
+          return;
+        }
+      }
+
+      // WebContainer (in-browser Node) cannot run inside a phone WebView — it
+      // needs SharedArrayBuffer + cross-origin isolation that iOS/Android
+      // WebViews don't grant. On a native shell, route Node projects to the server
+      // sandbox as well, not just the kinds that always require it (python/rust/…).
+      // `static` is intentionally excluded — it is handled inline above, for free.
+      const forceServerRuntime = useServerRuntime && runtimeProject.kind === "node";
+
+      if (runtimeProject.requiresSandbox || forceServerRuntime) {
         await runSandboxRuntime(runtimeProject, term);
         return;
       }
@@ -1325,6 +1405,7 @@ export function useExecutionEngine({
     getReadyTerminal,
     mountAll,
     runSandboxRuntime,
+    showStaticPreview,
     spawnRuntimeProcess,
     startStaticPreviewServer,
     stopCurrentRuntime,
@@ -1345,6 +1426,8 @@ export function useExecutionEngine({
     webContainerBooted,
     previewUrl,
     setPreviewUrl,
+    previewSrcDoc,
+    setPreviewSrcDoc,
     isPreviewOpen,
     setIsPreviewOpen,
     run,

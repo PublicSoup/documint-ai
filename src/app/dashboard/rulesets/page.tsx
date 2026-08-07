@@ -5,8 +5,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Copy, Download, Sparkles, Terminal, Cpu, Zap, Code2, Lock } from "lucide-react";
 import { useEffect } from "react";
+import { useIsNativeApp } from "@/hooks/use-native-app";
 
 export default function RulesetGeneratorPage() {
+    const isNativeApp = useIsNativeApp();
     const [type, setType] = useState<"cursor" | "cline" | "gemini">("cursor");
     const [context, setContext] = useState("");
     const [requirements, setRequirements] = useState("");
@@ -133,12 +135,14 @@ export default function RulesetGeneratorPage() {
                                 <p className="text-xs text-muted-foreground leading-relaxed">
                                     The AI Ruleset Generator is only available on <span className="text-white font-bold">Starter</span> plans and above.
                                 </p>
-                                <Button
-                                    className="w-full h-9 bg-primary hover:bg-primary/90 text-[10px] font-black uppercase tracking-widest"
-                                    onClick={() => window.location.href = "/dashboard/billing"}
-                                >
-                                    Upgrade Now
-                                </Button>
+                                {!isNativeApp && (
+                                    <Button
+                                        className="w-full h-9 bg-primary hover:bg-primary/90 text-[10px] font-black uppercase tracking-widest"
+                                        onClick={() => window.location.href = "/dashboard/billing"}
+                                    >
+                                        Upgrade Now
+                                    </Button>
+                                )}
                             </div>
                         )}
 

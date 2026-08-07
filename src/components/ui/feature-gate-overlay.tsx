@@ -1,7 +1,10 @@
+"use client";
+
 import Link from "next/link";
 import { Lock } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useIsNativeApp } from "@/hooks/use-native-app";
 
 interface FeatureGateOverlayProps {
     children: React.ReactNode;
@@ -16,6 +19,7 @@ export function FeatureGateOverlay({
     title = "Pro Feature Locked",
     description = "Upgrade to the Pro plan to unlock this advanced feature."
 }: FeatureGateOverlayProps) {
+    const isNativeApp = useIsNativeApp();
     if (!isLocked) return <>{children}</>;
 
     return (
@@ -37,15 +41,17 @@ export function FeatureGateOverlay({
                         <p className="text-zinc-400 text-sm">{description}</p>
                     </div>
 
-                    <Link
-                        href="/dashboard/billing"
-                        className={cn(
-                            buttonVariants.primary,
-                            "w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-semibold border-0 no-underline"
-                        )}
-                    >
-                        Upgrade to Unlock
-                    </Link>
+                    {!isNativeApp && (
+                        <Link
+                            href="/dashboard/billing"
+                            className={cn(
+                                buttonVariants.primary,
+                                "w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-semibold border-0 no-underline"
+                            )}
+                        >
+                            Upgrade to Unlock
+                        </Link>
+                    )}
                 </div>
             </div>
         </div>

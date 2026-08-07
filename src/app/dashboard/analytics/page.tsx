@@ -1,8 +1,10 @@
 import { getServerSession } from "next-auth";
+import { headers } from "next/headers";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { BarChart3, TrendingUp, Users, FileText, CheckSquare, Eye, Crown, ArrowUpRight, AlertCircle } from "lucide-react";
 import Link from 'next/link';
+import { isNativeUserAgent } from "@/lib/platform/server";
 import { hasFeatureAccess } from "@/lib/subscription";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,6 +30,7 @@ export default async function AnalyticsPage({
     // Gate: Analytics is Pro Feature
     const hasAccess = await hasFeatureAccess(session.user.id, "analytics");
     if (!hasAccess) {
+        const nativeApp = isNativeUserAgent((await headers()).get("user-agent"));
         return (
             <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-8 space-y-6 animate-fade-in">
                 <div className="w-20 h-20 bg-primary/10 text-primary rounded-3xl flex items-center justify-center mb-4 relative shadow-[0_0_30px_-5px_rgba(124,58,237,0.3)]">
@@ -38,13 +41,15 @@ export default async function AnalyticsPage({
                 <p className="text-muted-foreground max-w-md text-lg leading-relaxed">
                     Gain deep insights into your documentation coverage, team activity, and usage trends.
                 </p>
-                <Link href="/dashboard/settings?tab=billing"
-                    aria-label="Upgrade to Pro and unlock advanced analytics">
-                    <Button size="lg" className="px-8 shadow-lg shadow-primary/20">
-                        Upgrade to Pro
-                        <Crown className="w-4 h-4 ml-2 text-amber-200" />
-                    </Button>
-                </Link>
+                {!nativeApp && (
+                    <Link href="/dashboard/settings?tab=billing"
+                        aria-label="Upgrade to Pro and unlock advanced analytics">
+                        <Button size="lg" className="px-8 shadow-lg shadow-primary/20">
+                            Upgrade to Pro
+                            <Crown className="w-4 h-4 ml-2 text-amber-200" />
+                        </Button>
+                    </Link>
+                )}
             </div>
         );
     }

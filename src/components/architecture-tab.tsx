@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useIsNativeApp } from "@/hooks/use-native-app";
 import {
     AlertCircle,
     AlertTriangle,
@@ -83,6 +84,7 @@ interface ArchitectureTabProps {
 
 export function ArchitectureTab({ teamId }: ArchitectureTabProps) {
     const router = useRouter();
+    const isNativeApp = useIsNativeApp();
 
     const {
         graph,
@@ -212,16 +214,18 @@ export function ArchitectureTab({ teamId }: ArchitectureTabProps) {
                     <AlertTitle>Pro Feature</AlertTitle>
                     <AlertDescription className="flex flex-col gap-3">
                         <span>{graph.message}</span>
-                        <div>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                className="border-amber-500/30 text-amber-300 hover:bg-amber-500/20"
-                                onClick={() => router.push(graph.upgradeUrl ?? "/dashboard/billing")}
-                            >
-                                Upgrade to Pro
-                            </Button>
-                        </div>
+                        {!isNativeApp && (
+                            <div>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="border-amber-500/30 text-amber-300 hover:bg-amber-500/20"
+                                    onClick={() => router.push(graph.upgradeUrl ?? "/dashboard/billing")}
+                                >
+                                    Upgrade to Pro
+                                </Button>
+                            </div>
+                        )}
                     </AlertDescription>
                 </Alert>
             )}

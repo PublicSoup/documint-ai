@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { TrackedLink } from "@/components/marketing/tracked-link";
+import { useIsNativeApp } from "@/hooks/use-native-app";
 
 interface OnboardingState {
     steps: {
@@ -26,6 +27,7 @@ interface OnboardingChecklistProps {
 }
 
 export function OnboardingChecklist({ onboardingContext }: OnboardingChecklistProps) {
+    const isNativeApp = useIsNativeApp();
     const [state, setState] = useState<OnboardingState | null>(null);
     const [loading, setLoading] = useState(true);
     const [isVisible, setIsVisible] = useState(true);
@@ -120,7 +122,9 @@ export function OnboardingChecklist({ onboardingContext }: OnboardingChecklistPr
                 : "Unlock advanced AI analysis and team features.",
             completed: state.steps.hasUpgraded,
             icon: CreditCard,
-            action: (
+            // No purchase CTA in the native app (Apple 3.1.1); the step still shows
+            // as guidance, users upgrade on the web.
+            action: isNativeApp ? null : (
                 <TrackedLink
                     href={billingHref}
                     eventName="trial_upgrade_cta_click"

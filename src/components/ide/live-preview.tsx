@@ -9,6 +9,11 @@ import type { RuntimeErrorInfo } from "./shared/types";
 
 interface LivePreviewProps {
     url?: string;
+    /**
+     * Self-contained HTML for an in-browser (Tier 1) static preview, rendered via
+     * `srcdoc` instead of a URL. Takes precedence over `url` when present.
+     */
+    srcDoc?: string | null;
     runStatus?: RunStatus;
     runtimeError?: RuntimeErrorInfo | null;
     onClose?: () => void;
@@ -23,7 +28,7 @@ const VIEWPORT_SIZES: Record<ViewportSize, { width: string; label: string; icon:
     mobile: { width: "375px", label: "Mobile", icon: <Smartphone className="w-3.5 h-3.5" /> },
 };
 
-export function LivePreview({ url, runStatus = 'idle', runtimeError, onClose, onRun }: LivePreviewProps) {
+export function LivePreview({ url, srcDoc, runStatus = 'idle', runtimeError, onClose, onRun }: LivePreviewProps) {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [viewport, setViewport] = useState<ViewportSize>("desktop");
     const [iframeKey, setIframeKey] = useState(0);
@@ -38,8 +43,11 @@ export function LivePreview({ url, runStatus = 'idle', runtimeError, onClose, on
         }
     }, [url]);
 
+    const isInlinePreview = Boolean(srcDoc);
+    const hasPreview = isInlinePreview || Boolean(safeUrl);
+
     const handleRefresh = () => {
-        if (!safeUrl) return;
+        if (!hasPreview) return;
         setIframeKey(prev => prev + 1);
     };
 
@@ -79,9 +87,9 @@ export function LivePreview({ url, runStatus = 'idle', runtimeError, onClose, on
                     <button
                         type="button"
                         onClick={handleRefresh}
-                        disabled={!safeUrl}
+                        disabled={!hasPreview}
                         className="p-1 text-white/30 hover:text-white/60 transition-colors rounded hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none"
-                        title={safeUrl ? "Refresh" : "No preview to refresh"}
+                        title={hasPreview ? "Refresh" : "No preview to refresh"}
                     >
                         <RefreshCw className="w-3.5 h-3.5" />
                     </button>
@@ -90,7 +98,13 @@ export function LivePreview({ url, runStatus = 'idle', runtimeError, onClose, on
                         onClick={handleOpenExternal}
                         disabled={!safeUrl}
                         className="p-1 text-white/30 hover:text-white/60 transition-colors rounded hover:bg-white/[0.04] disabled:opacity-30 disabled:pointer-events-none"
-                        title={safeUrl ? "Open in new tab" : "No preview URL available"}
+                        title={
+                            safeUrl
+                                ? "Open in new tab"
+                                : isInlinePreview
+                                    ? "Inline preview has no external URL"
+                                    : "No preview URL available"
+                        }
                     >
                         <ExternalLink className="w-3.5 h-3.5" />
                     </button>
@@ -108,18 +122,20 @@ export function LivePreview({ url, runStatus = 'idle', runtimeError, onClose, on
             </div>
 
             {/* URL bar */}
-            {safeUrl && (
+            {hasPreview && (
                 <div className="flex items-center h-7 px-2 bg-[#030014]/50 border-b border-white/[0.04] shrink-0">
                     <div className="flex-1 flex items-center gap-2 bg-white/[0.03] rounded px-2 py-0.5">
                         <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                        <span className="text-[10px] text-white/40 font-mono truncate">{safeUrl}</span>
+                        <span className="text-[10px] text-white/40 font-mono truncate">
+                            {isInlinePreview ? "static preview — rendered in-app" : safeUrl}
+                        </span>
                     </div>
                 </div>
             )}
 
             {/* Preview area */}
             <div className="flex-1 flex items-center justify-center bg-[#0a0a0f] overflow-hidden">
-                {(runStatus !== 'ready' && runStatus !== 'idle') || !safeUrl ? (
+                {(runStatus !== 'ready' && runStatus !== 'idle') || !hasPreview ? (
                     <div className="flex flex-col items-center gap-4 text-muted-foreground">
                         {runStatus === 'installing' || runStatus === 'starting' ? (
                             <>
@@ -195,9 +211,21 @@ export function LivePreview({ url, runStatus = 'idle', runtimeError, onClose, on
                         <iframe
                             ref={iframeRef}
                             key={iframeKey}
-                            src={safeUrl}
+                            {...(isInlinePreview
+                                ? { srcDoc: srcDoc ?? undefined }
+                                : { src: safeUrl ?? undefined })}
                             className="w-full h-full border-0"
-                            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+                            // `allow-same-origin` is only safe for previews served from a
+                            // DIFFERENT origin (WebContainer / *.vercel.run) — there it grants
+                            // the frame its own origin, not ours. An inline srcdoc document
+                            // inherits THIS origin, so combining it with `allow-scripts` would
+                            // let generated code read the user's session. Omit it there so the
+                            // document gets an opaque origin instead.
+                            sandbox={
+                                isInlinePreview
+                                    ? "allow-scripts allow-forms allow-popups allow-modals"
+                                    : "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+                            }
                             title="Live Preview"
                         />
                     </div>

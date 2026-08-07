@@ -7,7 +7,8 @@ import Link from "next/link";
 import { Sparkles, Github, ArrowRight, Mail, Lock } from "lucide-react";
 import { useToast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
-import { consumeQueuedOAuthProvider, startOAuthRedirect, type OAuthProviderId } from "@/lib/oauth-redirect";
+import { consumeQueuedOAuthProvider, startNativeOAuth, startOAuthRedirect, NATIVE_OAUTH_CALLBACK_PATH, type OAuthProviderId } from "@/lib/oauth-redirect";
+import { isNativePlatform } from "@/lib/platform/native";
 
 type LoginIntent = "signup" | "trial";
 type LoginPlan = "starter" | "pro" | "team";
@@ -78,14 +79,21 @@ export default function LoginPage() {
         setAuthError(error ? AUTH_ERROR_MESSAGES[error] || `Authentication failed: ${error}` : null);
 
         const queuedProvider = consumeQueuedOAuthProvider();
+        // `native=1` means this login page was opened in the system browser by the
+        // Capacitor app to run OAuth. Finish at the native callback, which hands the
+        // session back to the app, instead of the normal dashboard redirect.
+        const isNativeFlow = params.get("native") === "1";
 
         if (queuedProvider && !error) {
             setOauthLoading(queuedProvider);
-            void startOAuthRedirect(queuedProvider, buildDashboardHref({
-                intent: nextIntent,
-                plan: nextPlan,
-                source: nextSource,
-            })).catch((oauthError) => {
+            const oauthCallback = isNativeFlow
+                ? NATIVE_OAUTH_CALLBACK_PATH
+                : buildDashboardHref({
+                    intent: nextIntent,
+                    plan: nextPlan,
+                    source: nextSource,
+                });
+            void startOAuthRedirect(queuedProvider, oauthCallback).catch((oauthError) => {
                 console.error(oauthError);
                 toast(`Unable to start ${OAUTH_PROVIDER_LABELS[queuedProvider]} sign-in. Please try again.`, "error");
                 setOauthLoading(null);
@@ -106,6 +114,14 @@ export default function LoginPage() {
         setOauthLoading(providerId);
 
         try {
+            // Inside the native app, hand OAuth off to the system browser (Google
+            // blocks embedded WebViews). The system browser runs the full flow and
+            // deep-links the session back; the app WebView stays on this page.
+            if (isNativePlatform()) {
+                await startNativeOAuth(providerId);
+                setOauthLoading(null);
+                return;
+            }
             await startOAuthRedirect(providerId, dashboardHref);
         } catch (error) {
             console.error(error);

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useIsNativeApp } from "@/hooks/use-native-app";
 
 interface UsageData {
     filesProcessed: number;
@@ -11,6 +12,7 @@ interface UsageData {
 
 export default function UsageMeter() {
     const [usage, setUsage] = useState<UsageData | null>(null);
+    const isNativeApp = useIsNativeApp();
 
     useEffect(() => {
         fetch("/api/usage")
@@ -50,7 +52,7 @@ export default function UsageMeter() {
                 />
             </div>
 
-            {isNearLimit && (
+            {isNearLimit && !isNativeApp && (
                 <div className="mt-3">
                     <Link
                         href="/dashboard/billing"

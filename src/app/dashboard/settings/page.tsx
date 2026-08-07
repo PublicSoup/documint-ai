@@ -29,6 +29,7 @@ import { GitHubSettings } from "@/components/github-settings";
 import { ApiKeySettings } from "@/components/api-key-settings";
 import TeamManagement from "@/components/team-management";
 import { useToast } from "@/components/toast";
+import { useIsNativeApp } from "@/hooks/use-native-app";
 
 function getApiMessage(payload: unknown, fallback: string): string {
     if (!payload || typeof payload !== "object") {
@@ -56,6 +57,7 @@ function getApiMessage(payload: unknown, fallback: string): string {
 export default function SettingsPage() {
     const { toast } = useToast();
     const router = useRouter();
+    const isNativeApp = useIsNativeApp();
     const { data: session, update: updateSession } = useSession();
     const [activeTab, setActiveTab] = useState("profile");
 
@@ -678,28 +680,32 @@ export default function SettingsPage() {
                             <div className="space-y-2">
                                 <h3 className="text-xl font-bold text-white">Billing Information</h3>
                                 <p className="text-sm text-muted-foreground max-w-sm">
-                                    You are currently on the <strong className="text-primary uppercase tracking-wider">{subscription?.plan || "Free"}</strong> plan. 
-                                    {subscription?.plan?.toLowerCase() === "free" ? " Upgrade to unlock unlimited documentation and team features." : " Manage your subscription and payment methods below."}
+                                    You are currently on the <strong className="text-primary uppercase tracking-wider">{subscription?.plan || "Free"}</strong> plan.
+                                    {isNativeApp
+                                        ? " Manage your plan and payment methods from a web browser at DocuMint."
+                                        : subscription?.plan?.toLowerCase() === "free" ? " Upgrade to unlock unlimited documentation and team features." : " Manage your subscription and payment methods below."}
                                 </p>
                             </div>
-                            <div className="flex flex-col gap-3">
-                                <Button className="h-12 px-10 rounded-xl bg-primary hover:bg-primary/90 text-white font-black uppercase tracking-widest" onClick={() => router.push("/dashboard/billing")}>
-                                    {subscription?.plan?.toLowerCase() === "free" ? "View Plans" : "Change Plan"}
-                                </Button>
-                                {subscription?.plan?.toLowerCase() !== "free" && (
-                                    <Button variant="outline" className="h-11 rounded-xl font-bold" onClick={async () => {
-                                        try {
-                                            const res = await fetch("/api/customer-portal", { method: "POST" });
-                                            const data = await res.json();
-                                            if (data.url) window.location.href = data.url;
-                                        } catch (e) {
-                                            toast("Failed to open billing portal", "error");
-                                        }
-                                    }}>
-                                        Manage Billing Portal
+                            {!isNativeApp && (
+                                <div className="flex flex-col gap-3">
+                                    <Button className="h-12 px-10 rounded-xl bg-primary hover:bg-primary/90 text-white font-black uppercase tracking-widest" onClick={() => router.push("/dashboard/billing")}>
+                                        {subscription?.plan?.toLowerCase() === "free" ? "View Plans" : "Change Plan"}
                                     </Button>
-                                )}
-                            </div>
+                                    {subscription?.plan?.toLowerCase() !== "free" && (
+                                        <Button variant="outline" className="h-11 rounded-xl font-bold" onClick={async () => {
+                                            try {
+                                                const res = await fetch("/api/customer-portal", { method: "POST" });
+                                                const data = await res.json();
+                                                if (data.url) window.location.href = data.url;
+                                            } catch (e) {
+                                                toast("Failed to open billing portal", "error");
+                                            }
+                                        }}>
+                                            Manage Billing Portal
+                                        </Button>
+                                    )}
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
                 </TabsContent>

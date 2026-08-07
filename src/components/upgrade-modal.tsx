@@ -5,6 +5,7 @@ import { X, CheckCircle2, Crown, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { PLANS } from "@/config/plans";
+import { useIsNativeApp } from "@/hooks/use-native-app";
 
 interface UpgradeModalProps {
     isOpen: boolean;
@@ -15,6 +16,7 @@ interface UpgradeModalProps {
 
 export default function UpgradeModal({ isOpen, onClose, title = "Limit Reached", description = "You've reached the limits of your current plan." }: UpgradeModalProps) {
     const router = useRouter();
+    const isNativeApp = useIsNativeApp();
 
     if (!isOpen) return null;
 
@@ -70,18 +72,24 @@ export default function UpgradeModal({ isOpen, onClose, title = "Limit Reached",
                         </div>
 
                         <div className="grid gap-3">
-                            <Button
-                                onClick={() => router.push("/dashboard/billing")}
-                                className="w-full h-12 bg-primary hover:bg-primary/90 text-white font-bold rounded-xl shadow-lg shadow-primary/25"
-                            >
-                                Upgrade Now
-                            </Button>
+                            {isNativeApp ? (
+                                <p className="text-sm text-muted-foreground">
+                                    Upgrade from a web browser at DocuMint to unlock these features.
+                                </p>
+                            ) : (
+                                <Button
+                                    onClick={() => router.push("/dashboard/billing")}
+                                    className="w-full h-12 bg-primary hover:bg-primary/90 text-white font-bold rounded-xl shadow-lg shadow-primary/25"
+                                >
+                                    Upgrade Now
+                                </Button>
+                            )}
                             <Button
                                 variant="ghost"
                                 onClick={onClose}
                                 className="w-full text-muted-foreground hover:text-white"
                             >
-                                Maybe Later
+                                {isNativeApp ? "Close" : "Maybe Later"}
                             </Button>
                         </div>
                     </div>

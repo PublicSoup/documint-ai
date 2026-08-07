@@ -7,6 +7,7 @@ import Link from "next/link";
 import FileUpload from "./file-upload";
 import GitHubImport from "./github-import";
 import { Card } from "./ui/card";
+import { useIsNativeApp } from "@/hooks/use-native-app";
 
 interface DashboardEmptyStateProps {
   teamId?: string;
@@ -35,6 +36,7 @@ const capabilityCards = [
 ] as const;
 
 export function DashboardEmptyState({ teamId, isPro }: DashboardEmptyStateProps) {
+  const isNativeApp = useIsNativeApp();
   return (
     <section className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#0d0d12]/95 shadow-2xl shadow-black/30">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/70 to-transparent" />
@@ -150,7 +152,7 @@ export function DashboardEmptyState({ teamId, isPro }: DashboardEmptyStateProps)
             ))}
           </div>
 
-          {!isPro && (
+          {!isPro && !isNativeApp && (
             <div className="rounded-xl border border-primary/20 bg-primary/10 p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-white">
                 <Sparkles className="h-4 w-4 text-primary" />

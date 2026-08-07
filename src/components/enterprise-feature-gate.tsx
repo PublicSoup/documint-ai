@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Lock, Sparkles } from "lucide-react";
 import { Button } from "./ui/button";
 import { useRouter } from "next/navigation";
+import { useIsNativeApp } from "@/hooks/use-native-app";
 
 interface EnterpriseFeatureGateProps {
     children: React.ReactNode;
@@ -14,6 +15,7 @@ interface EnterpriseFeatureGateProps {
 
 export function EnterpriseFeatureGate({ children, isPro, featureName, description }: EnterpriseFeatureGateProps) {
     const router = useRouter();
+    const isNativeApp = useIsNativeApp();
 
     if (isPro) return <>{children}</>;
 
@@ -34,13 +36,15 @@ export function EnterpriseFeatureGate({ children, isPro, featureName, descriptio
                     </div>
                     <h3 className="text-lg font-bold text-white mb-2">{featureName}</h3>
                     <p className="text-sm text-gray-400 mb-6">{description}</p>
-                    <Button
-                        onClick={() => router.push("/dashboard/billing")}
-                        className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold"
-                    >
-                        <Sparkles className="w-4 h-4 mr-2" />
-                        Upgrade to Enterprise
-                    </Button>
+                    {!isNativeApp && (
+                        <Button
+                            onClick={() => router.push("/dashboard/billing")}
+                            className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold"
+                        >
+                            <Sparkles className="w-4 h-4 mr-2" />
+                            Upgrade to Enterprise
+                        </Button>
+                    )}
                 </motion.div>
             </div>
         </div>

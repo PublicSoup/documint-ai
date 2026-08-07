@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Generated native projects.
+# Capacitor regenerates these with `npx cap add ios` / `npx cap add android`.
+# Once you start adding native customizations (icons, entitlements, Gradle
+# tweaks), remove the relevant line below so the project is version-controlled.
+ios/
+android/
+
+# Local env
+.env
+.env.local
+
+# Build/tooling noise
+*.log
+.DS_Store

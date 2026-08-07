@@ -5,6 +5,7 @@ import { useDropzone } from "react-dropzone";
 import { UploadCloud, File as FileIcon, X, FolderOpen, Zap, CheckCircle2, AlertCircle, Sparkles, Shield, Cpu, FileText } from "lucide-react";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { useRouter } from "next/navigation";
+import { useIsNativeApp } from "@/hooks/use-native-app";
 import { Button } from "./ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "./toast";
@@ -33,6 +34,7 @@ interface FileUploadProps {
 }
 
 export default function FileUpload({ teamId, isPro = false, customTrigger }: FileUploadProps) {
+    const isNativeApp = useIsNativeApp();
     const { toast } = useToast();
     const router = useRouter();
     const folderInputRef = useRef<HTMLInputElement>(null);
@@ -402,7 +404,7 @@ export default function FileUpload({ teamId, isPro = false, customTrigger }: Fil
                             </div>
 
                             {/* Conversion Hook for Free Users */}
-                            {!isPro && (
+                            {!isPro && !isNativeApp && (
                                 <div className="p-4 bg-primary/10 border border-primary/20 rounded-2xl space-y-3 relative overflow-hidden group">
                                     <div className="absolute top-0 right-0 p-4 -mr-4 -mt-4 bg-primary/20 blur-2xl rounded-full group-hover:bg-primary/40 transition-all" />
                                     <div className="relative z-10">

@@ -11,10 +11,13 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import Link from 'next/link';
+import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { PLANS } from '@/config/plans';
 import { TrackedLink } from '@/components/marketing/tracked-link';
+import { isNativeUserAgent } from '@/lib/platform/server';
 
 const SITE_URL = "https://documintai.dev";
 
@@ -91,7 +94,14 @@ function buildRegisterHref(params: { source: string; intent?: "trial" | "signup"
   return `/auth/register?${searchParams.toString()}`;
 }
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  // The native app never shows the public marketing landing — it would surface
+  // web-checkout CTAs (Apple 3.1.1). Send the shell straight into the product;
+  // /dashboard itself redirects to sign-in when unauthenticated.
+  if (isNativeUserAgent((await headers()).get("user-agent"))) {
+    redirect("/dashboard");
+  }
+
   return (
     <div className="min-h-screen bg-[#030014] text-white selection:bg-primary/30 overflow-hidden">
       <script
