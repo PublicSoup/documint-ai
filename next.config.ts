@@ -4,7 +4,9 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
-  serverExternalPackages: [],
+  // esbuild ships a native binary and must not be traced/bundled into the server
+  // build. It powers the Tier 2 inline SPA preview (src/lib/ide/spa-bundler.ts).
+  serverExternalPackages: ["esbuild"],
   images: {
     minimumCacheTTL: 86400,
     remotePatterns: [

@@ -65,6 +65,39 @@ export interface StaticPreviewFile {
     content: string;
 }
 
+/**
+ * Tier 2: wrap a bundled SPA (see src/lib/ide/spa-bundler.ts) in a host document.
+ *
+ * The bundle is inlined rather than fetched, because a `srcdoc` document inherits
+ * the app's CSP and every external script/import/fetch is blocked by it. The
+ * container element is taken from the project's own index.html when present so a
+ * custom mount id (`#app` vs `#root`) still works.
+ */
+export function buildSpaPreviewDocument(params: {
+    js: string;
+    css?: string;
+    /** The project's index.html, used to recover the mount element id. */
+    html?: string;
+}): string {
+    const mountId =
+        params.html?.match(/<div[^>]+id=["']([^"']+)["'][^>]*>\s*<\/div>/i)?.[1] ?? "root";
+    const title = params.html?.match(/<title>([^<]*)<\/title>/i)?.[1] ?? "Preview";
+
+    return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${title}</title>
+${params.css ? `<style>${params.css}</style>` : ""}
+</head>
+<body>
+<div id="${mountId}"></div>
+<script>${escapeScriptContent(params.js)}</script>
+</body>
+</html>`;
+}
+
 export function countHtmlFiles(files: Pick<StaticPreviewFile, "name">[]): number {
     return files.filter((file) => /\.html?$/i.test(file.name)).length;
 }

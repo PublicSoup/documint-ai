@@ -20,6 +20,7 @@ import {
   type RuntimeLogLine,
 } from "@/lib/ide/runtime-events";
 import {
+  buildSpaPreviewDocument,
   buildStaticPreviewDocument,
   countHtmlFiles,
 } from "@/lib/ide/static-preview";
@@ -891,6 +892,66 @@ export function useExecutionEngine({
     [failRuntime, getMountContent, workspacePrefix, writeRuntimeLine],
   );
 
+  /**
+   * Tier 2 — bundle a React/Vite workspace server-side and preview it inline.
+   * Skips `npm install` + dev server entirely, so it costs no sandbox VM and no
+   * WebContainer boot. Returns false when the project uses packages the fast
+   * bundler doesn't carry, so the caller can fall back to a real runtime.
+   */
+  const showBundledSpaPreview = useCallback(
+    async (term: RuntimeTerminal): Promise<boolean> => {
+      const workspaceFiles = filesRef.current
+        .map((file) => {
+          const name = toWorkspaceRelativePath(file.name, workspacePrefix);
+          return name && isSafeWorkspacePath(name)
+            ? { name, content: getMountContent(file) }
+            : null;
+        })
+        .filter((file): file is { name: string; content: string } => Boolean(file));
+
+      const html = workspaceFiles.find((file) => file.name === "index.html")?.content;
+
+      writeRuntimeLine(term, "\r\n> Building inline preview (no install needed)...\r\n");
+
+      try {
+        const response = await fetch("/api/ide/preview/bundle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ files: workspaceFiles, html }),
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          ok?: boolean;
+          js?: string;
+          css?: string;
+          entry?: string;
+          errors?: string[];
+        };
+
+        if (!response.ok || !payload.ok || !payload.js) {
+          const reason = payload.errors?.[0] ?? `bundler returned ${response.status}`;
+          writeRuntimeLine(term, `> Inline preview unavailable: ${reason}\r\n`, "stderr");
+          return false;
+        }
+
+        previewUrlRef.current = null;
+        setPreviewUrl(null);
+        setPreviewSrcDoc(buildSpaPreviewDocument({ js: payload.js, css: payload.css, html }));
+        setRunStatus("ready");
+        setIsPreviewOpen(true);
+        writeRuntimeLine(term, `> Inline preview ready (${payload.entry}).\r\n`);
+        return true;
+      } catch (error) {
+        writeRuntimeLine(
+          term,
+          `> Inline preview failed: ${error instanceof Error ? error.message : String(error)}\r\n`,
+          "stderr",
+        );
+        return false;
+      }
+    },
+    [getMountContent, workspacePrefix, writeRuntimeLine],
+  );
+
   const bootRuntime = useCallback(async () => {
     if (bootedRef.current) return true;
 
@@ -1277,6 +1338,15 @@ export function useExecutionEngine({
         }
       }
 
+      // Tier 2: a React/Vite SPA can be bundled server-side and previewed inline,
+      // skipping npm install + dev server (no sandbox VM, no WebContainer boot).
+      // Only attempted when a static host page exists; if the project uses packages
+      // the fast bundler doesn't carry, it returns false and we fall through to a
+      // real runtime below.
+      if (packageJsonFile && staticEntryPath && !runtimeProject.requiresSandbox) {
+        if (await showBundledSpaPreview(term)) return;
+      }
+
       // WebContainer (in-browser Node) cannot run inside a phone WebView — it
       // needs SharedArrayBuffer + cross-origin isolation that iOS/Android
       // WebViews don't grant. On a native shell, route Node projects to the server
@@ -1405,6 +1475,7 @@ export function useExecutionEngine({
     getReadyTerminal,
     mountAll,
     runSandboxRuntime,
+    showBundledSpaPreview,
     showStaticPreview,
     spawnRuntimeProcess,
     startStaticPreviewServer,
