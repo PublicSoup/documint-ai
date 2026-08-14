@@ -168,16 +168,20 @@ export default function EnhancedIDELayout({ files: initialFiles, subscription }:
         }
     }, [setShowSidebar]);
 
+    // Auto-open a file passed via ?fileId/?file exactly ONCE per target. Without
+    // this guard the effect re-opens the file and re-fires the toast on every
+    // `files` change (e.g. after a workspace delete) — which, combined with an
+    // unstable toast identity, spins into an infinite open/toast loop.
+    const autoOpenedTargetRef = useRef<string | null>(null);
     useEffect(() => {
         // Accept both the new `?fileId=<db-id>` contract (preferred) and
         // the legacy `?file=<name-or-id>` for backward compatibility.
-        const fileIdParam = searchParams.get('fileId');
-        const fileNameParam = searchParams.get('file');
-        const target = fileIdParam ?? fileNameParam;
-        if (!target) return;
+        const target = searchParams.get('fileId') ?? searchParams.get('file');
+        if (!target || autoOpenedTargetRef.current === target) return;
 
         const file = files.find(f => f.id === target || f.name === target);
         if (file) {
+            autoOpenedTargetRef.current = target;
             handleFileSelect(file.id);
             toast(`Opened ${file.name} from Architecture Map`, "success");
         }
