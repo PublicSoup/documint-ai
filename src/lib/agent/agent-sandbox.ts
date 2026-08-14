@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { createSandbox, type Sandbox } from "../executor";
 
 /**
  * Workspace-seeded Vercel Sandbox for the IDE agent.
@@ -51,32 +52,6 @@ export interface SyncedFile {
     content: string;
 }
 
-type SandboxInstance = {
-    sandboxId: string;
-    writeFiles(files: { path: string; content: Buffer }[]): Promise<void>;
-    readFileToBuffer(file: { path: string; cwd?: string }): Promise<Buffer | null>;
-    runCommand(params: {
-        cmd: string;
-        args?: string[];
-        cwd?: string;
-        env?: Record<string, string>;
-        detached?: boolean;
-        stdout?: NodeJS.WritableStream;
-        stderr?: NodeJS.WritableStream;
-    }): Promise<{ exitCode?: number } | unknown>;
-    domain(port: number): string;
-    stop(): Promise<unknown>;
-};
-
-async function loadSandboxClass(): Promise<{ create(params: Record<string, unknown>): Promise<SandboxInstance> } | null> {
-    try {
-        const mod = await import("@vercel/sandbox");
-        return mod.Sandbox as unknown as { create(params: Record<string, unknown>): Promise<SandboxInstance> };
-    } catch {
-        return null;
-    }
-}
-
 function isProbablyBinary(content: string): boolean {
     return content.includes("\u0000");
 }
@@ -90,7 +65,7 @@ function toSandboxCwd(cwd: string | undefined): string | undefined {
 }
 
 export class AgentSandbox {
-    private sandbox: SandboxInstance | null = null;
+    private sandbox: Sandbox | null = null;
     private seedError: string | null = null;
     private seededFileCount = 0;
     private previewStarted = false;
@@ -113,12 +88,6 @@ export class AgentSandbox {
         if (this.sandbox) return { ok: true, fileCount: this.seededFileCount };
         if (this.seedError) return { ok: false, fileCount: 0, error: this.seedError };
 
-        const SandboxClass = await loadSandboxClass();
-        if (!SandboxClass) {
-            this.seedError = "Sandbox module unavailable in this runtime.";
-            return { ok: false, fileCount: 0, error: this.seedError };
-        }
-
         try {
             const files: { name: string; content: string | null }[] = await db.file.findMany({
                 where: { userId },
@@ -127,11 +96,16 @@ export class AgentSandbox {
                 take: MAX_SEED_FILES,
             });
 
-            const sandbox = await SandboxClass.create({
+            const sandbox = await createSandbox({
                 runtime: "node24",
                 timeout: SANDBOX_TIMEOUT_MS,
                 ports: PREVIEW_PORTS,
+                userId,
             });
+            if (!sandbox) {
+                this.seedError = "Sandbox is unavailable in this runtime.";
+                return { ok: false, fileCount: 0, error: this.seedError };
+            }
 
             const seedable = files
                 .filter((file) => typeof file.content === "string" && !isProbablyBinary(file.content))
@@ -219,25 +193,35 @@ export class AgentSandbox {
         const deps = { ...(pkg?.dependencies ?? {}), ...(pkg?.devDependencies ?? {}) };
         const isVite = Boolean(deps.vite);
         const isNext = Boolean(deps.next);
-        const port = isVite ? 5173 : 3000;
 
-        // Public domain is deterministic — compute it up front so the dev server
-        // can allowlist its own host (Vite blocks unknown Host headers).
+        // In-container sandboxes share one network namespace, so allocate a free
+        // port to avoid collisions between concurrent runs; hosted per-VM
+        // sandboxes expose fixed declared ports (3000/5173).
+        const preferredPort = isVite ? 5173 : 3000;
+        const port = this.sandbox.allocatePort ? await this.sandbox.allocatePort() : preferredPort;
+
+        // Public URL (through the preview proxy for in-container sandboxes) plus
+        // its host and base path — computed up front so the dev server can
+        // allowlist its own host and (for a proxied sub-path) emit asset URLs
+        // under that base. Readiness is polled on `probeUrl` (loopback for
+        // in-container), which never trips Vite's host check.
         const url = this.sandbox.domain(port);
         const publicHost = new URL(url).host;
+        const basePath = new URL(url).pathname;
+        const readinessUrl = this.sandbox.probeUrl ? this.sandbox.probeUrl(port) : url;
 
         let cmd = "npm";
         let args: string[] = ["run", "dev"];
 
         if (isVite) {
-            // Vite's dev-server host check rejects the public sandbox tunnel
-            // domain, and (for Vite 5) there is no env var to allow it. We launch
-            // Vite with a generated wrapper config that merges the user's config,
-            // forces allowedHosts, and adds a framework plugin if the project has
-            // none — the latter also cures the classic "grey screen" where JSX
-            // fails because @vitejs/plugin-react was never registered.
+            // Vite's dev-server host check rejects unknown Host headers, and (for
+            // Vite 5) there is no env var to allow them. We launch Vite with a
+            // generated wrapper config that merges the user's config, forces
+            // allowedHosts + the proxy base path, and adds a framework plugin if
+            // the project has none — the latter also cures the classic "grey
+            // screen" where JSX fails because @vitejs/plugin-react was never registered.
             const wrapperName = ".vite-sandbox.config.mjs";
-            const wrapper = this.buildViteWrapperConfig(publicHost);
+            const wrapper = this.buildViteWrapperConfig(publicHost, basePath);
             const wrapperPath = cwd && cwd !== "." ? `${cwd.replace(/\/+$/, "")}/${wrapperName}` : wrapperName;
             try {
                 await this.sandbox.writeFiles([{ path: wrapperPath, content: Buffer.from(wrapper, "utf8") }]);
@@ -275,7 +259,7 @@ export class AgentSandbox {
             const deadline = Date.now() + PREVIEW_WAIT_MS;
             while (Date.now() < deadline) {
                 try {
-                    const res = await fetch(url, { signal: AbortSignal.timeout(4_000) });
+                    const res = await fetch(readinessUrl, { signal: AbortSignal.timeout(4_000) });
                     const body = await res.text().catch(() => "");
                     // A dev server can answer 200 while still being broken:
                     // Vite's host-check page ("Blocked request") and error
@@ -304,7 +288,7 @@ export class AgentSandbox {
      * allows the sandbox host, and ensures a framework plugin is present.
      * Written next to the project and passed via `--config`.
      */
-    private buildViteWrapperConfig(publicHost: string): string {
+    private buildViteWrapperConfig(publicHost: string, basePath: string): string {
         return `import { loadConfigFromFile, mergeConfig } from 'vite';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -322,6 +306,9 @@ export default async (configEnv) => {
   } catch {}
 
   const override = {
+    // Serve assets under the preview proxy's sub-path so absolute asset URLs
+    // resolve (base is '/' for hosted sandboxes served at a domain root).
+    base: ${JSON.stringify(basePath)},
     server: {
       host: true,
       strictPort: false,

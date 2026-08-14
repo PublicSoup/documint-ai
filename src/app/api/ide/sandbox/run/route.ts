@@ -7,6 +7,7 @@ import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
 import { logAudit } from "@/lib/audit-logger";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { getSandboxCommandPlan, getSandboxRuntime } from "@/lib/ide/sandbox-runtime";
+import { createSandbox } from "@/lib/executor";
 import type { RuntimeKind } from "@/components/ide/shared/types";
 
 export const maxDuration = 60;
@@ -24,18 +25,6 @@ const sandboxRunSchema = z.object({
     port: z.number().int().min(1024).max(65_535).default(3000),
 }).strict();
 
-type SandboxModule = typeof import("@vercel/sandbox");
-
-async function loadSandbox(): Promise<SandboxModule["Sandbox"] | null> {
-    try {
-        const mod = await import("@vercel/sandbox");
-        return mod.Sandbox;
-    } catch (error) {
-        console.warn("[IDE Sandbox] @vercel/sandbox unavailable", error);
-        return null;
-    }
-}
-
 export async function POST(req: Request) {
     try {
         const session = await getServerSession(authOptions);
@@ -43,14 +32,6 @@ export async function POST(req: Request) {
 
         await enforceRateLimit(session.user.id, "api");
         const body = await validateBody(req, sandboxRunSchema);
-        const Sandbox = await loadSandbox();
-
-        if (!Sandbox) {
-            return NextResponse.json({
-                code: "SANDBOX_UNAVAILABLE",
-                message: "Vercel Sandbox runtime is not available in this deployment.",
-            }, { status: 503 });
-        }
 
         const commandPlan = getSandboxCommandPlan({
             runtimeKind: body.runtimeKind as RuntimeKind,
@@ -59,11 +40,19 @@ export async function POST(req: Request) {
             port: body.port,
         });
 
-        const sandbox = await Sandbox.create({
+        const sandbox = await createSandbox({
             ports: commandPlan.port ? [commandPlan.port] : undefined,
             runtime: getSandboxRuntime(body.runtimeKind as RuntimeKind),
             timeout: 10 * 60 * 1000,
+            userId: session.user.id,
         });
+
+        if (!sandbox) {
+            return NextResponse.json({
+                code: "SANDBOX_UNAVAILABLE",
+                message: "The code execution sandbox is not available in this deployment.",
+            }, { status: 503 });
+        }
 
         await sandbox.writeFiles(body.files.map((file) => ({
             path: file.name,

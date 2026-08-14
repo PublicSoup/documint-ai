@@ -1,22 +1,6 @@
 import { currentRuntime } from "./runtime";
 import { PassThrough } from "node:stream";
-
-// Fully dynamic import — never reference @vercel/sandbox at module scope
-// This prevents CF Workers from failing at import time
-let SandboxClass: any = null;
-let sandboxInitialized = false;
-
-async function initSandbox() {
-    if (sandboxInitialized) return;
-    sandboxInitialized = true;
-    if (!currentRuntime.canUseSandbox) return;
-    try {
-        const mod = await import("@vercel/sandbox");
-        SandboxClass = mod.Sandbox;
-    } catch (e) {
-        console.warn("Vercel Sandbox module not found, execution might fail.");
-    }
-}
+import { createSandbox, type Sandbox } from "./executor";
 
 export interface SandboxResult {
     success: boolean;
@@ -30,7 +14,7 @@ export interface SandboxResult {
  * Handles a multi-step sandbox session (write files, run commands)
  */
 export class SandboxSession {
-    private sandbox: any = null;
+    private sandbox: Sandbox | null = null;
     private logs: string[] = [];
     private onLogCallback?: (msg: string) => void;
 
@@ -50,12 +34,11 @@ export class SandboxSession {
             this.log("[Sandbox] Disabled in current runtime. Skipping initialization.");
             return;
         }
-        await initSandbox();
-        if (!SandboxClass) {
-            this.log("[Sandbox] Module not available. Skipping initialization.");
+        this.sandbox = await createSandbox();
+        if (!this.sandbox) {
+            this.log("[Sandbox] Provider unavailable. Skipping initialization.");
             return;
         }
-        this.sandbox = await SandboxClass.create();
         this.log("[Sandbox] Session initialized.");
     }
 
@@ -65,9 +48,7 @@ export class SandboxSession {
             return;
         }
         if (!this.sandbox) throw new Error("Sandbox not initialized");
-        // Ensure path starts with /vercel/sandbox as per docs if needed, 
-        // but often relative to CWD works. Let's assume relative to root of sandbox.
-        await (this.sandbox as any).writeFile(path, content);
+        await this.sandbox.writeFile(path, content);
     }
 
     async runCommand(cmd: string, args: string[] = [], timeout: number = 60000): Promise<SandboxResult> {

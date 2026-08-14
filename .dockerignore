@@ -1,0 +1,30 @@
+# Keep the build context small and secrets OUT of the image.
+node_modules
+.next
+.git
+.github
+
+# Never copy local env files into the image — Railway injects env at build/runtime.
+.env
+.env.*
+!.env.example
+
+# Vercel/Cloudflare leftovers not used by Railway.
+.vercel
+.vercelignore
+
+# Sibling apps / scratch not part of the web build.
+mobile
+Library
+src/ScrennShots
+
+# Local caches & logs
+.npm
+.npm-cache
+npm-debug.log*
+*.tsbuildinfo
+.DS_Store
+
+# Docker's own files
+Dockerfile
+.dockerignore
