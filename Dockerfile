@@ -87,8 +87,10 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 EXPOSE 3000
 
-# Railway sets $PORT. Just serve — do NOT run ensure-ai-schema here: at boot it
-# contends for table locks with the still-live old deploy during zero-downtime
-# cutover and hangs the container before next start binds. Run schema migrations
-# as a separate step (Railway preDeployCommand or a manual/one-off job) instead.
-CMD ["sh", "-c", "npx next start -H 0.0.0.0 -p ${PORT:-3000}"]
+# Just serve. next start reads the port from $PORT (Railway sets it), so no -p
+# flag — Railway's startCommand runs without shell expansion, and a literal
+# "${PORT:-3000}" would reach next as an invalid --port argument.
+# Do NOT run ensure-ai-schema here: at boot it contends for table locks with the
+# still-live old deploy during zero-downtime cutover and hangs the container
+# before next start binds. Run schema migrations as a separate step instead.
+CMD ["sh", "-c", "npx next start -H 0.0.0.0"]
