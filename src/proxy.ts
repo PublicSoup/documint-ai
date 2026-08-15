@@ -53,7 +53,9 @@ export async function proxy(request: NextRequest) {
     response.headers.set("X-Frame-Options", "SAMEORIGIN");
     response.headers.set("X-Content-Type-Options", "nosniff");
     response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-    response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+    response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), screen=(), usermedia=()");
+    response.headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-same-origin");
+    response.headers.set("Cross-Origin-Embedder-Policy", "credentialless");
     // WebContainers require cross-origin isolation to access SharedArrayBuffer.
     // Only /code needs it, and the right COEP mode is browser-dependent:
     // Chromium/Firefox get `credentialless` (keeps the preview iframe embeddable),
