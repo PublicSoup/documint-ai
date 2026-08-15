@@ -200,45 +200,146 @@ export interface ParsedToolCall {
     args: string[];
 }
 
-const TOOL_CALL_REGEX = /<tool_code>(?:call:)?(\w+)\(([\s\S]*?)\)<\/tool_code>/gi;
-
-/**
- * Content-block form for file-writing tools. Raw file content goes between
- * <content> tags with NO escaping, so quotes/commas/parens in real code can't
- * corrupt argument parsing (the single biggest cause of failed writes):
- *
- *   <tool_code>write_to_file("path/to/file.tsx")
- *   <content>
- *   ...complete raw file content...
- *   </content>
- *   </tool_code>
- */
-const TOOL_BLOCK_REGEX = /<tool_code>\s*(?:call:)?(\w+)\(([^)\n]*)\)\s*<content>\r?\n?([\s\S]*?)\r?\n?<\/content>\s*<\/tool_code>/gi;
+const TAGS = "tool_code|tool_call|function_call|tool_use";
+// The opening `<tag>` + `name(args)` already uniquely identifies an inline call,
+// so the closing tag is OPTIONAL — no trailing delimiter is required. This is
+// what makes the malformed Laguna form work in every position: a chain like
+// `<tool_call>a("x")<tool_call>b("y")` (no proper closes) and, crucially, a
+// final call followed by ordinary prose (`<tool_call>b("y") thanks!`) both parse
+// AND get stripped by the sanitizer. (`\)` non-greedy up to the first paren
+// bounds the args, so we don't rely on the close to delimit.)
+const INLINE_REGEX = new RegExp(`<(${TAGS})>\\s*(?:call:)?(\\w+)\\(([\\s\\S]*?)\\)(?:\\s*<\\/\\1>)?`, "gi");
+const BLOCK_REGEX = new RegExp(`<(${TAGS})>\\s*(?:call:)?(\\w+)\\(([^)\\n]*)\\)\\s*<content>\\r?\\n?([\\s\\S]*?)\\r?\\n?<\\/content>(?:\\s*<\\/\\1>|(?=\\s*<(?:${TAGS})>|$))`, "gi");
+const JSON_TAG_REGEX = new RegExp(`<(${TAGS})>\\s*(\\{[\\s\\S]*?\\})\\s*(?:<\\/\\1>|(?=\\s*<(?:${TAGS})>|$))`, "gi");
+const MISTRAL_REGEX = /\[TOOL_CALLS\]\s*(\[[\s\S]*?\])/gi;
+const MD_REGEX = new RegExp(`\`\`\`(?:${TAGS})\\s*\\n(?:call:)?(\\w+)\\(([\\s\\S]*?)\\)\\s*\\n\`\`\``, "gi");
+const INLINE_STRICT_REGEX = new RegExp(`<(${TAGS})>\\s*(?:call:)?(\\w+)\\(([\\s\\S]*?)\\)<\\/\\1>`, "gi");
 
 /** Extract every tool call (content-block or inline form) from a raw completion, in order. */
 export function parseToolCalls(response: string): ParsedToolCall[] {
     const calls: Array<ParsedToolCall & { index: number }> = [];
     const consumed: Array<[number, number]> = [];
 
+    const isConsumed = (start: number, end: number) => consumed.some(([from, to]) => Math.max(start, from) < Math.min(end, to));
+    const consume = (start: number, end: number) => consumed.push([start, end]);
+
     let match: RegExpExecArray | null;
-    const blockRegex = new RegExp(TOOL_BLOCK_REGEX);
-    while ((match = blockRegex.exec(response)) !== null) {
-        const pathArgs = parseToolArgs(match[2].trim()).filter(Boolean);
-        calls.push({
-            toolName: match[1],
-            rawArgsStr: match[2].trim(),
-            args: [...pathArgs, match[3]],
-            index: match.index,
-        });
-        consumed.push([match.index, match.index + match[0].length]);
+
+    // 1. Mistral [TOOL_CALLS] array
+    const mistralRegex = new RegExp(MISTRAL_REGEX);
+    while ((match = mistralRegex.exec(response)) !== null) {
+        if (isConsumed(match.index, match.index + match[0].length)) continue;
+        try {
+            const arr = JSON.parse(match[1]);
+            if (Array.isArray(arr)) {
+                for (const item of arr) {
+                    if (item.name && typeof item.arguments === 'object') {
+                        let args: string[] = [];
+                        const argsDict = item.arguments;
+                        if (item.name === "read_file" || item.name === "list_files" || item.name === "apply_patch" || item.name === "write_to_file") {
+                            args.push(argsDict.path || argsDict.dir || "");
+                            if (argsDict.content) args.push(argsDict.content);
+                        } else if (item.name === "read_file_chunk") {
+                            args.push(argsDict.path || "", String(argsDict.start || ""), String(argsDict.end || ""));
+                        } else if (item.name === "search_files") {
+                            args.push(argsDict.namePattern || argsDict.pattern || argsDict.query || "");
+                        } else if (item.name === "grep_search") {
+                            args.push(argsDict.text || argsDict.query || "");
+                        } else if (item.name === "execute_command") {
+                            args.push(argsDict.cmd || argsDict.command || "");
+                        } else {
+                            args = Object.values(argsDict).map(String);
+                        }
+                        calls.push({
+                            toolName: item.name,
+                            rawArgsStr: JSON.stringify(item.arguments),
+                            args,
+                            index: match.index,
+                        });
+                    }
+                }
+                consume(match.index, match.index + match[0].length);
+            }
+        } catch (e) {
+            // ignore JSON parse error
+        }
     }
 
-    const regex = new RegExp(TOOL_CALL_REGEX);
-    while ((match = regex.exec(response)) !== null) {
-        const start = match.index;
-        if (consumed.some(([from, to]) => start >= from && start < to)) continue;
+    // 2. Block form
+    const blockRegex = new RegExp(BLOCK_REGEX);
+    while ((match = blockRegex.exec(response)) !== null) {
+        if (isConsumed(match.index, match.index + match[0].length)) continue;
+        const pathArgs = parseToolArgs(match[3].trim()).filter(Boolean);
+        calls.push({
+            toolName: match[2],
+            rawArgsStr: match[3].trim(),
+            args: [...pathArgs, match[4]],
+            index: match.index,
+        });
+        consume(match.index, match.index + match[0].length);
+    }
+
+    // 3. JSON inside tags
+    const jsonTagRegex = new RegExp(JSON_TAG_REGEX);
+    while ((match = jsonTagRegex.exec(response)) !== null) {
+        if (isConsumed(match.index, match.index + match[0].length)) continue;
+        try {
+            const item = JSON.parse(match[2]);
+            if (item.name && typeof item.arguments === 'object') {
+                let args: string[] = [];
+                const argsDict = item.arguments;
+                if (item.name === "read_file" || item.name === "list_files" || item.name === "apply_patch" || item.name === "write_to_file") {
+                    args.push(argsDict.path || argsDict.dir || "");
+                    if (argsDict.content) args.push(argsDict.content);
+                } else if (item.name === "read_file_chunk") {
+                    args.push(argsDict.path || "", String(argsDict.start || ""), String(argsDict.end || ""));
+                } else if (item.name === "search_files") {
+                    args.push(argsDict.namePattern || argsDict.pattern || argsDict.query || "");
+                } else if (item.name === "grep_search") {
+                    args.push(argsDict.text || argsDict.query || "");
+                } else if (item.name === "execute_command") {
+                    args.push(argsDict.cmd || argsDict.command || "");
+                } else {
+                    args = Object.values(argsDict).map(String);
+                }
+                calls.push({
+                    toolName: item.name,
+                    rawArgsStr: JSON.stringify(item.arguments),
+                    args,
+                    index: match.index,
+                });
+                consume(match.index, match.index + match[0].length);
+            }
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    // 4. Markdown code block form
+    const mdRegex = new RegExp(MD_REGEX);
+    while ((match = mdRegex.exec(response)) !== null) {
+        if (isConsumed(match.index, match.index + match[0].length)) continue;
         const rawArgsStr = match[2].trim();
-        calls.push({ toolName: match[1], rawArgsStr, args: parseToolArgs(rawArgsStr), index: start });
+        calls.push({ toolName: match[1], rawArgsStr, args: parseToolArgs(rawArgsStr), index: match.index });
+        consume(match.index, match.index + match[0].length);
+    }
+
+    // 5. Inline form (with missing or proper closing tags)
+    const inlineRegex = new RegExp(INLINE_REGEX);
+    while ((match = inlineRegex.exec(response)) !== null) {
+        if (isConsumed(match.index, match.index + match[0].length)) continue;
+        const rawArgsStr = match[3].trim();
+        calls.push({ toolName: match[2], rawArgsStr, args: parseToolArgs(rawArgsStr), index: match.index });
+        consume(match.index, match.index + match[0].length);
+    }
+    
+    // 6. Fallback inline strict form
+    const inlineStrictRegex = new RegExp(INLINE_STRICT_REGEX);
+    while ((match = inlineStrictRegex.exec(response)) !== null) {
+        if (isConsumed(match.index, match.index + match[0].length)) continue;
+        const rawArgsStr = match[3].trim();
+        calls.push({ toolName: match[2], rawArgsStr, args: parseToolArgs(rawArgsStr), index: match.index });
+        consume(match.index, match.index + match[0].length);
     }
 
     return calls.sort((a, b) => a.index - b.index).map(({ toolName, rawArgsStr, args }) => ({ toolName, rawArgsStr, args }));
@@ -248,8 +349,14 @@ export function parseToolCalls(response: string): ParsedToolCall[] {
 export function sanitizeAgentResponse(response: string): string {
     let cleaned = response;
 
-    cleaned = cleaned.replace(/<tool_code>[\s\S]*?<\/tool_code>/gi, "");
-    cleaned = cleaned.replace(/<\/?tool_code>/gi, "");
+    cleaned = cleaned.replace(new RegExp(MISTRAL_REGEX), "");
+    cleaned = cleaned.replace(new RegExp(`\`\`\`(?:${TAGS})\\s*\\n[\\s\\S]*?\\n\`\`\``, "gi"), "");
+    cleaned = cleaned.replace(new RegExp(BLOCK_REGEX), "");
+    cleaned = cleaned.replace(new RegExp(JSON_TAG_REGEX), "");
+    cleaned = cleaned.replace(new RegExp(INLINE_REGEX), "");
+    cleaned = cleaned.replace(new RegExp(INLINE_STRICT_REGEX), "");
+
+    cleaned = cleaned.replace(new RegExp(`<\\/?(?:${TAGS})>`, "gi"), "");
     cleaned = cleaned.replace(/<\/?content>/gi, "");
     cleaned = cleaned.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "");
     // Reasoning-model style (<think>, Nemotron/DeepSeek): strip full blocks, and
