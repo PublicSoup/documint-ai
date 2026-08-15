@@ -1,0 +1,28 @@
+{
+  "name": "documint-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DocuMint Capacitor shell — wraps the hosted app at https://documintai.dev",
+  "scripts": {
+    "sync": "cap sync",
+    "open:ios": "cap open ios",
+    "open:android": "cap open android",
+    "add:ios": "cap add ios",
+    "add:android": "cap add android"
+  },
+  "dependencies": {
+    "@capacitor/android": "7.6.8",
+    "@capacitor/app": "7.1.2",
+    "@capacitor/browser": "7.0.5",
+    "@capacitor/core": "7.6.8",
+    "@capacitor/filesystem": "7.1.8",
+    "@capacitor/ios": "7.6.8",
+    "@capacitor/keyboard": "7.0.6",
+    "@capacitor/share": "7.0.4",
+    "@capacitor/splash-screen": "7.0.5",
+    "@capacitor/status-bar": "7.0.6"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "7.6.8"
+  }
+}

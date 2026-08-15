@@ -18,16 +18,7 @@
 	"ios": {
 		"contentInset": "always",
 		"appendUserAgent": "DocuMintApp",
-		"allowMixedContent": false,
-		"statusBar": {
-			"style": "dark-content",
-			"hidden": false
-		},
-		"permissions": {
-			"camera": "false",
-			"microphone": "false",
-			"screen": "false"
-		}
+		"allowMixedContent": false
 	},
 	"android": {
 		"allowMixedContent": false,
