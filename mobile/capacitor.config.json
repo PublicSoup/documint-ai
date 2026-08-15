@@ -1,0 +1,37 @@
+{
+	"appId": "dev.documintai.app",
+	"appName": "DocuMint",
+	"webDir": "www",
+	"server": {
+		"url": "https://documintai.dev",
+		"cleartext": false,
+		"allowNavigation": [
+			"documintai.dev",
+			"www.documintai.dev",
+			"accounts.google.com",
+			"github.com",
+			"*.auth0.com",
+			"checkout.stripe.com",
+			"js.stripe.com"
+		]
+	},
+	"ios": {
+		"contentInset": "always",
+		"appendUserAgent": "DocuMintApp",
+		"allowMixedContent": false
+	},
+	"android": {
+		"allowMixedContent": false,
+		"appendUserAgent": "DocuMintApp"
+	},
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 600,
+			"backgroundColor": "#0b0e14",
+			"showSpinner": false
+		},
+		"Keyboard": {
+			"resize": "native"
+		}
+	}
+}

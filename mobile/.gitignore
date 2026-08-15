@@ -1,0 +1,32 @@
+# Dependencies (root .gitignore only ignores /node_modules, not this nested one)
+node_modules/
+
+# macOS
+.DS_Store
+
+# Xcode / iOS build artifacts
+ios/DerivedData/
+ios/App/build/
+ios/App/output/
+ios/App/Pods/
+**/*.xcuserstate
+**/xcuserdata/
+**/*.xcworkspace/xcuserdata/
+
+# CocoaPods (dependencies are restored via `pod install`)
+Pods/
+
+# Android build artifacts (when android/ is generated)
+android/build/
+android/.gradle/
+android/app/build/
+android/local.properties
+android/.idea/
+android/captures/
+*.keystore
+*.jks
+
+# Capacitor / misc
+.env
+.env.*
+*.log
