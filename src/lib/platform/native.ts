@@ -27,7 +27,7 @@ type CapacitorPlugins = {
     addListener: (
       eventName: "appUrlOpen",
       listener: (data: { url: string }) => void,
-    ) => Promise<{ remove: () => void }>;
+    ) => { remove: () => void } | Promise<{ remove: () => void }>;
   };
   Browser?: {
     open: (options: { url: string }) => Promise<void>;

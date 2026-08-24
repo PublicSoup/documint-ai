@@ -20,12 +20,12 @@ const config: CapacitorConfig = {
   appName: "DocuMint",
   webDir: "www",
   server: {
-    url: process.env.CAP_SERVER_URL || "https://www.documintai.dev",
+    url: process.env.CAP_SERVER_URL || "https://documintai.dev",
     cleartext: false,
     // Domains the WebView may navigate to at the top level. The hosted origin is
     // implied by server.url; add sandbox/preview origins here if the app ever
     // navigates to them as a full page (iframes are not restricted by this list).
-    allowNavigation: ["www.documintai.dev", "documintai.dev"],
+    allowNavigation: ["documintai.dev", "www.documintai.dev"],
   },
   ios: {
     contentInset: "always",

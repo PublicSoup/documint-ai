@@ -21,7 +21,9 @@ export default function NativeBridge() {
         void plugins?.StatusBar?.setStyle?.({ style: "DARK" }).catch(() => undefined);
 
         let remove: (() => void) | undefined;
-        void plugins?.App?.addListener("appUrlOpen", (data) => {
+        let cancelled = false;
+
+        const handle = plugins?.App?.addListener("appUrlOpen", (data) => {
             if (!data?.url || !data.url.includes("auth/callback")) return;
             try {
                 const token = new URL(data.url).searchParams.get("token");
@@ -31,13 +33,24 @@ export default function NativeBridge() {
             } catch {
                 // Ignore malformed deep links.
             }
-        })
-            .then((handle) => {
-                remove = handle.remove;
+        });
+
+        // addListener is TYPED as returning a Promise, but on iOS it resolves
+        // synchronously and returns the handle itself. Promise.resolve normalises
+        // both shapes; without it the raw handle has no .then, and the resulting
+        // TypeError propagates out of this effect and takes down the whole React
+        // tree (observed on-device: the app rendered WebKit's "page couldn't load").
+        void Promise.resolve(handle)
+            .then((resolved) => {
+                if (cancelled) resolved?.remove?.();
+                else remove = resolved?.remove;
             })
             .catch(() => undefined);
 
-        return () => remove?.();
+        return () => {
+            cancelled = true;
+            remove?.();
+        };
     }, []);
 
     return null;
