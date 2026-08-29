@@ -270,23 +270,30 @@ export const authOptions: NextAuthOptions = {
 
             try {
                 const { db } = await import("./db");
-                const dbUser = await db.user.upsert({
-                    where: { email },
-                    update: updateData,
-                    create: {
-                        email,
-                        name,
-                        image,
-                        role: "USER",
-                    },
-                    select: {
-                        id: true,
-                        email: true,
-                        name: true,
-                        image: true,
-                        role: true,
-                    },
+
+                // Match the existing account case-insensitively. `email` is
+                // lowercased by normalizeEmail(), but historical rows may be
+                // stored mixed-case — a plain upsert keyed on the lowercased
+                // value would miss that row, then the create would collide with
+                // the unique index and throw, hard-rejecting the real owner
+                // ("you don't have permission to login"). Find-then-update/create
+                // reuses the existing row (preserving its role) and never
+                // conflicts.
+                const existing = await db.user.findFirst({
+                    where: { email: { equals: email, mode: "insensitive" } },
+                    select: { id: true },
                 });
+
+                const dbUser = existing
+                    ? await db.user.update({
+                        where: { id: existing.id },
+                        data: updateData,
+                        select: { id: true, email: true, name: true, image: true, role: true },
+                    })
+                    : await db.user.create({
+                        data: { email, name, image, role: "USER" },
+                        select: { id: true, email: true, name: true, image: true, role: true },
+                    });
 
                 user.id = dbUser.id;
                 user.email = dbUser.email;
@@ -323,8 +330,10 @@ export const authOptions: NextAuthOptions = {
 
                 if (email) {
                     const { db } = await import("./db");
-                    const dbUser = await db.user.findUnique({
-                        where: { email },
+                    // Case-insensitive to match how the sign-in callback resolves
+                    // the account, so role refresh works for mixed-case rows too.
+                    const dbUser = await db.user.findFirst({
+                        where: { email: { equals: email, mode: "insensitive" } },
                         select: { id: true, role: true },
                     });
 
