@@ -16,13 +16,15 @@ const envSchema = z.object({
     GOOGLE_API_KEY: z.string().default(""),
     AI_GATEWAY_API_KEY: z.string().optional(),
 
-    // Stripe Billing
-    STRIPE_SECRET_KEY: z.string().min(1, "STRIPE_SECRET_KEY is required"),
-    STRIPE_WEBHOOK_SECRET: z.string().min(1, "STRIPE_WEBHOOK_SECRET is required"),
-    STRIPE_PRICE_ID_STARTER: z.string().min(1, "STRIPE_PRICE_ID_STARTER is required"),
-    STRIPE_PRICE_ID_PRO: z.string().min(1, "STRIPE_PRICE_ID_PRO is required"),
-    STRIPE_PRICE_ID_TEAM: z.string().min(1, "STRIPE_PRICE_ID_TEAM is required"),
-    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().min(1, "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is required"),
+    // Stripe Billing — optional so a missing billing config doesn't crash the
+    // whole app on boot (the site + auth must come up even before Stripe is set
+    // on a new host). Billing routes guard on empty values at call time.
+    STRIPE_SECRET_KEY: z.string().default(""),
+    STRIPE_WEBHOOK_SECRET: z.string().default(""),
+    STRIPE_PRICE_ID_STARTER: z.string().default(""),
+    STRIPE_PRICE_ID_PRO: z.string().default(""),
+    STRIPE_PRICE_ID_TEAM: z.string().default(""),
+    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().default(""),
     NEXT_PUBLIC_DEV_PRO: z.enum(['true', 'false']).default('false'),
 
     // Email (Resend)

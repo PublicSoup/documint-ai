@@ -1,91 +1,25 @@
+import { NextResponse } from "next/server";
 
-import { NextRequest, NextResponse } from "next/server";
-import { errorResponse } from "@/lib/api-utils";
-import { enforceRateLimit, getClientIP } from "@/lib/rate-limit";
-import { db } from "@/lib/db";
-import { Redis } from "@upstash/redis";
-import { env } from "@/lib/env";
+/**
+ * Liveness probe for the platform healthcheck (Railway `/api/health`).
+ *
+ * Deliberately dependency-free: it does NOT import env validation, hit the DB,
+ * ping Redis, or rate-limit. A healthcheck should answer one question — "is the
+ * web process up and serving HTTP?" — and return 200 whenever it is. Coupling it
+ * to downstream services (as the old version did, returning 503 on a DB blip and
+ * importing the throw-on-missing env module) meant a degraded dependency or an
+ * unset env var failed the whole deployment and took the site down. Readiness of
+ * individual services is reported by their own routes, not here.
+ */
+export const dynamic = "force-dynamic";
 
-// Initialize a separate Redis client for the health check to avoid import cycles
-// and to have a dedicated connection for diagnostics.
-const redis = env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN
-    ? new Redis({
-        url: env.UPSTASH_REDIS_REST_URL,
-        token: env.UPSTASH_REDIS_REST_TOKEN,
-    })
-    : null;
-
-interface HealthStatus {
-    status: "healthy" | "unhealthy";
-    timestamp: string;
-    uptimeSeconds: number;
-    services: {
-        database: "healthy" | "unhealthy" | "disabled";
-        redis: "healthy" | "unhealthy" | "disabled";
-    };
-}
-
-export async function GET(request: NextRequest) {
-    try {
-        const clientIp = await getClientIP(request);
-        // Apply rate limiting before proceeding
-        await enforceRateLimit(`health:${clientIp}`, "api");
-
-        let dbStatus: "healthy" | "unhealthy" | "disabled" = "healthy";
-        let redisStatus: "healthy" | "unhealthy" | "disabled" = redis ? "healthy" : "disabled";
-
-        const serviceChecks: Promise<void>[] = [];
-
-        // 1. Check Database Connectivity
-        const dbCheck = db.$queryRaw`SELECT 1`.then(() => {
-            dbStatus = "healthy";
-        }).catch((e: Error) => {
-            console.error("Database health check failed:", e);
-            dbStatus = "unhealthy";
-        });
-        serviceChecks.push(dbCheck);
-
-        // 2. Check Redis Connectivity
-        if (redis) {
-            const redisCheck = redis.ping().then((pong) => {
-                if (pong === "PONG") {
-                    redisStatus = "healthy";
-                } else {
-                    redisStatus = "unhealthy";
-                }
-            }).catch((e: Error) => {
-                console.error("Redis health check failed:", e);
-                redisStatus = "unhealthy";
-            });
-            serviceChecks.push(redisCheck);
-        }
-
-        // Wait for all checks to complete
-        await Promise.all(serviceChecks);
-
-        const overallStatus = dbStatus === "healthy" && (redisStatus === "healthy" || redisStatus === "disabled")
-            ? "healthy"
-            : "unhealthy";
-
-        const response: HealthStatus = {
-            status: overallStatus,
+export function GET() {
+    return NextResponse.json(
+        {
+            status: "ok",
             timestamp: new Date().toISOString(),
             uptimeSeconds: Math.floor(process.uptime()),
-            services: {
-                database: dbStatus,
-                redis: redisStatus,
-            },
-        };
-
-        return NextResponse.json(response, {
-            status: overallStatus === "healthy" ? 200 : 503,
-            headers: {
-                "Cache-Control": "no-store, max-age=0",
-            },
-        });
-
-    } catch (error) {
-        // This will catch errors from enforceRateLimit or other unexpected issues
-        return errorResponse(error);
-    }
+        },
+        { status: 200, headers: { "Cache-Control": "no-store, max-age=0" } },
+    );
 }
