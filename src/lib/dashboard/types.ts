@@ -62,6 +62,14 @@ export interface SelectedDashboardDocument {
 export interface DashboardFileStats {
   totalFilesCount: number;
   verifiedDocsCount: number;
+  /** Files whose code is documented per the deterministic analyzer (FileInsight.docCoverage >= threshold). AI-independent. */
+  documentedCount: number;
+  /** Number of files that have a computed FileInsight row. */
+  analyzedCount: number;
+  /** Average deterministic quality score (0-100) across analyzed files. */
+  avgQuality: number;
+  /** Average deterministic risk score (0-100) across analyzed files. */
+  avgRisk: number;
   files: DashboardFile[];
 }
 

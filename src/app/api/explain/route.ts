@@ -26,8 +26,8 @@ export const POST = createApiHandler({
     audit: {
         action: "EXPLAIN_CODE",
         entity: "File",
-        entityId: (body) => body.fileId,
-        details: (body) => ({ persona: body.persona }),
+        entityId: ({ body }) => body.fileId,
+        details: ({ body }) => ({ persona: body.persona }),
     },
     handler: async ({ body, session }) => {
         const { fileId, persona } = body;

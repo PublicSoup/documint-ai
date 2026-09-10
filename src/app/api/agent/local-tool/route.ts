@@ -1,9 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 import { z } from "zod";
-import { authOptions } from "@/lib/auth";
-import { enforceRateLimit } from "@/lib/rate-limit";
-import { ApiErrors, errorResponse, validateBody } from "@/lib/api-utils";
+import { createApiHandler } from "@/lib/api-utils";
 import { AGENT_TOOL_NAMES } from "@/lib/agent/tool-protocol";
 import { executeAgentTool } from "@/lib/agent/tool-executor";
 
@@ -28,29 +24,17 @@ const bodySchema = z.object({
     args: z.array(z.string().max(20_000)).max(6),
 }).strict();
 
-export async function POST(request: NextRequest) {
-    try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id) {
-            return errorResponse(ApiErrors.unauthorized());
-        }
-
-        await enforceRateLimit(session.user.id, "agent_tool");
-
-        const { toolName, args } = await validateBody(request, bodySchema);
-        const cwd = process.cwd();
-
+export const POST = createApiHandler({
+    rateLimit: "agent_tool",
+    bodySchema,
+    cacheControl: "private, no-store",
+    handler: async ({ body, userId }) => {
         const { result, fileEvent } = await executeAgentTool({
-            userId: session.user.id,
-            cwd,
-            toolName,
-            args,
+            userId,
+            cwd: process.cwd(),
+            toolName: body.toolName,
+            args: body.args,
         });
-
-        return NextResponse.json({ result, fileEvent }, {
-            headers: { "Cache-Control": "private, no-store" },
-        });
-    } catch (error) {
-        return errorResponse(error);
-    }
-}
+        return { result, fileEvent };
+    },
+});

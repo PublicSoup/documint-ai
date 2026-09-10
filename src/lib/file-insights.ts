@@ -239,6 +239,11 @@ export function computeWorkspaceSummary(files: FileWithDoc[]): WorkspaceSummary 
 
     for (const file of files) {
         const content = file.content;
+        // "Documented" is deterministic: at least half the file's exported symbols
+        // carry a doc comment (computeFileMetrics.docCoverage). This is AI-free, so
+        // coverage works on Railway and matches the dashboard tiles. Files with no
+        // readable content fall back to an approved/review doc record.
+        let documented: boolean;
         if (content) {
             const metrics = computeFileMetrics(content, file.language);
             totalLOC += metrics.loc;
@@ -246,12 +251,15 @@ export function computeWorkspaceSummary(files: FileWithDoc[]): WorkspaceSummary 
             if (metrics.riskScore > 80) {
                 criticalCount++;
             }
+            documented = metrics.docCoverage >= 0.5;
+        } else {
+            documented = Boolean(
+                file.documentation &&
+                (file.documentation.status === "APPROVED" || file.documentation.status === "REVIEW"),
+            );
         }
 
-        if (
-            file.documentation &&
-            (file.documentation.status === "APPROVED" || file.documentation.status === "REVIEW")
-        ) {
+        if (documented) {
             documentedCount++;
         } else {
             undocumentedCount++;

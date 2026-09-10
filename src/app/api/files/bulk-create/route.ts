@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { errorResponse, validateBody, ApiErrors } from "@/lib/api-utils";
 import { logAudit } from "@/lib/audit-logger";
+import { analyzeAndPersistFile } from "@/lib/deterministic-analysis";
 
 const fileSchema = z.object({
     name: z.string().trim().min(1).max(1024)
@@ -135,6 +136,15 @@ export async function POST(req: NextRequest) {
         } catch (auditError) {
             console.error("Failed to log audit event:", auditError);
         }
+
+        // Deterministic analysis for the new files — fire-and-forget (no AI), so
+        // the dashboard reflects them without waiting. Reliable on Railway's
+        // persistent server; the "Analyze workspace" button is the fallback.
+        void Promise.allSettled(
+            createdFiles.slice(0, 200).map((f: File) =>
+                analyzeAndPersistFile(f.id, { content: f.content ?? undefined }),
+            ),
+        );
 
         return NextResponse.json({
             success: true,

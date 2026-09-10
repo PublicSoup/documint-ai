@@ -12,6 +12,12 @@ import { AiQuotaExceededError, assertAiUsageBudget, getUserApiKeys, parseCustomP
 import { normalizeConversation } from "./agent/tool-protocol";
 
 /**
+ * Default shared model. Gemini 2.0 Flash was retired 2026-03-03, so the default
+ * is 2.5 Flash (generous free tier, 1M context). Change here in one place.
+ */
+export const DEFAULT_MODEL = "google/gemini-2.5-flash";
+
+/**
  * AI Provider Utility - Refactored for Vercel AI SDK (@ai-sdk/google)
  * Supports BYO API key per user + shared key with plan quota enforcement.
  */
@@ -132,16 +138,14 @@ const sharedGoogleGenAI = createGoogleGenerativeAI({
     apiKey: env.GOOGLE_API_KEY,
 });
 
-// The AI Gateway authenticates with an explicit key when provided, otherwise
-// falls back to Vercel OIDC — automatic on Vercel deployments (request-context
-// token), and available locally through the VERCEL_OIDC_TOKEN that
-// `vercel env pull` writes. This keeps shared Gemini/gateway models working
-// even though the legacy shared GOOGLE_API_KEY was revoked.
+// The AI Gateway is used only when an explicit AI_GATEWAY_API_KEY is set (works
+// from any host, including Railway). Without it we fall back to the direct
+// Google provider using GOOGLE_API_KEY (see getModel). The previous Vercel-OIDC
+// fallback was removed — it only worked on Vercel and left Railway with no
+// provider ("AI backend is not configured").
 const gatewayProvider = env.AI_GATEWAY_API_KEY
     ? createGateway({ apiKey: env.AI_GATEWAY_API_KEY })
-    : (process.env.VERCEL_OIDC_TOKEN || process.env.VERCEL)
-        ? createGateway({})
-        : null;
+    : null;
 
 function hasSharedAiProviderConfigured(): boolean {
     return Boolean(gatewayProvider || env.GOOGLE_API_KEY);
@@ -220,7 +224,7 @@ function createUserProviderModel(provider: AiKeyProvider, storedValue: string, m
 /**
  * Base AI Model selector (uses the shared API key)
  */
-function getModel(modelName: string = "google/gemini-2.0-flash") {
+function getModel(modelName: string = DEFAULT_MODEL) {
     if (modelName.startsWith("custom/")) {
         throw new Error("Custom Provider is not configured. Open API Keys and add your endpoint, model ID, and key first.");
     }
@@ -252,7 +256,7 @@ function getModel(modelName: string = "google/gemini-2.0-flash") {
  */
 async function getModelForUser(
     userId: string | undefined,
-    modelName: string = "google/gemini-2.0-flash"
+    modelName: string = DEFAULT_MODEL
 ): Promise<{ model: ReturnType<typeof getModel>; usingOwnKey: boolean }> {
     // Check for BYO API key
     if (userId) {
@@ -271,7 +275,7 @@ async function getModelForUser(
 
 /** Cheapest model per provider, used only for key validation. */
 const VALIDATION_MODELS: Record<AiKeyProvider, string> = {
-    google: "gemini-2.0-flash",
+    google: "gemini-2.5-flash",
     anthropic: "claude-haiku-4-5",
     openai: "gpt-4o-mini",
     xai: "grok-3-mini",
@@ -339,7 +343,7 @@ export async function getAICompletionWithDetailedError(
     options: AICompletionOptions = {}
 ): Promise<{ success: boolean; data?: AICompletionResult; error?: string }> {
     try {
-        const modelName = options.model || "google/gemini-2.0-flash";
+        const modelName = options.model || DEFAULT_MODEL;
         const { model, usingOwnKey } = await getModelForUser(options.userId, modelName);
 
         if (!usingOwnKey && !hasSharedAiProviderConfigured()) {
@@ -423,7 +427,7 @@ export async function getAICompletionWithDetailedError(
             };
         }
 
-        const described = describeAiError(e, options.model || "google/gemini-2.0-flash");
+        const described = describeAiError(e, options.model || DEFAULT_MODEL);
         console.error("[Vercel AI SDK Error]:", described);
 
         const lowerMessage = described.toLowerCase();
@@ -476,7 +480,7 @@ export async function streamTextEndpoint(
     userPrompt: string,
     options: AICompletionOptions = {}
 ) {
-    const modelName = options.model || "google/gemini-2.0-flash";
+    const modelName = options.model || DEFAULT_MODEL;
     const { model, usingOwnKey } = await getModelForUser(options.userId, modelName);
     const safeUserPrompt = safePrompt(userPrompt);
     const estimatedInputTokens = Math.ceil((systemPrompt.length + safeUserPrompt.length) / 4);
@@ -628,7 +632,7 @@ export async function detectIntentDrift(
     
     try {
         const { object } = await generateObject({
-            model: (await getModelForUser(undefined, "google/gemini-2.0-flash")).model,
+            model: (await getModelForUser(undefined, DEFAULT_MODEL)).model,
             system: systemPrompt,
             prompt: `
             EXISTING DOCUMENTATION:

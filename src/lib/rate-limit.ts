@@ -122,7 +122,7 @@ const limiters = {
     }) : null,
 };
 
-type RateLimitTier = "auth" | "auth-ip" | "pro" | "api" | "upload" | "security" | "file_create" | "file_delete" | "project_delete" | "file_rename" | "file_create_bulk" | "architect" | "chat" | "agent_tool";
+export type RateLimitTier = "auth" | "auth-ip" | "pro" | "api" | "upload" | "security" | "file_create" | "file_delete" | "project_delete" | "file_rename" | "file_create_bulk" | "architect" | "chat" | "agent_tool";
 
 const fallbackLimits: Record<RateLimitTier, { requests: number; windowMs: number }> = {
     auth: { requests: 5, windowMs: 15 * 60 * 1000 },

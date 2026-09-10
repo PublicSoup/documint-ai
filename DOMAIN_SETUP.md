@@ -1,56 +1,62 @@
-# Domain & Deployment Setup Guide
+# Domain & Deployment Setup Guide (Railway + Cloudflare)
 
-This guide explains how to deploy **DocuMint AI** to Vercel and connect your domain `documintai.dev`.
+DocuMint AI is deployed on **Railway** (Docker, `railway.json`), fronted by **Cloudflare**,
+with **`documintai.dev` (apex) as the canonical origin**. Vercel is no longer used.
 
-## 1. Deploy to Vercel
+## Canonical origin
 
-1.  Push your code to GitHub (see instructions below).
-2.  Log in to [Vercel](https://vercel.com).
-3.  Click **"Add New..."** -> **"Project"**.
-4.  Import your `documint-ai` repository.
-5.  In "Environment Variables", add:
-    *   `DATABASE_URL`: (Your database connection string)
-    *   `NEXTAUTH_SECRET`: (A random string)
-    *   `NEXTAUTH_URL`: `https://documintai.dev`
-    *   `STRIPE_SECRET_KEY`: (From Stripe Dashboard)
-    *   `STRIPE_WEBHOOK_SECRET`: (From Stripe Webhooks)
-6.  Click **Deploy**.
+| Purpose | Value |
+| :--- | :--- |
+| `NEXTAUTH_URL` | `https://documintai.dev` |
+| `NEXT_PUBLIC_APP_URL` | `https://documintai.dev` |
+| Google OAuth callback | `https://documintai.dev/api/auth/callback/google` |
+| GitHub OAuth callback | `https://documintai.dev/api/auth/callback/github` |
+| Stripe webhook | `https://documintai.dev/api/webhooks/stripe` |
+| Inngest app URL | `https://documintai.dev` |
 
-## 2. Connect Your Domain
+## 1. Cloudflare DNS
 
-1.  In your Vercel Project, go to **Settings** -> **Domains**.
-2.  Enter `documintai.dev` and click **Add**.
-3.  Vercel will give you the DNS records to set up.
+| Type | Name | Value | Proxy |
+| :--- | :--- | :--- | :--- |
+| A / CNAME | `@` | Railway edge (see Railway → Settings → Networking) | Proxied |
+| CNAME | `www` | `documintai.dev` (flattened to apex) | Proxied |
 
-## 3. Update DNS Records
+> The old `www` CNAME pointed at `*.vercel-dns-016.com` and served a Vercel
+> `DEPLOYMENT_DISABLED` (HTTP 402) page. It must stay pointed at Cloudflare/apex, not Vercel.
 
-Go to your domain registrar (where you bought `documintai.dev`) and update the DNS:
+## 2. Railway
 
-| Type  | Name | Value |
-| :--- | :--- | :--- |
-| **A** | `@` | `76.76.21.21` |
-| **CNAME** | `www` | `cname.vercel-dns.com` |
+1. Service → **Settings → Networking**: add `documintai.dev` and `www.documintai.dev` as
+   custom domains (TLS is issued automatically).
+2. **Variables**: `NEXTAUTH_URL` and `NEXT_PUBLIC_APP_URL` must both be
+   `https://documintai.dev`. A mismatch makes NextAuth build OAuth callback URLs on the
+   wrong origin and breaks sign-in.
+3. Redeploy after changing variables.
 
-## 4. Final Verification
+## 3. Database (Supabase)
 
-1.  Wait ~5 minutes for DNS propagation.
-2.  Visit `https://documintai.dev`.
-3.  Ensure your **Stripe** settings in "Business Details" list `https://documintai.dev` as your website.
+- `DATABASE_URL` — pooled connection (Supavisor, port `6543`, `?pgbouncer=true&connection_limit=1`).
+- `DIRECT_URL` — session pooler (port `5432`), used by Prisma Migrate.
+- Free-tier Supabase projects **auto-pause after inactivity**. When paused, the pooler
+  returns `tenant/user <ref> not found`, the app's `/api/health` reports
+  `"database": "unhealthy"` (HTTP 503), and **sign-in fails with an AccessDenied-style
+  error** because the OAuth `signIn` callback cannot upsert the user. Restore the project
+  in the Supabase dashboard to recover.
+- Rotate the DB password in Project Settings → Database and update both URLs in Railway
+  after rotating.
 
-## 5. Google Cloud OAuth — Authorized Redirect URIs
+## 4. Google Cloud OAuth — Authorized Redirect URIs
 
-The app's `NEXTAUTH_URL` is set to `https://www.documintai.dev` (with `www.`).
-NextAuth builds each provider's OAuth callback URI as `${NEXTAUTH_URL}/api/auth/callback/<provider>`,
-so you **must** register the `www.` variant in Google Cloud Console.
-
-In **APIs & Services → Credentials → OAuth 2.0 Client IDs → your Web client → Authorized redirect URIs**, add:
+NextAuth builds each provider's callback as `${NEXTAUTH_URL}/api/auth/callback/<provider>`.
+Register these in **APIs & Services → Credentials → OAuth 2.0 Client → Authorized redirect URIs**:
 
 | Provider | URI |
 | :--- | :--- |
-| Google | `https://www.documintai.dev/api/auth/callback/google` |
-| Google (apex, optional) | `https://documintai.dev/api/auth/callback/google` |
-| GitHub | `https://www.documintai.dev/api/auth/callback/github` |
+| Google | `https://documintai.dev/api/auth/callback/google` |
+| GitHub | `https://documintai.dev/api/auth/callback/github` |
 
-> A `400: redirect_uri_mismatch` error from Google means the URI NextAuth sends
-> (driven by `NEXTAUTH_URL`) is **not** in this list. The exact URI being sent
-> is logged at app boot as `[next-auth] OAuth callback URIs in use: ...`.
+> A `400: redirect_uri_mismatch` from Google means the URI NextAuth sends (driven by
+> `NEXTAUTH_URL`) is not in this list. The exact URIs are logged at boot as
+> `[next-auth] OAuth callback URIs in use: ...`.
+> If the consent screen is in **Testing** mode, add your Google account under
+> **Test users** — otherwise Google blocks sign-in with "you don't have permission".

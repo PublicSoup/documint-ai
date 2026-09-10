@@ -117,6 +117,30 @@ const statements = [
      CONSTRAINT "ChatSession_pkey" PRIMARY KEY ("id")
    )`,
   `CREATE INDEX IF NOT EXISTS "ChatSession_userId_updatedAt_idx" ON "ChatSession"("userId", "updatedAt")`,
+
+  // --- Deterministic file analysis (code-driven, no AI) ---
+  `CREATE TABLE IF NOT EXISTS "FileInsight" (
+     "id" TEXT NOT NULL,
+     "fileId" TEXT NOT NULL,
+     "qualityScore" INTEGER NOT NULL DEFAULT 0,
+     "docCoverage" DOUBLE PRECISION NOT NULL DEFAULT 0,
+     "riskScore" INTEGER NOT NULL DEFAULT 0,
+     "loc" INTEGER NOT NULL DEFAULT 0,
+     "complexity" INTEGER NOT NULL DEFAULT 0,
+     "findings" JSONB,
+     "security" JSONB,
+     "language" TEXT,
+     "contentHash" TEXT,
+     "userId" TEXT,
+     "teamId" TEXT,
+     "analyzedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     "updatedAt" TIMESTAMP(3) NOT NULL,
+     CONSTRAINT "FileInsight_pkey" PRIMARY KEY ("id")
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "FileInsight_fileId_key" ON "FileInsight"("fileId")`,
+  `CREATE INDEX IF NOT EXISTS "FileInsight_userId_idx" ON "FileInsight"("userId")`,
+  `CREATE INDEX IF NOT EXISTS "FileInsight_teamId_idx" ON "FileInsight"("teamId")`,
+  `CREATE INDEX IF NOT EXISTS "FileInsight_riskScore_idx" ON "FileInsight"("riskScore")`,
 ];
 
 async function main() {
@@ -164,6 +188,13 @@ async function main() {
     try {
       await prisma.$executeRawUnsafe(
         `ALTER TABLE "ChatSession" ADD CONSTRAINT "ChatSession_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE`,
+      );
+    } catch {
+      /* constraint already exists — fine */
+    }
+    try {
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "FileInsight" ADD CONSTRAINT "FileInsight_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "File"("id") ON DELETE CASCADE ON UPDATE CASCADE`,
       );
     } catch {
       /* constraint already exists — fine */

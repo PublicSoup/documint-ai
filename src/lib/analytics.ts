@@ -164,8 +164,9 @@ async function computeAnalyticsData(userId: string, teamId?: string, days = 30):
         db.file.count({ where: { ...whereClause, createdAt: { gte: sevenDaysAgo } } }),
         // Creations for velocity score (last week)
         db.file.count({ where: { ...whereClause, createdAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo } } }),
-        // Count of documented files
-        db.file.count({ where: { ...whereClause, documentation: { isNot: null } } }),
+        // Count of documented files — deterministic (FileInsight.docCoverage),
+        // so coverage reflects real doc-comment coverage and works without AI.
+        db.fileInsight.count({ where: { file: whereClause, docCoverage: { gte: 0.5 } } }),
     ]);
 
     const totalViews = viewStats._count._all;

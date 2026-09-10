@@ -1,8 +1,7 @@
-import { db } from "./db";
 import { logAudit } from "./audit-logger";
-import { getFileContent } from "./files";
 import { autoDocumentFile } from "./auto-documentation";
-import { detectIntentDrift } from "./ai";
+import { analyzeAndPersistFile } from "./deterministic-analysis";
+import { autoReviewDocumentation } from "./doc-review";
 
 /**
  * Event-driven automation for workspace files. These run fire-and-forget from
@@ -18,6 +17,20 @@ import { detectIntentDrift } from "./ai";
  * save — only genuinely undocumented files trigger an AI run.
  */
 export async function triggerAutoAudit(fileId: string, userId: string) {
+    // 1. Deterministic analysis — always runs, no AI. This is what keeps the
+    //    dashboard coverage/quality/risk panels populated on Railway (or any
+    //    time the AI backend is unavailable).
+    let insightUpdated = false;
+    try {
+        const insight = await analyzeAndPersistFile(fileId);
+        insightUpdated = insight !== null;
+    } catch (error) {
+        console.error("[AutoTrigger] Deterministic analysis failed:", error);
+    }
+
+    // 2. Best-effort AI documentation enrichment. When no AI provider is
+    //    configured, autoDocumentFile short-circuits before any network call and
+    //    persists nothing, so this is cheap and safe to always attempt.
     try {
         const result = await autoDocumentFile(fileId, userId, { reason: "file_save" });
 
@@ -30,6 +43,7 @@ export async function triggerAutoAudit(fileId: string, userId: string) {
                 details: {
                     trigger: "file_save",
                     status: result.status,
+                    insightUpdated,
                     timestamp: new Date().toISOString(),
                 },
             });
@@ -42,56 +56,29 @@ export async function triggerAutoAudit(fileId: string, userId: string) {
 }
 
 /**
- * Throttle repeated drift checks for the same file. Drift detection is an AI
- * call and only matters once documentation exists, so we skip re-checking a file
- * that was checked very recently (e.g. during a burst of rapid saves). Best-effort
- * per-instance only.
+ * Throttle repeated drift checks for the same file. The check is now
+ * deterministic (cheap), but re-parsing on every keystroke-save is wasteful, so
+ * we still skip re-checking a file examined very recently. Best-effort per-instance.
  */
-const DRIFT_THROTTLE_MS = 5 * 60 * 1000;
+const DRIFT_THROTTLE_MS = 60 * 1000;
 const lastDriftCheck = new Map<string, number>();
 
 /**
- * Detects whether code has drifted away from its existing documentation and, if
- * so, flags the doc for review (which surfaces as OUT_OF_SYNC in analytics).
+ * Deterministic documentation review: detects whether the docs are stale/drifted
+ * (code changed after the doc, or the exported symbols changed) and, if so, flags
+ * the doc for review (surfaces as OUT_OF_SYNC / REVIEW in the dashboard). No AI —
+ * works on Railway and is instant. See {@link autoReviewDocumentation}.
  */
 export async function triggerDriftDetection(fileId: string, userId: string) {
     try {
-        const file = await db.file.findUnique({
-            where: { id: fileId },
-            include: { documentation: true },
-        });
-
-        // Nothing to drift from until the file has documentation. (On a brand-new
-        // file's first save, `triggerAutoAudit` creates the docs; drift checks
-        // begin on subsequent saves.)
-        if (!file?.documentation) return;
-
         const now = Date.now();
         const previous = lastDriftCheck.get(fileId) ?? 0;
         if (now - previous < DRIFT_THROTTLE_MS) return;
         lastDriftCheck.set(fileId, now);
 
-        const content = await getFileContent(fileId);
-        if (!content || !content.trim()) return;
-
-        // Compare against the human-readable summary when the stored doc is our
-        // structured JSON; fall back to the raw content otherwise.
-        let documentedIntent = file.documentation.content;
-        try {
-            const parsed = JSON.parse(file.documentation.content) as { summary?: string };
-            if (parsed.summary) documentedIntent = parsed.summary;
-        } catch {
-            // Stored documentation is plain text — compare against it directly.
-        }
-
-        const { drifted, reasoning } = await detectIntentDrift(content, documentedIntent);
-
-        if (drifted && file.documentation.status !== "REVIEW") {
-            await db.documentation.update({
-                where: { fileId },
-                data: { status: "REVIEW" },
-            });
-        }
+        const result = await autoReviewDocumentation(fileId);
+        // Nothing to drift from until the file has documentation.
+        if (!result.hasDoc) return;
 
         try {
             await logAudit({
@@ -100,9 +87,11 @@ export async function triggerDriftDetection(fileId: string, userId: string) {
                 entityId: fileId,
                 userId,
                 details: {
-                    drifted,
-                    reasoning: reasoning ?? null,
-                    status: drifted ? "review_required" : "in_sync",
+                    method: "deterministic",
+                    drifted: result.stale,
+                    docScore: result.docScore,
+                    status: result.stale ? "review_required" : "in_sync",
+                    issues: result.issues,
                 },
             });
         } catch {

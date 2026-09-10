@@ -12,7 +12,6 @@
 export const AVAILABLE_MODELS = [
     { id: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "Google", tier: "free" },
     { id: "google/gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite", provider: "Google", tier: "free" },
-    { id: "google/gemini-2.0-flash", label: "Gemini 2.0 Flash", provider: "Google", tier: "free" },
     { id: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "Google", tier: "free" },
     { id: "anthropic/claude-opus-4-5", label: "Claude Opus 4.5", provider: "Anthropic", tier: "pro" },
     { id: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5", provider: "Anthropic", tier: "pro" },

@@ -21,6 +21,7 @@ import { TeamWeeklyReview } from "@/components/analytics/weekly-review";
 import { ArchitectureTab } from "@/components/architecture-tab";
 import AuditLogViewer from "@/components/audit-log-viewer";
 import { DashboardOverviewTab } from "@/components/dashboard/overview-tab";
+import { AnalyzeWorkspaceButton } from "@/components/dashboard/analyze-workspace-button";
 import { TrialBanner } from "@/components/dashboard/trial-banner";
 import { EnterpriseFeatureGate } from "@/components/enterprise-feature-gate";
 import { OnboardingChecklist } from "@/components/onboarding-checklist";
@@ -50,6 +51,10 @@ import { getUserSubscription } from "@/lib/subscription";
 const EMPTY_FILE_STATS: DashboardFileStats = {
   totalFilesCount: 0,
   verifiedDocsCount: 0,
+  documentedCount: 0,
+  analyzedCount: 0,
+  avgQuality: 0,
+  avgRisk: 0,
   files: [],
 };
 
@@ -111,8 +116,10 @@ export default async function DashboardPage({
     scope.teamId,
   ).catch(() => EMPTY_PROJECT_MONITORING);
   const isPaid = subscription.isPro || subscription.isTeam;
+  // Coverage is deterministic: what share of the workspace's code is documented
+  // per the code analyzer (FileInsight), independent of AI or manual verification.
   const coveragePercent = fileStats.totalFilesCount
-    ? Math.round((fileStats.verifiedDocsCount / fileStats.totalFilesCount) * 100)
+    ? Math.round((fileStats.documentedCount / fileStats.totalFilesCount) * 100)
     : 0;
   const activeTeam = scope.teamId
     ? scope.teams.find((team) => team.id === scope.teamId)
@@ -165,6 +172,12 @@ export default async function DashboardPage({
                 {planLabel} plan
               </span>
             </div>
+            <div className="pt-1">
+              <AnalyzeWorkspaceButton
+                analyzedCount={fileStats.analyzedCount}
+                totalFilesCount={fileStats.totalFilesCount}
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -175,8 +188,8 @@ export default async function DashboardPage({
               icon={<FileText className="h-4 w-4" />}
             />
             <HeaderStat
-              label="Verified docs"
-              value={fileStats.verifiedDocsCount.toLocaleString()}
+              label="Documented"
+              value={fileStats.documentedCount.toLocaleString()}
               detail={`${coveragePercent}% coverage`}
               icon={<CheckCircle2 className="h-4 w-4" />}
             />
@@ -266,7 +279,7 @@ export default async function DashboardPage({
             priorityActions={priorityData.actions}
             hotspots={priorityData.hotspots}
             totalFilesCount={fileStats.totalFilesCount}
-            verifiedDocsCount={fileStats.verifiedDocsCount}
+            verifiedDocsCount={fileStats.documentedCount}
             codebasesViewEnabled={codebasesViewEnabled}
             projectMonitoring={projectMonitoring}
           />

@@ -106,6 +106,7 @@ model File {
   views         DocView[]
   permissions   FilePermission[]
   codeReviews   CodeReview[]
+  insight       FileInsight?
 
   @@index([userId])
   @@index([teamId])
@@ -503,4 +504,35 @@ model CodeReview {
   @@index([userId])
   @@index([teamId])
   @@index([createdAt])
+}
+
+// ============================================
+// DETERMINISTIC FILE ANALYSIS (code-driven, no AI)
+// ============================================
+
+// Cached deterministic analysis for a file. Computed by lib/deterministic-analysis
+// (computeFileMetrics + analyzeCodeQuality) on every save/import — no AI involved,
+// so it always populates and drives the dashboard coverage/quality/risk panels.
+model FileInsight {
+  id           String   @id @default(cuid())
+  fileId       String   @unique
+  qualityScore Int      @default(0) // 0-100
+  docCoverage  Float    @default(0) // 0..1 fraction of exported symbols with doc comments
+  riskScore    Int      @default(0) // 0-100
+  loc          Int      @default(0)
+  complexity   Int      @default(0) // cyclomatic complexity
+  findings     Json? // deterministic findings array (rule engine)
+  security     Json? // security insight strings
+  language     String?
+  contentHash  String? // sha256 of analyzed content — skip re-analysis when unchanged
+  userId       String?
+  teamId       String?
+  analyzedAt   DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([teamId])
+  @@index([riskScore])
 }

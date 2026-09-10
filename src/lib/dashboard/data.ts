@@ -88,14 +88,27 @@ export async function resolveDashboardScope(userId: string, requestedTeamId?: st
   };
 }
 
+// A file counts as "documented" when at least half of its exported symbols
+// carry a doc comment, per the deterministic analyzer (no AI involved).
+const DOCUMENTED_COVERAGE_THRESHOLD = 0.5;
+
 export async function getDashboardFileStats(where: Prisma.FileWhereInput, selectedDocId?: string): Promise<DashboardFileStats> {
-  const [totalFilesCount, verifiedDocsCount, fetchedFiles, selectedDeepLinkFile] = await Promise.all([
+  const [totalFilesCount, verifiedDocsCount, documentedCount, insightAgg, fetchedFiles, selectedDeepLinkFile] = await Promise.all([
     db.file.count({ where }),
     db.documentation.count({
       where: {
         file: where,
         verifiedAt: { not: null },
       },
+    }),
+    // Deterministic "documented" count — drives coverage even when AI is off.
+    db.fileInsight.count({
+      where: { file: where, docCoverage: { gte: DOCUMENTED_COVERAGE_THRESHOLD } },
+    }),
+    db.fileInsight.aggregate({
+      where: { file: where },
+      _count: { _all: true },
+      _avg: { qualityScore: true, riskScore: true },
     }),
     db.file.findMany({
       where,
@@ -118,6 +131,10 @@ export async function getDashboardFileStats(where: Prisma.FileWhereInput, select
   return {
     totalFilesCount,
     verifiedDocsCount,
+    documentedCount,
+    analyzedCount: insightAgg._count._all,
+    avgQuality: Math.round(insightAgg._avg.qualityScore ?? 0),
+    avgRisk: Math.round(insightAgg._avg.riskScore ?? 0),
     files: files.map(mapDashboardFile),
   };
 }

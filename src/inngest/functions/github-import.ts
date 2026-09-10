@@ -2,6 +2,7 @@ import { inngest } from "../client";
 import { db } from "@/lib/db";
 import { parseCode } from "@/lib/parsing/tree-sitter";
 import { generateDocumentation } from "@/lib/ai";
+import { analyzeAndPersistFile } from "@/lib/deterministic-analysis";
 import { uploadFile } from "@/lib/supabase/storage";
 import { Prisma } from "@prisma/client";
 import { logAudit } from "@/lib/audit-logger";
@@ -61,6 +62,14 @@ export const githubImportFunction = inngest.createFunction(
                         metadata: { codebaseKey: `${owner}/${repo}` },
                     },
                 });
+
+                // Deterministic analysis — always succeeds (no AI), so imported
+                // files immediately populate the dashboard coverage/quality/risk.
+                try {
+                    await analyzeAndPersistFile(dbFile.id, { content });
+                } catch {
+                    // Non-blocking.
+                }
 
                 let entities: any[] = [];
                 try {

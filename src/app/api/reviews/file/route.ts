@@ -9,6 +9,7 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { ApiErrors, errorResponse, validateBody, validateQuery } from "@/lib/api-utils";
 import { logAudit } from "@/lib/audit-logger";
 import { analyzeSource } from "@/lib/code-review";
+import { runRuleEngine, mergeReviews } from "@/lib/code-review-rules";
 
 const runSchema = z.object({
     fileId: z.string().trim().min(1).max(100),
@@ -21,16 +22,17 @@ const listSchema = z.object({
 
 /**
  * POST /api/reviews/file
- * Runs an AI code review over a single file the user owns/can access, persists
- * the result, and returns the full report (quality score, strengths, security
- * issues, and actionable findings).
+ * Reviews a single file the user owns/can access: a deterministic rule engine
+ * always runs (instant, no AI), and AI enrichment is layered on when a provider
+ * is configured. Persists the result and returns the full report (quality score,
+ * strengths, security issues, and actionable findings).
  */
 export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.id) throw ApiErrors.unauthorized();
 
-        // Heavier limit tier — this is an AI call.
+        // Heavier limit tier — analysis is CPU-bound and may call AI.
         await enforceRateLimit(session.user.id, "upload");
 
         const { fileId } = await validateBody(req, runSchema);
@@ -47,10 +49,23 @@ export async function POST(req: NextRequest) {
             throw ApiErrors.badRequest("This file has no code content to review");
         }
 
-        const result = await analyzeSource(file.content, file.language, {
-            fileName: file.name,
-            userId: session.user.id,
-        });
+        // 1. Deterministic rule engine — always runs, instant, no AI. This is the
+        //    review's baseline and works on Railway with no key configured.
+        const deterministic = await runRuleEngine(file.content, file.language, file.name);
+
+        // 2. Optional AI enrichment — appended when a provider is available.
+        //    Failures (e.g. no key) are non-fatal; we still return the review.
+        let aiResult = null;
+        try {
+            aiResult = await analyzeSource(file.content, file.language, {
+                fileName: file.name,
+                userId: session.user.id,
+            });
+        } catch {
+            aiResult = null;
+        }
+
+        const result = mergeReviews(deterministic, aiResult);
 
         const review = await db.codeReview.create({
             data: {

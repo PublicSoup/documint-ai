@@ -3,8 +3,9 @@ import { z, ZodSchema } from "zod";
 import { getServerSession, Session } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { requireFeature, FeatureType } from "@/lib/feature-gate";
-import { enforceRateLimit } from "@/lib/rate-limit";
+import { enforceRateLimit, type RateLimitTier } from "@/lib/rate-limit";
 import { logAudit } from "@/lib/audit-logger";
+import { validateAdmin } from "@/lib/admin-auth";
 
 /**
  * Standard API Error Response Format
@@ -172,34 +173,93 @@ export function validateQuery<T>(
     }
 }
 
-interface ApiHandlerContext<TBody, TQuery> {
+/**
+ * How a route authenticates the caller:
+ * - "user"  (default): requires a signed-in session; 401 otherwise.
+ * - "admin": requires an admin session (via {@link validateAdmin}); 401/403 otherwise.
+ * - "none":  public route; `session` is whatever getServerSession returned (may be null).
+ */
+type AuthMode = "user" | "admin" | "none";
+
+interface ApiHandlerContext<TBody, TQuery, TParams> {
     body: TBody;
     query: TQuery;
+    /** Validated dynamic route params (`{}` when no `paramsSchema` is provided). */
+    params: TParams;
+    /**
+     * The authenticated session. Non-null for `auth: "user"` and `auth: "admin"`.
+     * For `auth: "none"` it may be null at runtime — public handlers should not rely on it.
+     */
     session: Session;
+    /** Convenience accessor for `session.user.id` (empty string for anonymous "none" routes). */
+    userId: string;
     request: NextRequest;
 }
 
-interface AuditConfig<TBody, TQuery, TResponse> {
+interface AuditContext<TBody, TQuery, TParams, TResponse> {
+    body: TBody;
+    query: TQuery;
+    params: TParams;
+    response: TResponse;
+    userId: string;
+    session: Session;
+}
+
+interface AuditConfig<TBody, TQuery, TParams, TResponse> {
     action: string;
     entity: string;
-    entityId: (body: TBody, query: TQuery, response: TResponse) => string;
-    details?: (body: TBody, query: TQuery, response: TResponse) => Record<string, unknown>;
+    entityId: (ctx: AuditContext<TBody, TQuery, TParams, TResponse>) => string;
+    details?: (ctx: AuditContext<TBody, TQuery, TParams, TResponse>) => Record<string, unknown>;
 }
 
-interface ApiHandlerOptions<TBody, TQuery, TResponse> {
+interface ApiHandlerOptions<TBody, TQuery, TParams, TResponse> {
+    auth?: AuthMode;
     feature?: FeatureType;
-    rateLimit?: "chat" | "pro" | "api" | "none";
+    rateLimit?: RateLimitTier | "none";
     bodySchema?: ZodSchema<TBody>;
     querySchema?: ZodSchema<TQuery>;
-    audit?: AuditConfig<TBody, TQuery, TResponse>;
+    paramsSchema?: ZodSchema<TParams>;
+    audit?: AuditConfig<TBody, TQuery, TParams, TResponse>;
     cacheControl?: string;
-    handler: (context: ApiHandlerContext<TBody, TQuery>) => Promise<TResponse>;
+    handler: (context: ApiHandlerContext<TBody, TQuery, TParams>) => Promise<TResponse>;
 }
 
-export function createApiHandler<TBody = unknown, TQuery = unknown, TResponse = unknown>(
-    options: ApiHandlerOptions<TBody, TQuery, TResponse>
+/** Next.js passes dynamic segments as the second handler argument (a Promise in Next 15+). */
+type RouteContext = { params?: Promise<Record<string, string | string[]>> };
+
+/**
+ * Validate raw dynamic route params against a schema, mapping failures to a 400.
+ */
+async function validateParams<T>(
+    routeContext: RouteContext | undefined,
+    schema: ZodSchema<T>
+): Promise<T> {
+    const raw = routeContext?.params ? await routeContext.params : {};
+    try {
+        return schema.parse(raw);
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            throw ApiErrors.validationError(error.issues);
+        }
+        throw ApiErrors.badRequest("Invalid route parameters");
+    }
+}
+
+/**
+ * Wraps a route handler with the cross-cutting concerns every API route shares:
+ * feature gating, authentication, rate limiting, request validation, audit logging,
+ * consistent error formatting, and cache headers.
+ *
+ * The handler may return plain data (serialized via {@link successResponse}) or a
+ * pre-built `NextResponse` (streaming, redirects, custom content types), which is
+ * passed through untouched.
+ */
+export function createApiHandler<TBody = unknown, TQuery = unknown, TParams = Record<string, never>, TResponse = unknown>(
+    options: ApiHandlerOptions<TBody, TQuery, TParams, TResponse>
 ) {
-    return async (request: NextRequest) => {
+    const authMode: AuthMode = options.auth ?? "user";
+
+    return async (request: NextRequest, routeContext?: RouteContext) => {
         try {
             // 1. Feature Gate
             if (options.feature) {
@@ -208,36 +268,60 @@ export function createApiHandler<TBody = unknown, TQuery = unknown, TResponse = 
             }
 
             // 2. Authentication
-            const session = await getServerSession(authOptions);
-            if (!session?.user?.id) {
-                throw ApiErrors.unauthorized();
+            let session: Session | null;
+            if (authMode === "admin") {
+                const adminCheck = await validateAdmin();
+                if (!adminCheck.authorized) return adminCheck.response!;
+                session = adminCheck.session;
+            } else {
+                session = await getServerSession(authOptions);
+                if (authMode === "user" && !session?.user?.id) {
+                    throw ApiErrors.unauthorized();
+                }
             }
+            const userId = session?.user?.id ?? "";
 
             // 3. Rate Limiting
-            if (options.rateLimit && options.rateLimit !== "none") {
-                await enforceRateLimit(session.user.id, options.rateLimit);
+            if (userId && options.rateLimit && options.rateLimit !== "none") {
+                await enforceRateLimit(userId, options.rateLimit);
             }
 
             // 4. Validation
+            const params = options.paramsSchema
+                ? await validateParams(routeContext, options.paramsSchema)
+                : ({} as TParams);
             const body = options.bodySchema ? await validateBody(request, options.bodySchema) : ({} as TBody);
             const query = options.querySchema ? validateQuery(request.nextUrl.searchParams, options.querySchema) : ({} as TQuery);
 
             // 5. Execute Handler
-            const responseData = await options.handler({ body, query, session, request });
+            const responseData = await options.handler({
+                body,
+                query,
+                params,
+                session: session as Session,
+                userId,
+                request,
+            });
 
-            // 6. Auditing (on success)
-            if (options.audit && request.method !== 'GET' && request.method !== 'HEAD') {
+            // 6. Auditing (on success, for mutations)
+            if (options.audit && request.method !== "GET" && request.method !== "HEAD") {
                 try {
+                    const auditCtx = { body, query, params, response: responseData, userId, session: session as Session };
                     await logAudit({
-                        userId: session.user.id,
+                        userId,
                         action: options.audit.action,
                         entity: options.audit.entity,
-                        entityId: options.audit.entityId(body, query, responseData),
-                        details: options.audit.details ? options.audit.details(body, query, responseData) : {},
+                        entityId: options.audit.entityId(auditCtx),
+                        details: options.audit.details ? options.audit.details(auditCtx) : {},
                     });
                 } catch (auditError) {
                     console.error("Non-blocking audit log failure:", auditError);
                 }
+            }
+
+            // 7. Response: pass through a pre-built response, otherwise serialize.
+            if (responseData instanceof NextResponse || responseData instanceof Response) {
+                return responseData;
             }
 
             const response = successResponse(responseData);

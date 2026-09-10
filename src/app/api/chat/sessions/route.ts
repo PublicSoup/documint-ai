@@ -1,7 +1,4 @@
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { ApiErrors, errorResponse } from "@/lib/api-utils";
+import { createApiHandler } from "@/lib/api-utils";
 import { db } from "@/lib/db";
 import { parseStoredMessages } from "@/lib/chat-sessions";
 import type { Prisma } from "@prisma/client";
@@ -16,21 +13,16 @@ type SessionRow = {
 };
 
 /** List the caller's IDE chat sessions, newest first. */
-export async function GET() {
-    try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id) {
-            throw ApiErrors.unauthorized();
-        }
-
+export const GET = createApiHandler({
+    handler: async ({ userId }) => {
         const sessions = await db.chatSession.findMany({
-            where: { userId: session.user.id },
+            where: { userId },
             orderBy: { updatedAt: "desc" },
             take: 50,
             select: { id: true, title: true, model: true, messages: true, createdAt: true, updatedAt: true },
         });
 
-        return NextResponse.json({
+        return {
             sessions: sessions.map((chat: SessionRow) => ({
                 id: chat.id,
                 title: chat.title,
@@ -39,8 +31,6 @@ export async function GET() {
                 createdAt: chat.createdAt,
                 updatedAt: chat.updatedAt,
             })),
-        });
-    } catch (error) {
-        return errorResponse(error);
-    }
-}
+        };
+    },
+});
